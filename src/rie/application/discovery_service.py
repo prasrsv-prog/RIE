@@ -2,6 +2,7 @@ from pathlib import Path
 
 from rie.application.asset import Asset
 from rie.application.batch import Batch
+from rie.application.metadata_extractor import MetadataExtractor
 from rie.infrastructure.repository_scanner import RepositoryScanner
 
 
@@ -9,6 +10,7 @@ class DiscoveryService:
 
     def __init__(self) -> None:
         self.scanner = RepositoryScanner()
+        self.extractor = MetadataExtractor()
 
     def discover(self, root: Path) -> Batch:
 
@@ -18,12 +20,16 @@ class DiscoveryService:
 
         for file in files:
 
+            metadata = self.extractor.extract(
+                extension=file.suffix,
+                size=file.stat().st_size,
+            )
+
             assets.append(
                 Asset(
                     path=file,
                     filename=file.name,
-                    extension=file.suffix,
-                    size=file.stat().st_size,
+                    metadata=metadata,
                 )
             )
 

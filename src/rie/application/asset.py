@@ -1,14 +1,11 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from rie.application.metadata import Metadata
+
 
 @dataclass
 class Asset:
-
     path: Path
-
     filename: str
-
-    extension: str
-
-    size: int
+    metadata: Metadata
