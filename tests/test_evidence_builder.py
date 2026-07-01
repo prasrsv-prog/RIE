@@ -2,12 +2,14 @@ from pathlib import Path
 
 from rie.application.asset import Asset
 
-from src.analysis.asset_analyzer import AssetAnalyzer
 from src.analysis.size_class import SizeClass
+from src.evidence.evidence_builder import EvidenceBuilder
 from rie.application.metadata import Metadata
 
 
-def test_should_return_medium_analysis_for_5mb_asset():
+def test_should_build_evidence_from_asset():
+
+    # Arrange
     asset = Asset(
     path=Path("photo.jpg"),
     filename="photo.jpg",
@@ -18,6 +20,10 @@ def test_should_return_medium_analysis_for_5mb_asset():
     )
 )
 
-    analysis = AssetAnalyzer.analyze(asset)
+    # Act
+    evidence = EvidenceBuilder.build(asset)
 
-    assert analysis.size_class == SizeClass.MEDIUM
+    # Assert
+    assert evidence.asset_path == Path("photo.jpg")
+    assert evidence.filename == "photo.jpg"
+    assert evidence.analysis.size_class == SizeClass.MEDIUM

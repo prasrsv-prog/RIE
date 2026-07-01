@@ -8,7 +8,9 @@ class AssetAnalyzer:
 
     @staticmethod
     def analyze(asset: Asset) -> AssetAnalysis:
-        size_class = SizeClassifier.classify(asset.size)
+        size_class = SizeClassifier.classify(
+            asset.metadata.size
+        )
 
         return AssetAnalysis(
             size_class=size_class
