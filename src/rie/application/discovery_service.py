@@ -1,12 +1,14 @@
 from pathlib import Path
 
+from rie.interfaces.batch_discovery import BatchDiscovery
+
 from rie.application.asset import Asset
 from rie.application.batch import Batch
 from rie.application.metadata_extractor import MetadataExtractor
 from rie.infrastructure.repository_scanner import RepositoryScanner
 
 
-class DiscoveryService:
+class DiscoveryService(BatchDiscovery):
 
     def __init__(self) -> None:
         self.scanner = RepositoryScanner()

@@ -1,34 +1,38 @@
 from pathlib import Path
 
-from rie.application.discovery_service import DiscoveryService
-
-from src.report.repository_report import RepositoryReport
-
-from src.collection.evidence_collector import EvidenceCollector
+from rie.interfaces.batch_discovery import BatchDiscovery
 
 from src.analysis.statistics_collector import StatisticsCollector
+from src.collection.evidence_collector import EvidenceCollector
+from src.report.repository_report import RepositoryReport
 
 
 class RepositoryAnalyzer:
 
-    @staticmethod
+    def __init__(
+        self,
+        discovery: BatchDiscovery,
+    ) -> None:
+        self.discovery = discovery
+
     def analyze(
-        repository_path: Path
+        self,
+        repository_path: Path,
     ) -> RepositoryReport:
-        
-        repository = DiscoveryService.discover(
+
+        batch = self.discovery.discover(
             repository_path
         )
-        
+
         evidences = EvidenceCollector.collect(
-            repository.assets
+            batch.assets
         )
 
         statistics = StatisticsCollector.collect(
             evidences.evidences
         )
-        
+
         return RepositoryReport(
             evidences=evidences,
-            statistics=statistics
+            statistics=statistics,
         )
