@@ -14,7 +14,8 @@ def test_should_return_medium_analysis_for_5mb_asset():
     metadata=Metadata(
         extension=".jpg",
         size=5 * 1024 * 1024,
-        category="image"
+        category="image",
+        size_label="MEDIUM",
     )
 )
 

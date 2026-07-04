@@ -17,7 +17,8 @@ def test_should_collect_evidences():
             metadata=Metadata(
                 extension=".jpg",
                 size=500 * 1024,
-                category="image"
+                category="image",
+                size_label="SMALL",
             )
         ),
         Asset(
@@ -26,7 +27,8 @@ def test_should_collect_evidences():
             metadata=Metadata(
                 extension=".jpg",
                 size=5 * 1024 * 1024,
-                category="image"
+                category="image",
+                size_label="MEDIUM",
             )
         ),
         Asset(
@@ -35,8 +37,9 @@ def test_should_collect_evidences():
             metadata=Metadata(
                 extension=".jpg",
                 size=11 * 1024 * 1024,
-                category="image"
-    )
+                category="image",
+                size_label="LARGE",
+            )
 )
 ]
     
