@@ -1,3 +1,9 @@
+from src.analysis.category_statistics_collection import (
+    CategoryStatisticsCollection,
+)
+from src.analysis.category_statistics_collector import (
+    CategoryStatisticsCollector,
+)
 from src.analysis.repository_statistics import RepositoryStatistics
 from src.evidence.evidence import Evidence
 
@@ -12,9 +18,15 @@ class RepositoryInsightBuilder:
         statistics: RepositoryStatistics,
     ) -> RepositoryInsight:
 
+        category_statistics = (
+            CategoryStatisticsCollector.collect(
+                evidences
+            )
+        )
+
         largest_category = (
             RepositoryInsightBuilder._largest_category(
-                evidences
+                category_statistics
             )
         )
 
@@ -31,21 +43,15 @@ class RepositoryInsightBuilder:
 
     @staticmethod
     def _largest_category(
-        evidences: list[Evidence],
+        category_statistics: CategoryStatisticsCollection,
     ) -> str:
 
-        categories: dict[str, int] = {}
-
-        for evidence in evidences:
-            category = evidence.metadata.category
-            categories[category] = (
-                categories.get(category, 0) + 1
-            )
-
-        return max(
-            categories,
-            key=categories.get,
+        largest = max(
+            category_statistics.categories,
+            key=lambda item: item.total_assets,
         )
+
+        return largest.category
 
     @staticmethod
     def _repository_health(
