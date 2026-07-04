@@ -1,12 +1,19 @@
 from pathlib import Path
 
-from rie.application.discovery_service import DiscoveryService
+from src.analyzer.repository_analyzer import RepositoryAnalyzer
+from src.report.repository_report_presenter import RepositoryReportPresenter
 
 
 class Pipeline:
 
-    def __init__(self) -> None:
-        self.discovery = DiscoveryService()
+    def __init__(
+        self,
+        analyzer: RepositoryAnalyzer,
+        presenter: RepositoryReportPresenter,
+    ) -> None:
+
+        self.analyzer = analyzer
+        self.presenter = presenter
 
     def execute(self) -> None:
 
@@ -20,28 +27,11 @@ class Pipeline:
             print("Repository folder not found.")
             return
 
-        batches = []
-
         for folder in repository.iterdir():
 
             if not folder.is_dir():
                 continue
 
-            batch = self.discovery.discover(folder)
-            batches.append(batch)
+            report = self.analyzer.analyze(folder)
 
-        total_assets = sum(len(batch.assets) for batch in batches)
-
-        print()
-        print("=" * 50)
-        print("Repository Summary")
-        print("=" * 50)
-        print(f"Batch Found  : {len(batches)}")
-        print(f"Assets Found : {total_assets}")
-
-        print()
-
-        for batch in batches:
-            print(f"- {batch.name} ({len(batch.assets)} assets)")
-
-        print("=" * 50)
+            self.presenter.present(report)

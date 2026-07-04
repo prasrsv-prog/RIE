@@ -12,8 +12,13 @@ class RepositoryAnalyzer:
     def __init__(
         self,
         discovery: BatchDiscovery,
+        evidence_collector: EvidenceCollector,
+        statistics_collector: StatisticsCollector,
     ) -> None:
+
         self.discovery = discovery
+        self.evidence_collector = evidence_collector
+        self.statistics_collector = statistics_collector
 
     def analyze(
         self,
@@ -24,11 +29,11 @@ class RepositoryAnalyzer:
             repository_path
         )
 
-        evidences = EvidenceCollector.collect(
+        evidences = self.evidence_collector.collect(
             batch.assets
         )
 
-        statistics = StatisticsCollector.collect(
+        statistics = self.statistics_collector.collect(
             evidences.evidences
         )
 
