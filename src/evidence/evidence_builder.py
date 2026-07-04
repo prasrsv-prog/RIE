@@ -9,13 +9,14 @@ class EvidenceBuilder:
 
     @staticmethod
     def build(
-        asset: Asset
+        asset: Asset,
     ) -> Evidence:
-        
+
         analysis = AssetAnalyzer.analyze(asset)
 
         return Evidence(
             asset_path=asset.path,
             filename=asset.filename,
-            analysis=analysis
+            metadata=asset.metadata,
+            analysis=analysis,
         )

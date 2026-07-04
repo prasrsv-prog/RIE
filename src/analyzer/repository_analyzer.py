@@ -40,7 +40,10 @@ class RepositoryAnalyzer:
             evidences.evidences
         )
 
-        insight = self.insight_builder.build()
+        insight = self.insight_builder.build(
+            evidences.evidences,
+            statistics,
+        )
 
         return RepositoryReport(
             evidences=evidences,

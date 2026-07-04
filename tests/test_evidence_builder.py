@@ -26,4 +26,5 @@ def test_should_build_evidence_from_asset():
     # Assert
     assert evidence.asset_path == Path("photo.jpg")
     assert evidence.filename == "photo.jpg"
+    assert evidence.metadata == asset.metadata
     assert evidence.analysis.size_class == SizeClass.MEDIUM
