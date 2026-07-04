@@ -18,7 +18,6 @@ def test_should_collect_evidences():
                 extension=".jpg",
                 size=500 * 1024,
                 category="image",
-                size_label="SMALL",
             )
         ),
         Asset(
@@ -28,7 +27,6 @@ def test_should_collect_evidences():
                 extension=".jpg",
                 size=5 * 1024 * 1024,
                 category="image",
-                size_label="MEDIUM",
             )
         ),
         Asset(
@@ -38,7 +36,6 @@ def test_should_collect_evidences():
                 extension=".jpg",
                 size=11 * 1024 * 1024,
                 category="image",
-                size_label="LARGE",
             )
 )
 ]

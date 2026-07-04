@@ -1,13 +1,8 @@
 from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(frozen=True)
 class Metadata:
-
     extension: str
-
     size: int
-
     category: str
-
-    size_label: str

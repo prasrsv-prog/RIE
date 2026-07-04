@@ -3,12 +3,11 @@ from src.report.repository_report import RepositoryReport
 
 class RepositoryReportPresenter:
 
-    def present(
-        self,
-        report: RepositoryReport,
-    ) -> None:
+    @staticmethod
+    def present(report: RepositoryReport) -> None:
 
         statistics = report.statistics
+        insight = report.insight
 
         print()
         print("=" * 50)
@@ -19,5 +18,10 @@ class RepositoryReportPresenter:
         print(f"Small Assets  : {statistics.small_assets}")
         print(f"Medium Assets : {statistics.medium_assets}")
         print(f"Large Assets  : {statistics.large_assets}")
+
+        print()
+
+        print(f"Largest Category : {insight.largest_category}")
+        print(f"Repository Health: {insight.repository_health}")
 
         print("=" * 50)

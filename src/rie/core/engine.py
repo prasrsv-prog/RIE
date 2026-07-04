@@ -11,6 +11,7 @@ from rie.core.state import EngineState
 from src.analyzer.repository_analyzer import RepositoryAnalyzer
 from src.analysis.statistics_collector import StatisticsCollector
 from src.collection.evidence_collector import EvidenceCollector
+from src.report.repository_insight_builder import RepositoryInsightBuilder
 from src.report.repository_report_presenter import RepositoryReportPresenter
 
 
@@ -26,10 +27,13 @@ class Engine:
 
         statistics_collector = StatisticsCollector()
 
+        insight_builder = RepositoryInsightBuilder()
+
         analyzer = RepositoryAnalyzer(
             discovery=discovery,
             evidence_collector=evidence_collector,
             statistics_collector=statistics_collector,
+            insight_builder=insight_builder,
         )
 
         presenter = RepositoryReportPresenter()

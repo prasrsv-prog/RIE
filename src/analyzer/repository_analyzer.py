@@ -4,6 +4,7 @@ from rie.interfaces.batch_discovery import BatchDiscovery
 
 from src.analysis.statistics_collector import StatisticsCollector
 from src.collection.evidence_collector import EvidenceCollector
+from src.report.repository_insight_builder import RepositoryInsightBuilder
 from src.report.repository_report import RepositoryReport
 
 
@@ -14,11 +15,13 @@ class RepositoryAnalyzer:
         discovery: BatchDiscovery,
         evidence_collector: EvidenceCollector,
         statistics_collector: StatisticsCollector,
+        insight_builder: RepositoryInsightBuilder,
     ) -> None:
 
         self.discovery = discovery
         self.evidence_collector = evidence_collector
         self.statistics_collector = statistics_collector
+        self.insight_builder = insight_builder
 
     def analyze(
         self,
@@ -37,7 +40,10 @@ class RepositoryAnalyzer:
             evidences.evidences
         )
 
+        insight = self.insight_builder.build()
+
         return RepositoryReport(
             evidences=evidences,
             statistics=statistics,
+            insight=insight,
         )

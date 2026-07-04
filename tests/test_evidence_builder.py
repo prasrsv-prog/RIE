@@ -17,7 +17,6 @@ def test_should_build_evidence_from_asset():
         extension=".jpg",
         size=5 * 1024 * 1024,
         category="image",
-        size_label="MEDIUM",
     )
 )
 
