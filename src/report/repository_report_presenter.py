@@ -21,7 +21,8 @@ class RepositoryReportPresenter:
 
         print()
 
-        print(f"Largest Category : {insight.largest_category}")
-        print(f"Repository Health: {insight.repository_health}")
+        print(f"Largest Category      : {insight.largest_category}")
+        print(f"Most Common Extension : {insight.most_common_extension}")
+        print(f"Repository Health     : {insight.repository_health}")
 
         print("=" * 50)

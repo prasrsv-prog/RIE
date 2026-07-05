@@ -4,6 +4,12 @@ from src.analysis.category_statistics_collection import (
 from src.analysis.category_statistics_collector import (
     CategoryStatisticsCollector,
 )
+from src.analysis.extension_statistics_collection import (
+    ExtensionStatisticsCollection,
+)
+from src.analysis.extension_statistics_collector import (
+    ExtensionStatisticsCollector,
+)
 from src.analysis.repository_statistics import RepositoryStatistics
 from src.evidence.evidence import Evidence
 
@@ -24,9 +30,21 @@ class RepositoryInsightBuilder:
             )
         )
 
+        extension_statistics = (
+            ExtensionStatisticsCollector.collect(
+                evidences
+            )
+        )
+
         largest_category = (
             RepositoryInsightBuilder._largest_category(
                 category_statistics
+            )
+        )
+
+        most_common_extension = (
+            RepositoryInsightBuilder._most_common_extension(
+                extension_statistics
             )
         )
 
@@ -38,6 +56,7 @@ class RepositoryInsightBuilder:
 
         return RepositoryInsight(
             largest_category=largest_category,
+            most_common_extension=most_common_extension,
             repository_health=repository_health,
         )
 
@@ -52,6 +71,18 @@ class RepositoryInsightBuilder:
         )
 
         return largest.category
+
+    @staticmethod
+    def _most_common_extension(
+        extension_statistics: ExtensionStatisticsCollection,
+    ) -> str:
+
+        largest = max(
+            extension_statistics.extensions,
+            key=lambda item: item.total_assets,
+        )
+
+        return largest.extension
 
     @staticmethod
     def _repository_health(

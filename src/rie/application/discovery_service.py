@@ -14,7 +14,10 @@ class DiscoveryService(BatchDiscovery):
         self.scanner = RepositoryScanner()
         self.extractor = MetadataExtractor()
 
-    def discover(self, root: Path) -> Batch:
+    def discover(
+        self,
+        root: Path,
+    ) -> Batch:
 
         files = self.scanner.scan(root)
 
