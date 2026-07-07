@@ -1,4 +1,4 @@
-from src.evidence.evidence import Evidence
+from evidence.evidence import Evidence
 
 from .repository_statistics import RepositoryStatistics
 from .size_class import SizeClass

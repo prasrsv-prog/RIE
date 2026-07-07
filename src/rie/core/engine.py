@@ -8,11 +8,11 @@ from rie.core.pipeline import Pipeline
 from rie.core.state import EngineState
 from rie.interfaces.batch_discovery import BatchDiscovery
 
-from src.analyzer.repository_analyzer import RepositoryAnalyzer
-from src.analysis.statistics_collector import StatisticsCollector
-from src.collection.evidence_collector import EvidenceCollector
-from src.report.repository_insight_builder import RepositoryInsightBuilder
-from src.report.repository_report_presenter import RepositoryReportPresenter
+from analyzer.repository_analyzer import RepositoryAnalyzer
+from analysis.statistics_collector import StatisticsCollector
+from collection.evidence_collector import EvidenceCollector
+from report.repository_insight_builder import RepositoryInsightBuilder
+from report.repository_report_presenter import RepositoryReportPresenter
 
 
 class Engine:
@@ -44,6 +44,7 @@ class Engine:
         self.pipeline = Pipeline(
             analyzer=analyzer,
             presenter=presenter,
+            discovery=discovery,
         )
 
         self.name = "RCIS Intelligence Engine"

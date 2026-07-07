@@ -2,8 +2,8 @@ from pathlib import Path
 
 from rie.application.asset import Asset
 
-from src.analysis.size_class import SizeClass
-from src.evidence.evidence_builder import EvidenceBuilder
+from analysis.size_class import SizeClass
+from evidence.evidence_builder import EvidenceBuilder
 from rie.application.metadata import Metadata
 
 

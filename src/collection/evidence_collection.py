@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from src.evidence.evidence import Evidence
+from evidence.evidence import Evidence
 
 
 @dataclass(frozen=True)

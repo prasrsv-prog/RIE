@@ -1,19 +1,19 @@
-from src.analysis.category_statistics_collection import (
+from analysis.category_statistics_collection import (
     CategoryStatisticsCollection,
 )
-from src.analysis.category_statistics_collector import (
+from analysis.category_statistics_collector import (
     CategoryStatisticsCollector,
 )
-from src.analysis.extension_statistics_collection import (
+from analysis.extension_statistics_collection import (
     ExtensionStatisticsCollection,
 )
-from src.analysis.extension_statistics_collector import (
+from analysis.extension_statistics_collector import (
     ExtensionStatisticsCollector,
 )
-from src.analysis.repository_statistics import RepositoryStatistics
-from src.evidence.evidence import Evidence
+from analysis.repository_statistics import RepositoryStatistics
+from evidence.evidence import Evidence
 
-from src.report.repository_insight import RepositoryInsight
+from report.repository_insight import RepositoryInsight
 
 
 class RepositoryInsightBuilder:

@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-from src.analysis.repository_statistics import RepositoryStatistics
-from src.collection.evidence_collection import EvidenceCollection
-from src.report.repository_insight import RepositoryInsight
+from analysis.repository_statistics import RepositoryStatistics
+from collection.evidence_collection import EvidenceCollection
+from report.repository_insight import RepositoryInsight
 
 
 @dataclass(frozen=True)

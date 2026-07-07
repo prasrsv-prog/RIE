@@ -1,5 +1,5 @@
-from src.analysis.size_classifier import SizeClassifier
-from src.analysis.size_class import SizeClass
+from analysis.size_classifier import SizeClassifier
+from analysis.size_class import SizeClass
 
 
 def test_should_return_small_for_zero_byte():

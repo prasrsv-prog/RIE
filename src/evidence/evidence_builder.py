@@ -1,6 +1,6 @@
 from rie.application.asset import Asset
 
-from src.analysis.asset_analyzer import AssetAnalyzer
+from analysis.asset_analyzer import AssetAnalyzer
 
 from .evidence import Evidence
 

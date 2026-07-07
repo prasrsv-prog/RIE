@@ -1,4 +1,4 @@
-from src.report.repository_report import RepositoryReport
+from report.repository_report import RepositoryReport
 
 
 class RepositoryReportPresenter:

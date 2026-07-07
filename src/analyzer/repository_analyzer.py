@@ -2,10 +2,10 @@ from pathlib import Path
 
 from rie.interfaces.batch_discovery import BatchDiscovery
 
-from src.analysis.statistics_collector import StatisticsCollector
-from src.collection.evidence_collector import EvidenceCollector
-from src.report.repository_insight_builder import RepositoryInsightBuilder
-from src.report.repository_report import RepositoryReport
+from analysis.statistics_collector import StatisticsCollector
+from collection.evidence_collector import EvidenceCollector
+from report.repository_insight_builder import RepositoryInsightBuilder
+from report.repository_report import RepositoryReport
 
 
 class RepositoryAnalyzer:

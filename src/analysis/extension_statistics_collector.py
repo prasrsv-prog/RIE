@@ -1,4 +1,4 @@
-from src.evidence.evidence import Evidence
+from evidence.evidence import Evidence
 
 from .extension_statistics import ExtensionStatistics
 from .extension_statistics_collection import (

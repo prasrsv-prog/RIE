@@ -3,8 +3,8 @@ from pathlib import Path
 from rie.application.asset import Asset
 from rie.application.metadata import Metadata
 
-from src.collection.evidence_collector import EvidenceCollector
-from src.analysis.size_class import SizeClass
+from collection.evidence_collector import EvidenceCollector
+from analysis.size_class import SizeClass
 
 
 def test_should_collect_evidences():

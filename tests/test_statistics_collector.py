@@ -2,10 +2,10 @@ from pathlib import Path
 
 from rie.application.metadata import Metadata
 
-from src.analysis.asset_analysis import AssetAnalysis
-from src.analysis.size_class import SizeClass
-from src.analysis.statistics_collector import StatisticsCollector
-from src.evidence.evidence import Evidence
+from analysis.asset_analysis import AssetAnalysis
+from analysis.size_class import SizeClass
+from analysis.statistics_collector import StatisticsCollector
+from evidence.evidence import Evidence
 
 
 def test_should_collect_repository_statistics():

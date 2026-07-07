@@ -1,7 +1,7 @@
 from rie.application.asset import Asset
 
-from src.collection.evidence_collection import EvidenceCollection
-from src.evidence.evidence_builder import EvidenceBuilder
+from collection.evidence_collection import EvidenceCollection
+from evidence.evidence_builder import EvidenceBuilder
 
 
 class EvidenceCollector:

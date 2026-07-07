@@ -2,8 +2,8 @@ from pathlib import Path
 
 from rie.application.asset import Asset
 
-from src.analysis.asset_analyzer import AssetAnalyzer
-from src.analysis.size_class import SizeClass
+from analysis.asset_analyzer import AssetAnalyzer
+from analysis.size_class import SizeClass
 from rie.application.metadata import Metadata
 
 
