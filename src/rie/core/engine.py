@@ -4,9 +4,9 @@ Core Engine
 """
 
 from rie.application.discovery_service import DiscoveryService
-
 from rie.core.pipeline import Pipeline
 from rie.core.state import EngineState
+from rie.interfaces.batch_discovery import BatchDiscovery
 
 from src.analyzer.repository_analyzer import RepositoryAnalyzer
 from src.analysis.statistics_collector import StatisticsCollector
@@ -17,11 +17,14 @@ from src.report.repository_report_presenter import RepositoryReportPresenter
 
 class Engine:
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        discovery: BatchDiscovery | None = None,
+    ) -> None:
 
         self.state = EngineState()
 
-        discovery = DiscoveryService()
+        discovery = discovery or DiscoveryService()
 
         evidence_collector = EvidenceCollector()
 
