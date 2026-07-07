@@ -1,498 +1,198 @@
-# RIE Project State
+# RIE PROJECT STATE
 
-Last Update:
-2026-07-07
+## Current Version
 
-Project:
-Repository Intelligence Engine (RIE)
+v0.4.0-rcis-ingestion-foundation
 
-Parent:
-RCIS Platform
+## Status
 
----
+Architecture Checkpoint Completed
 
-# Current Objective
+Repository:
+RIE (RCIS Intelligence Engine)
 
-Transform RIE from repository understanding system into internal RSV Product-Aware Prompt Generator.
-
-Long-term goal:
-
-Repository Assets
-→ Creative Understanding
-→ Evidence
-→ Knowledge
-→ Product Knowledge
-→ Creative Prompt Generation
-
----
-
-# Architecture Rules
-
-- Domain First
-- Single Responsibility
-- No over-engineering
-- No premature abstraction
-- Test First
-- Incremental milestone
-- Documentation after milestone completion
-
-Important boundaries:
-
-- Ingestion is not Evidence.
-- Evidence is not Knowledge.
-- Knowledge is not Prompt Generation.
-- Repository Explorer is responsible for repository understanding only.
-- RIE owns intelligence processing.
+Milestone:
+RCIS Ingestion Foundation
 
 ---
 
 # Completed Milestones
 
-## PR-002A
-Repository Explorer Dependency Availability
+## Repository Integration
 
-Status:
-DONE
+Completed:
 
-Achievement:
-- Repository Explorer installed as editable dependency.
-- RIE can access repository_explorer package.
-
-Rules preserved:
-- No path dependency added to pyproject.
-- No hard-coded local machine dependency.
-
----
-
-## PR-002B
-Repository Explorer Batch Discovery Adapter
-
-Status:
-DONE
-
-Achievement:
-Created:
-
-RepositoryExplorerBatchDiscovery
+- Repository Explorer integration
+- Repository Explorer batch discovery adapter
+- Composition root introduction
+- Engine dependency wiring
 
 Purpose:
 
-Repository Explorer
-↓
-RIE BatchDiscovery interface
-↓
-Existing RIE pipeline
-
-Rules:
-- Engine unchanged.
-- Pipeline unchanged.
-- DiscoveryService preserved.
-- Adapter does not import Repository Explorer internals.
+Provide a clean boundary between repository exploration and RIE processing pipeline.
 
 ---
 
-## PR-002C
-Engine Discovery Injection Seam
+## Creative Asset Ingestion Foundation
 
-Status:
-DONE
+Completed:
 
-Achievement:
+- Creative asset scanner
+- Creative asset scan item model
+- Creative asset scan report model
+- JSON scan report serializer
+- Scan report inspector
 
-Engine now supports:
-
-Engine(discovery=...)
-
-Default remains:
-
-Engine()
-→ DiscoveryService()
-
-Purpose:
-
-Allow future controlled runtime composition.
-
----
-
-## PR-002D
-Repository Explorer Composition Helper
-
-Status:
-DONE
-
-Created:
-
-rie.composition.create_repository_explorer_engine()
-
-Purpose:
-
-Explicit integration path:
-
-create_repository_explorer_engine()
-↓
-RepositoryExplorerBatchDiscovery
-↓
-Engine
-
-Important:
-
-Default runtime remains unchanged.
-
----
-
-## PR-002E
-Experimental Repository Explorer CLI Entry Point
-
-Status:
-DONE
-
-Added:
-
-python -m rie.repository_explorer
-
-Behavior:
-
-Legacy:
-
-python -m rie
-→ Engine()
-
-Experimental:
-
-python -m rie.repository_explorer
-→ Repository Explorer integration
-
----
-
-# Creative Asset Ingestion Milestone
-
-## PR-003A
-Creative Asset Type Detection
-
-Status:
-DONE
-
-Capability:
-
-Detect asset type by file content.
-
-Supported:
+Supported asset detection:
 
 - PNG
 - JPEG
+- WEBP
+- TIFF
+- MP4
 - PDF
+- ZIP_CONTAINER
 - UTF8_TEXT
-- WEBP
-- TIFF
-- MP4
-- ZIP_CONTAINER
 
-Extension is ignored.
+Detection strategy:
 
----
-
-## PR-003B
-Batch Creative Asset Scan Report
-
-Status:
-DONE
-
-Capability:
-
-Scan creative asset folders.
-
-Output:
-
-CreativeAssetScanReport
-
-Features:
-
-- file detection
-- size tracking
-- type counting
-- failure capture
+- Binary signature detection first
+- Text detection fallback
+- Unknown investigation workflow
 
 ---
 
-## PR-003C
-Creative Asset Scan CLI
+## Unknown Asset Investigation
 
-Status:
-DONE
+Completed:
 
-Command:
-
-python -m rie.ingestion.scan_assets
-
-Supports:
-
-- folder scanning
-- optional recursive scan
-- console report
-
----
-
-## PR-003D
-Creative Asset JSON Report Export
-
-Status:
-DONE
-
-Capability:
-
-Export scan report:
-
-creative_asset_scan_report.json
-
----
-
-## PR-003E
-Creative Asset Scan Report Inspection
-
-Status:
-DONE
-
-Capability:
-
-Analyze scan reports.
-
-Provides:
-
-- counts
-- total size by type
-- largest files
-- UTF8_TEXT list
-- PDF list
-- UNKNOWN list
-
----
-
-## PR-003F
-Unknown Asset Investigation
-
-Status:
-DONE
-
-Capability:
-
-Inspect UNKNOWN file headers.
-
-Provides:
-
-- header hex
-- ASCII preview
-- candidate signature
-
----
-
-## PR-003G
-Extended Asset Detection
-
-Status:
-DONE
-
-Added detection:
-
-- WEBP
-- TIFF
-- MP4
-- ZIP_CONTAINER
-
-Validation result:
-
-D:\DAT scan:
-
-Total Files:
-1349
-
-Result:
-
-PNG:
-937
-
-JPEG:
-355
-
-PDF:
-12
-
-WEBP:
-2
-
-TIFF:
-3
-
-MP4:
-6
-
-ZIP_CONTAINER:
-29
-
-UTF8_TEXT:
-5
-
-UNKNOWN:
-0
-
-Failed:
-0
-
----
-
-# Text Extraction Milestone
-
-## PR-004A
-UTF8 Text Asset Extraction Preparation
-
-Status:
-DONE
-
-Created:
-
-src/rie/extraction/
+- Unknown asset header inspection
+- Binary header analysis
+- Candidate format guessing
 
 Purpose:
 
-Extract raw text from UTF8_TEXT assets only.
-
-Pipeline:
-
-Scan Report
-↓
-UTF8_TEXT Filter
-↓
-Raw Text Extraction
-↓
-TextAssetExtractionReport
-
-Rules:
-
-- No Evidence yet.
-- No Knowledge yet.
-- No inference.
+Allow investigation before introducing new asset types.
 
 ---
 
-# Current Runtime Validation
+## Extraction Foundation
 
-Latest validation:
+Completed:
 
-Command:
+New extraction boundary:
 
-python -m pytest
+src/rie/extraction/
 
-Result:
+Components:
+
+- TextAssetExtractor
+- TextAssetExtraction
+- TextAssetExtractionReport
+- Extraction JSON serializer
+- Extraction CLI
+
+Current capability:
+
+- Extract UTF8_TEXT assets from scan reports
+- Preserve raw extracted content
+- Capture extraction errors per asset
+
+---
+
+# Architecture Boundaries
+
+Current pipeline:
+
+Repository
+|
+v
+Repository Explorer
+|
+v
+Creative Asset Ingestion
+|
+v
+Scan Report
+|
+v
+Extraction Layer
+|
+v
+Future Evidence Layer
+
+
+---
+
+# Intentionally Not Implemented
+
+The following are intentionally deferred:
+
+- Evidence domain migration
+- Knowledge extraction
+- Semantic interpretation
+- AI analysis layer
+- Business intelligence layer
+
+Reason:
+
+Maintain separation between:
+
+- Discovery
+- Ingestion
+- Extraction
+- Evidence
+- Knowledge
+
+---
+
+# Test Status
+
+Latest verification:
+
+pytest
 
 68 passed
 
-Known warning:
 
-.pytest_cache permission warning
+Status:
 
-No test failures.
-
----
-
-# Current Real Data State
-
-Input:
-
-D:\DAT
-
-Processed:
-
-1349 files
-
-Clean classification:
-
-UNKNOWN:
-0
-
-Failed:
-0
+PASS
 
 ---
 
-# Current Architecture Flow
+# Next Phase
 
-Current:
+## Evidence Extraction Foundation
 
-Repository Explorer
-        |
-        v
-Batch Discovery Adapter
-        |
-        v
-RIE Engine
-        |
-        v
-Creative Asset Ingestion
-        |
-        v
-Scan Report
-        |
-        v
-Text Asset Extraction
+Objective:
 
+Transform extracted asset information into formal Evidence objects.
 
----
-
-# Next Milestone
-
-## PR-004B
-Text Evidence Preparation
-
-Goal:
-
-Convert raw extracted text into structured evidence candidates.
-
-Expected flow:
+Expected direction:
 
 TextAssetExtraction
-        |
-        v
-TextEvidenceCandidate
-        |
-        v
-Future Evidence Domain
-        |
-        v
-Knowledge System
+|
+v
+Evidence
+|
+v
+Knowledge
 
 
-Rules:
+Constraints:
 
-Do not create Knowledge yet.
-
-Do not modify existing Evidence domain yet.
+- Do not reuse legacy evidence blindly
+- Review Evidence domain boundary first
+- Maintain traceability
+- Preserve source information
 
 ---
 
-# Future 3 Month Target
+# Latest Git Checkpoint
 
-RCIS becomes:
+Tag: v0.4.0-rcis-ingestion-foundation|
 
-Internal RSV Product-Aware Prompt Generator.
-
-Capabilities:
-
-- understand RSV products
-- understand creative assets
-- understand persona
-- generate AI image prompts
-- generate campaign visual direction
-- maintain brand consistency
-
----
-
-# Current Decision
-
-STOP POINT:
-
-PR-004A completed.
-
-Before continuing:
-
-1. Commit all changes to Git.
-2. Validate clean repository.
-3. Continue PR-004B from this state.
+Commit range: v0.19.0
+|
++-- PR-004A Ingestion and Extraction Foundation
