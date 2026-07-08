@@ -1181,3 +1181,210 @@ Do not introduce:
 - report integration
 - core pipeline integration
 
+---
+
+# PR-006 Complete Checkpoint
+
+## Status
+
+PR-006 Knowledge Foundation is complete.
+
+Latest verified commit before checkpoint:
+
+29c4341 test: add text knowledge smoke flow
+
+Latest verified test result:
+
+154 passed
+
+Git alignment:
+
+origin/main...HEAD = 0 0
+
+Working tree before checkpoint:
+
+clean
+
+---
+
+## Completed PR-006 Scope
+
+### PR-006A - Minimal Text Knowledge Boundary
+
+Completed:
+
+- TextKnowledge
+- TextKnowledgeBuilder
+- TextKnowledgeCollection
+- TextKnowledgeCollector
+
+Result:
+
+Valid Text Extraction Evidence records can become TextKnowledge items.
+
+Invalid Evidence records are skipped by collector.
+
+Knowledge preserves traceability through:
+
+- source_path
+- evidence_index
+
+---
+
+### PR-006B - Text Knowledge Collection Serialization
+
+Completed:
+
+- TextKnowledgeCollectionSerializer
+- Deterministic Knowledge JSON serialization
+- Non-ASCII content preservation
+- Newline content preservation
+- Strict factual fields only:
+  - source_path
+  - content
+  - size_bytes
+  - evidence_index
+
+---
+
+### PR-006C - Export Text Knowledge CLI
+
+Completed:
+
+- export_text_knowledge CLI
+
+CLI:
+
+python -m rie.knowledge.export_text_knowledge text-evidence.json --output text-knowledge.json
+
+Result:
+
+Text Extraction Evidence JSON can be exported into deterministic Text Knowledge JSON.
+
+---
+
+### PR-006D - Inspect Text Knowledge Artifacts
+
+Completed:
+
+- TextKnowledgeArtifactInspector
+- inspect_text_knowledge CLI
+
+CLI:
+
+python -m rie.knowledge.inspect_text_knowledge text-knowledge.json
+
+Inspection output includes:
+
+- total knowledge items
+- total content characters
+- empty content count
+- invalid record count
+- forbidden field count
+
+---
+
+### PR-006E - Text Knowledge End-to-End Smoke Flow
+
+Completed:
+
+- End-to-end smoke test from Evidence JSON to Knowledge JSON to Knowledge inspection
+
+Flow verified:
+
+Text Extraction Evidence JSON
+    |
+    v
+export_text_knowledge CLI
+    |
+    v
+Text Knowledge JSON
+    |
+    v
+inspect_text_knowledge CLI
+
+---
+
+## Final Knowledge Foundation Flow
+
+Current safe flow:
+
+Text Extraction Evidence JSON
+    |
+    v
+TextKnowledgeCollector
+    |
+    v
+TextKnowledgeCollection
+    |
+    v
+Text Knowledge JSON
+    |
+    v
+Text Knowledge Artifact Inspection
+
+---
+
+## Architecture Boundary Confirmation
+
+Confirmed:
+
+- Evidence is not Knowledge
+- Knowledge is not Prompt Generator
+- Knowledge export is not Prompt Generator
+- Knowledge inspection is not AI interpretation
+- No summaries introduced
+- No categories introduced
+- No labels introduced
+- No metadata introduced
+- No confidence introduced
+- No embeddings introduced
+- No knowledge graph introduced
+- No analyzer integration introduced
+- No report integration introduced
+- No core pipeline integration introduced
+- Legacy evidence path remains untouched
+
+---
+
+## PR-006 Final Test Status
+
+Latest full test suite:
+
+154 passed
+
+---
+
+## Known Future Hardening
+
+Optional future hardening:
+
+- Decide later whether evidence_index should be constrained to non-negative integers
+- Decide later whether evidence_index should be cross-checked against an originating artifact
+- Decide later whether Knowledge artifacts need artifact-level provenance
+
+These are not blocking PR-006 completion.
+
+---
+
+## Recommended Next Phase
+
+Next phase:
+
+PR-007 - Prompt Boundary Architecture Review
+
+Important:
+
+Do not start prompt generation implementation directly.
+
+PR-007 should begin with architecture review only.
+
+Questions for PR-007:
+
+- What is the minimal Prompt Candidate boundary?
+- What Knowledge fields are allowed to feed prompt preparation?
+- How should Prompt Candidate preserve traceability back to Knowledge and Evidence?
+- What must remain outside Prompt Candidate?
+- How to prevent direct AI generation from leaking into deterministic prompt preparation?
+- Should prompt preparation start as artifact conversion before any AI model involvement?
+
