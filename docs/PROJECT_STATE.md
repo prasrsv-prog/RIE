@@ -2,7 +2,7 @@
 
 ## Current Version
 
-v0.4.0-rcis-ingestion-foundation
+v0.8.0-rcis-pdf-text-extraction-foundation
 
 ## Status
 
@@ -191,7 +191,7 @@ Constraints:
 
 # Latest Git Checkpoint
 
-Tag: v0.4.0-rcis-ingestion-foundation|
+Tag: v0.8.0-rcis-pdf-text-extraction-foundation|
 
 Commit range: v0.19.0
 |
@@ -1631,4 +1631,285 @@ Questions for PR-008:
 - How should table-like product specs be handled?
 - How should extraction preserve page/source traceability?
 - What should remain outside PDF extraction?
+
+---
+
+# PR-008 Complete Checkpoint
+
+## Status
+
+PR-008 PDF Text Extraction Foundation is complete.
+
+Latest verified commit before checkpoint:
+
+f3d4118 test: add pdf text extraction smoke flow
+
+Latest verified test result:
+
+321 passed
+
+Git alignment:
+
+origin/main...HEAD = 0 0
+
+Working tree before checkpoint:
+
+clean
+
+---
+
+## Completed PR-008 Scope
+
+### PR-008A - Minimal PDF Text Extraction Boundary
+
+Completed:
+
+- PdfPageTextExtraction
+- PdfTextExtractionReport
+- PdfTextExtractor
+
+Result:
+
+Generic embedded-text PDF extraction boundary is available.
+
+PDF text is extracted page by page.
+
+Page traceability is preserved through:
+
+- source_path
+- size_bytes
+- page_number
+- extraction_index
+- extraction_method
+- warnings
+
+---
+
+### PR-008B - PDF Text Extraction Serialization
+
+Completed:
+
+- PdfTextExtractionReportSerializer
+- Deterministic PDF Text Extraction JSON serialization
+
+Artifact shape includes:
+
+- root
+- total_pdf_assets
+- total_page_extractions
+- failed_pdf_assets
+- page_extractions
+- asset_errors
+
+---
+
+### PR-008C - Export PDF Text Extraction CLI
+
+Completed:
+
+- export_pdf_text_extractions CLI
+
+CLI:
+
+python -m rie.extraction.export_pdf_text_extractions creative-asset-scan-report.json --output pdf-text-extractions.json
+
+Result:
+
+Creative Asset Scan Report JSON can be exported into deterministic PDF Text Extraction JSON.
+
+Non-PDF assets are ignored.
+
+Failed PDF assets are preserved as asset_errors.
+
+---
+
+### PR-008D - Inspect PDF Text Extraction Artifacts
+
+Completed:
+
+- PdfTextExtractionArtifactInspector
+- inspect_pdf_text_extractions CLI
+
+CLI:
+
+python -m rie.extraction.inspect_pdf_text_extractions pdf-text-extractions.json
+
+Inspection output includes:
+
+- total PDF assets
+- total page extractions
+- failed PDF assets
+- empty content page count
+- page warning count
+- asset error count
+- invalid page extraction record count
+- invalid asset error record count
+- forbidden field count
+
+---
+
+### PR-008E - PDF Text Extraction End-to-End Smoke Flow
+
+Completed:
+
+- End-to-end smoke test from Creative Asset Scan Report JSON to PDF Text Extraction JSON to PDF Text Extraction inspection
+
+Flow verified:
+
+Creative Asset Scan Report JSON
+    |
+    v
+export_pdf_text_extractions CLI
+    |
+    v
+PDF Text Extraction JSON
+    |
+    v
+inspect_pdf_text_extractions CLI
+
+---
+
+## Final PDF Text Extraction Foundation Flow
+
+Current safe flow:
+
+Creative Asset Scan Report JSON
+    |
+    v
+PDF asset filtering
+    |
+    v
+PdfTextExtractor
+    |
+    v
+PdfTextExtractionReport
+    |
+    v
+PDF Text Extraction JSON
+    |
+    v
+PDF Text Extraction Artifact Inspection
+
+---
+
+## Architecture Boundary Confirmation
+
+Confirmed:
+
+- PDF Text Extraction is not Evidence
+- PDF Text Extraction is not Knowledge
+- PDF Text Extraction is not Prompt Generator
+- PDF Text Extraction is not AI interpretation
+- PDF Text Extraction export is not Evidence mapping
+- PDF Text Extraction inspection is not product meaning judgment
+- PDF Text Extraction smoke flow is not product specification mapping
+- No OCR introduced
+- No image rendering introduced
+- No table semantics introduced
+- No product_type introduced
+- No product_category introduced
+- No helmet_model introduced
+- No variant introduced
+- No summary introduced
+- No persona introduced
+- No USP introduced
+- No visual_style introduced
+- No prompt introduced
+- No final_prompt introduced
+- No confidence introduced
+- No embedding introduced
+- No graph introduced
+- No knowledge field introduced
+- No style introduced
+- No tone introduced
+- No creative_direction introduced
+- No analyzer integration introduced
+- No report integration introduced
+- No core pipeline integration introduced
+- Legacy evidence path remains untouched
+- PR-005 evidence production files remain untouched
+- PR-006 knowledge production files remain untouched
+- PR-007 prompt production files remain untouched
+
+---
+
+## Traceability Confirmation
+
+Confirmed:
+
+- root is preserved from scan report when available
+- PDF assets are filtered from scan report
+- non-PDF assets are ignored
+- source_path is preserved
+- size_bytes is preserved
+- page_number is one-based
+- extraction_index is zero-based
+- extraction_index preserves page extraction order
+- extraction_method is embedded_text
+- content is preserved exactly
+- non-ASCII content is preserved
+- newline content is preserved
+- empty content is allowed
+- warnings are preserved
+- asset_errors are preserved
+- failed PDF assets are counted
+
+---
+
+## Dependency Confirmation
+
+Confirmed:
+
+- pypdf is the only added PDF dependency
+- pypdf is used for embedded text extraction only
+- no OCR dependency was added
+- no image rendering dependency was added
+- tests remain deterministic through fake readers/extractors where appropriate
+
+---
+
+## PR-008 Final Test Status
+
+Latest full test suite:
+
+321 passed
+
+---
+
+## Known Future Hardening
+
+Optional future hardening:
+
+- Add OCR as an explicit separate future path
+- Add table extraction as a separate future boundary
+- Add PDF Extraction to Evidence mapping after page-aware Evidence design
+- Add Product Specification Knowledge mapping after PDF extraction artifacts are stable
+- Handle real-world inconsistent PDF formatting
+- Handle scanned PDFs with no embedded text
+
+These are not blocking PR-008 completion.
+
+---
+
+## Recommended Next Phase
+
+Next phase:
+
+PR-009 - PDF Extraction to Evidence Architecture Review
+
+Important:
+
+Do not start Evidence mapping implementation directly.
+
+PR-009 should begin with architecture review only.
+
+Questions for PR-009:
+
+- Should PDF extraction create a new page-aware Evidence type?
+- How should page_number and extraction_index be preserved in Evidence?
+- Should Text Extraction Evidence and PDF Text Extraction Evidence stay separate?
+- How should PDF asset_errors be handled?
+- Should empty page content become Evidence or be skipped?
+- What fields are allowed in page-aware Evidence?
+- What must remain outside Evidence?
 
