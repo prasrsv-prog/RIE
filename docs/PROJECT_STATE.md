@@ -503,3 +503,207 @@ Prove that PR-005A, PR-005B, PR-005C, and PR-005D work together as one safe evid
 
 Do not start Knowledge implementation yet.
 
+---
+
+# PR-005 Complete Checkpoint
+
+## Status
+
+PR-005 Evidence Foundation is complete.
+
+Latest verified commit before checkpoint:
+
+68afa3e test: add text extraction evidence smoke flow
+
+Latest verified test result:
+
+106 passed
+
+Git alignment:
+
+origin/main...HEAD = 0 0
+
+Working tree before checkpoint:
+
+clean
+
+---
+
+## Completed PR-005 Scope
+
+### PR-005A - Text Extraction Evidence Boundary
+
+Completed:
+
+- TextExtractionEvidence
+- TextExtractionEvidenceBuilder
+- TextExtractionEvidenceCollection
+- TextExtractionEvidenceCollector
+
+Result:
+
+Successful text extractions can become evidence records.
+
+Failed text extractions are skipped by collector.
+
+Builder rejects failed extraction records.
+
+Legacy evidence path remains untouched.
+
+---
+
+### PR-005B - Text Extraction Evidence JSON Serialization
+
+Completed:
+
+- TextExtractionEvidenceCollectionSerializer
+- Deterministic evidence JSON serialization
+- Non-ASCII content preservation
+- Strict factual fields only:
+  - source_path
+  - content
+  - size_bytes
+
+---
+
+### PR-005C - Export Text Extraction Evidence CLI
+
+Completed:
+
+- export_text_extraction_evidence CLI
+- TextAssetExtractionReport from_dict support
+- TextAssetExtractionReport load_json support
+- Export from extraction report JSON to evidence JSON
+
+CLI:
+
+python -m rie.extraction.export_text_extraction_evidence text-extractions.json --output text-evidence.json
+
+---
+
+### PR-005D - Validate and Inspect Text Extraction Evidence Artifacts
+
+Completed:
+
+- TextExtractionEvidenceArtifactInspector
+- inspect_text_extraction_evidence CLI
+
+CLI:
+
+python -m rie.extraction.inspect_text_extraction_evidence text-evidence.json
+
+Inspection output includes:
+
+- total evidences
+- total content characters
+- empty content count
+- invalid record count
+- forbidden field count
+
+---
+
+### PR-005E - Evidence Artifact End-to-End Smoke Flow
+
+Completed:
+
+- End-to-end smoke test from extraction report JSON to evidence JSON to evidence inspection
+
+Flow verified:
+
+TextAssetExtractionReport JSON
+    |
+    v
+export_text_extraction_evidence CLI
+    |
+    v
+Text Extraction Evidence JSON
+    |
+    v
+inspect_text_extraction_evidence CLI
+
+---
+
+## Final Evidence Foundation Flow
+
+Current safe flow:
+
+Repository
+    |
+    v
+Repository Explorer
+    |
+    v
+Creative Asset Ingestion
+    |
+    v
+Text Asset Extraction
+    |
+    v
+Text Extraction Evidence
+    |
+    v
+Evidence JSON Export
+    |
+    v
+Evidence Artifact Inspection
+
+---
+
+## Architecture Boundary Confirmation
+
+Confirmed:
+
+- Extraction is not Evidence
+- Evidence is not Knowledge
+- Evidence JSON is not Knowledge
+- Evidence inspection is not Knowledge
+- No AI interpretation introduced
+- No semantic summaries introduced
+- No categories introduced
+- No embeddings introduced
+- No prompt generation introduced
+- No analyzer integration introduced
+- No report integration introduced
+- No core pipeline integration introduced
+- Legacy evidence path remains untouched
+
+---
+
+## PR-005 Final Test Status
+
+Latest full test suite:
+
+106 passed
+
+---
+
+## Known Future Hardening
+
+Optional future hardening:
+
+- Stricter malformed extraction report input validation before broader pipeline integration
+
+This is not blocking PR-005 completion.
+
+---
+
+## Recommended Next Phase
+
+Next phase:
+
+PR-006 - Knowledge Boundary Architecture Review
+
+Important:
+
+Do not start Knowledge implementation directly.
+
+PR-006 should begin with architecture review only.
+
+Questions for PR-006:
+
+- What is the minimal Knowledge object?
+- What evidence fields are allowed to feed Knowledge?
+- How should Knowledge preserve traceability back to Evidence?
+- What must remain outside Knowledge?
+- How to avoid prompt-generation leakage into Knowledge?
+
