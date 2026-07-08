@@ -341,3 +341,165 @@ Latest pushed commits:
 
 Working tree after PR-005C:
 clean
+---
+
+# PR-005D Evidence Artifact Inspection Checkpoint
+
+## Completed Milestone
+
+PR-005D — Validate and Inspect Text Extraction Evidence Artifacts
+
+Latest commit:
+
+456b592 feat: inspect text extraction evidence artifacts
+
+Latest verified test result:
+
+105 passed
+
+---
+
+## Completed in PR-005D
+
+Added evidence artifact inspection support.
+
+New components:
+
+- TextExtractionEvidenceArtifactInspector
+- inspect_text_extraction_evidence CLI
+
+New CLI:
+
+python -m rie.extraction.inspect_text_extraction_evidence text-evidence.json
+
+The inspector validates exported Text Extraction Evidence JSON artifacts without converting them into Knowledge.
+
+---
+
+## Inspection Behavior
+
+The inspector reads evidence JSON artifacts with this shape:
+
+{
+  "evidences": [
+    {
+      "source_path": "...",
+      "content": "...",
+      "size_bytes": 123
+    }
+  ]
+}
+
+It reports:
+
+- total evidences
+- total content characters
+- empty content count
+- invalid record count
+- forbidden field count
+
+---
+
+## Validation Boundary
+
+Allowed evidence record fields:
+
+- source_path
+- content
+- size_bytes
+
+Forbidden fields include:
+
+- evidence_type
+- metadata
+- source_stage
+- analysis
+- size_class
+- category
+- summary
+- knowledge
+- prompt
+- embedding
+
+Invalid records are counted, not interpreted.
+
+Readable artifacts with invalid records are still inspectable.
+
+Malformed top-level artifacts fail fast.
+
+---
+
+## Architecture Boundary Preserved
+
+PR-005D does not introduce:
+
+- Knowledge
+- AI interpretation
+- Semantic summaries
+- Categories
+- Embeddings
+- Prompt generation
+- Analyzer integration
+- Report integration
+- Core pipeline changes
+- Legacy evidence migration
+
+Evidence inspection remains strictly factual artifact validation.
+
+---
+
+## Current Evidence Foundation Flow
+
+Current safe evidence pipeline:
+
+Repository
+    |
+    v
+Repository Explorer
+    |
+    v
+Creative Asset Ingestion
+    |
+    v
+Text Asset Extraction
+    |
+    v
+Text Extraction Evidence
+    |
+    v
+Evidence JSON Export
+    |
+    v
+Evidence Artifact Inspection
+
+---
+
+## Recommended Next Step
+
+Recommended next milestone:
+
+PR-005E — Evidence Artifact End-to-End Smoke Flow
+
+Goal:
+
+Verify the full extraction-to-evidence-artifact flow without introducing Knowledge.
+
+Expected flow:
+
+TextAssetExtractionReport JSON
+    |
+    v
+export_text_extraction_evidence CLI
+    |
+    v
+Text Extraction Evidence JSON
+    |
+    v
+inspect_text_extraction_evidence CLI
+
+Purpose:
+
+Prove that PR-005A, PR-005B, PR-005C, and PR-005D work together as one safe evidence foundation.
+
+Do not start Knowledge implementation yet.
+
