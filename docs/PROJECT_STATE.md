@@ -2,17 +2,17 @@
 
 ## Current Version
 
-v0.9.0-rcis-pdf-evidence-foundation
+v0.10.0-rcis-official-knowledge-foundation
 
 ## Status
 
-Architecture Checkpoint Completed
+Official Knowledge Foundation Completed
 
 Repository:
 RIE (RCIS Intelligence Engine)
 
 Milestone:
-RCIS Ingestion Foundation
+PR-010 Official Knowledge Foundation
 
 ---
 
@@ -2040,3 +2040,184 @@ PDF Evidence to Knowledge Architecture Review
 Important:
 
 Do not start Knowledge implementation directly.
+
+---
+
+# PR-010 Complete Checkpoint
+
+## Status
+
+PR-010 Official Knowledge Foundation is complete.
+
+Latest verified full test result:
+
+454 passed
+
+---
+
+## Completed PR-010 Commits
+
+- ae2a9b6 feat: add official knowledge source item contract
+- 12081f7 feat: add official knowledge boundary
+- 2d6b721 feat: serialize official knowledge collection
+- d0501cc feat: inspect official knowledge artifacts
+- 2ba9f70 test: add official knowledge smoke flow
+
+---
+
+## Completed PR-010 Scope
+
+Added a separate curated Official Knowledge boundary.
+
+Completed components:
+
+- OfficialKnowledgeSourceItem
+- OfficialKnowledgeItem
+- OfficialKnowledgeCollection
+- OfficialKnowledgeCollector
+- OfficialKnowledgeCollectionSerializer
+- OfficialKnowledgeArtifactInspector
+- OfficialKnowledgeArtifactInspection
+- Official Knowledge smoke flow
+
+---
+
+## Official Knowledge Flow
+
+Current safe flow:
+
+OfficialKnowledgeSourceItem
+    |
+    v
+OfficialKnowledgeCollector
+    |
+    v
+OfficialKnowledgeCollection
+    |
+    v
+OfficialKnowledgeCollectionSerializer
+    |
+    v
+OfficialKnowledgeArtifactInspector
+
+---
+
+## Architecture Boundary Confirmation
+
+Confirmed:
+
+- Official Knowledge is not TextKnowledge.
+- Official Knowledge is not PDF Text Evidence.
+- Official Knowledge is not Prompt Candidate.
+- Official Knowledge is not Final Prompt.
+- Official Knowledge is not AI inference.
+- Official Knowledge is not Creative Direction.
+- Official Knowledge is not Product Knowledge yet.
+- Official Knowledge must come from curated locked / SSOT source input.
+- PR-010 does not automatically convert PDF Evidence into Official Knowledge.
+- PR-010 does not resolve conflicts between locked source documents.
+- PR-010 preserves governance fields as raw text.
+- PR-010 does not normalize governance.
+- PR-010 does not generate knowledge IDs.
+- PR-010 preserves source-local IDs when provided.
+
+---
+
+## Official Knowledge Artifact Shape
+
+Serialized Official Knowledge JSON shape:
+
+```json
+{
+  "official_knowledge_items": [
+    {
+      "knowledge_id": "... or null",
+      "source_path": "...",
+      "source_document": "...",
+      "source_section": "... or null",
+      "source_page": 1,
+      "title": "...",
+      "content": "...",
+      "status": "... or null",
+      "governance_level": "... or null",
+      "pdf_evidence_index": 0,
+      "extraction_index": 0,
+      "official_knowledge_index": 0
+    }
+  ]
+}
+```
+
+Optional fields may be serialized as null, including:
+
+- knowledge_id
+- source_section
+- source_page
+- status
+- governance_level
+- pdf_evidence_index
+- extraction_index
+
+---
+
+## Official Knowledge Artifact Inspection
+
+The Official Knowledge artifact inspector checks:
+
+- total official knowledge items
+- missing required traceability
+- missing governance
+- forbidden fields
+- official_knowledge_index mismatch
+- artifact validity
+
+Governance note:
+
+Missing governance is counted but does not invalidate the artifact yet.
+
+---
+
+## Reference Set / SSOT Candidate Documents
+
+Future locked / SSOT reference inputs:
+
+- COS-001 - Creative Logic Specification V2.0
+- COS-002 - RSV Brand Knowledge Specification V1.0
+- RSV Group Master Asset Library V1
+- RSV Group Project Rulebook V1
+- RSV COS Architecture Baseline v1.0 LOCKED
+- RSV Official Knowledge Base v1.0 LOCKED
+
+Important:
+
+These documents are treated as future locked / SSOT reference inputs.
+They are not hardcoded into tests or implementation in PR-010.
+
+---
+
+## PR-010 Final Test Status
+
+Latest full test suite:
+
+454 passed
+
+---
+
+## Current Version Checkpoint
+
+Recommended version checkpoint:
+
+v0.10.0-rcis-official-knowledge-foundation
+
+---
+
+## Future Work After v0.10.0
+
+- Official Knowledge CLI export
+- Curated official knowledge input file loader
+- Official source registry / document classification
+- Product Knowledge Architecture Review
+- Product Library Foundation
+- Persona Library Foundation
+- Asset Library Foundation
+- Decision Engine Architecture Review
