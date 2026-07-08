@@ -2,7 +2,7 @@
 
 ## Current Version
 
-v0.8.0-rcis-pdf-text-extraction-foundation
+v0.9.0-rcis-pdf-evidence-foundation
 
 ## Status
 
@@ -1913,3 +1913,130 @@ Questions for PR-009:
 - What fields are allowed in page-aware Evidence?
 - What must remain outside Evidence?
 
+---
+
+# PR-009 Complete Checkpoint
+
+## Status
+
+PR-009 PDF Evidence Foundation is complete.
+
+Latest verified commit before checkpoint:
+
+3d058ae test: add pdf text evidence smoke flow
+
+Latest verified test result:
+
+424 passed
+
+---
+
+## Completed PR-009 Scope
+
+### PR-009A - Minimal PDF Text Evidence Boundary
+
+Completed:
+
+- PdfTextExtractionEvidence
+- PdfTextExtractionEvidenceBuilder
+- PdfTextExtractionEvidenceCollection
+- PdfTextExtractionEvidenceCollector
+
+---
+
+### PR-009B - PDF Text Evidence Serialization
+
+Completed:
+
+- PdfTextExtractionEvidenceCollectionSerializer
+- Deterministic PDF Text Evidence JSON serialization
+
+---
+
+### PR-009C - Export PDF Text Evidence CLI
+
+Completed:
+
+- export_pdf_text_evidence CLI
+
+CLI:
+
+python -m rie.extraction.export_pdf_text_evidence pdf-text-extractions.json --output pdf-text-evidence.json
+
+---
+
+### PR-009D - Inspect PDF Text Evidence Artifact
+
+Completed:
+
+- PdfTextExtractionEvidenceArtifactInspector
+- inspect_pdf_text_evidence CLI
+
+CLI:
+
+python -m rie.extraction.inspect_pdf_text_evidence pdf-text-evidence.json
+
+---
+
+### PR-009E - PDF Text Evidence Smoke Flow
+
+Completed:
+
+- End-to-end smoke test from PDF Text Extraction JSON to PDF Text Evidence JSON to PDF Text Evidence inspection
+
+---
+
+## Final PDF Evidence Foundation Flow
+
+Current safe flow:
+
+PDF Text Extraction JSON
+    |
+    v
+PdfTextExtractionEvidence
+    |
+    v
+PDF Text Evidence JSON
+    |
+    v
+Artifact Inspection
+
+---
+
+## Architecture Boundary Confirmation
+
+Confirmed:
+
+- PDF Text Evidence remains separate from Text Evidence
+- PDF Text Evidence remains separate from Knowledge
+- PDF Text Evidence remains separate from Prompt Candidate
+- PDF Text Evidence remains separate from Product Specification Knowledge
+- PDF Text Evidence remains separate from AI interpretation
+- No OCR introduced
+- No table semantics introduced
+- No product inference introduced
+- No prompt generation introduced
+- No AI calls introduced
+- No analyzer integration introduced
+- No report integration introduced
+- No core pipeline integration introduced
+
+---
+
+## PR-009 Final Test Status
+
+Latest full test suite:
+
+424 passed
+
+---
+
+## Recommended Next Phase
+
+Next phase:
+
+PDF Evidence to Knowledge Architecture Review
+
+Important:
+
+Do not start Knowledge implementation directly.
