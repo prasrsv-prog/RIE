@@ -1013,3 +1013,171 @@ Do not introduce:
 - report integration
 - core pipeline integration
 
+---
+
+# PR-006C Text Knowledge CLI Export Checkpoint
+
+## Completed Milestone
+
+PR-006C — Export Text Knowledge CLI
+
+Latest commit:
+
+55ab35b feat: export text knowledge from CLI
+
+Latest verified test result:
+
+136 passed
+
+---
+
+## Completed in PR-006C
+
+Added a minimal CLI to export Text Knowledge JSON from Text Extraction Evidence JSON.
+
+New CLI:
+
+python -m rie.knowledge.export_text_knowledge text-evidence.json --output text-knowledge.json
+
+New components:
+
+- rie.knowledge package
+- export_text_knowledge CLI
+
+---
+
+## Current Knowledge Export Flow
+
+Current flow:
+
+Text Extraction Evidence JSON
+    |
+    v
+TextKnowledgeCollector
+    |
+    v
+TextKnowledgeCollection
+    |
+    v
+TextKnowledgeCollectionSerializer
+    |
+    v
+Text Knowledge JSON
+
+---
+
+## CLI Behavior
+
+The export_text_knowledge CLI:
+
+- Reads Text Extraction Evidence JSON
+- Decodes JSON directly
+- Converts valid evidence records into TextKnowledgeCollection
+- Skips invalid evidence records
+- Preserves original evidence_index from artifact position
+- Serializes deterministic Text Knowledge JSON
+- Writes output with UTF-8 encoding
+- Prints export summary
+
+Summary includes:
+
+- total evidence records
+- exported knowledge items
+- skipped invalid records
+- output path
+
+---
+
+## Text Knowledge JSON Shape
+
+Current Text Knowledge artifact shape:
+
+{
+  "knowledge_items": [
+    {
+      "source_path": "...",
+      "content": "...",
+      "size_bytes": 123,
+      "evidence_index": 0
+    }
+  ]
+}
+
+---
+
+## Architecture Boundary Preserved
+
+PR-006C does not introduce:
+
+- AI interpretation
+- Semantic summaries
+- Categories
+- Labels
+- Embeddings
+- Knowledge graph
+- Prompt generation
+- CLI chaining
+- Analyzer integration
+- Report integration
+- Core pipeline integration
+- Legacy evidence migration
+
+Knowledge export remains artifact conversion only.
+
+---
+
+## Current Safe Pipeline
+
+TextAssetExtractionReport JSON
+    |
+    v
+Text Extraction Evidence JSON
+    |
+    v
+Evidence Artifact Inspection
+    |
+    v
+TextKnowledgeCollection
+    |
+    v
+Text Knowledge JSON
+
+---
+
+## Recommended Next Step
+
+Recommended next milestone:
+
+PR-006D — Text Knowledge Artifact Inspection
+
+Goal:
+
+Add a minimal inspection tool for exported Text Knowledge JSON artifacts.
+
+Expected inspection should validate:
+
+- top-level knowledge_items exists
+- knowledge_items is a list
+- each knowledge item has only:
+  - source_path
+  - content
+  - size_bytes
+  - evidence_index
+- forbidden fields are counted
+- invalid records are counted
+- total knowledge items are counted
+- total content characters are counted
+- empty content items are counted
+
+Do not introduce:
+
+- summary generation
+- categories
+- labels
+- embeddings
+- graph model
+- prompt generation
+- analyzer integration
+- report integration
+- core pipeline integration
+
