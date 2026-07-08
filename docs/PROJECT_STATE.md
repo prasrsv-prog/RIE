@@ -1388,3 +1388,247 @@ Questions for PR-007:
 - How to prevent direct AI generation from leaking into deterministic prompt preparation?
 - Should prompt preparation start as artifact conversion before any AI model involvement?
 
+---
+
+# PR-007 Complete Checkpoint
+
+## Status
+
+PR-007 Prompt Candidate Foundation is complete.
+
+Latest verified commit before checkpoint:
+
+fb3df22 test: add text prompt candidate smoke flow
+
+Latest verified test result:
+
+227 passed
+
+Git alignment:
+
+origin/main...HEAD = 0 0
+
+Working tree before checkpoint:
+
+clean
+
+---
+
+## Completed PR-007 Scope
+
+### PR-007A - Minimal Text Prompt Candidate Boundary
+
+Completed:
+
+- TextPromptCandidate
+- TextPromptCandidateBuilder
+- TextPromptCandidateCollection
+- TextPromptCandidateCollector
+
+Result:
+
+Valid Text Knowledge records can become TextPromptCandidate items.
+
+Invalid Text Knowledge records are skipped by collector.
+
+Prompt Candidate preserves traceability through:
+
+- source_path
+- evidence_index
+- knowledge_index
+
+---
+
+### PR-007B - Text Prompt Candidate Serialization
+
+Completed:
+
+- TextPromptCandidateCollectionSerializer
+- Deterministic Prompt Candidate JSON serialization
+- Non-ASCII content preservation
+- Newline content preservation
+- Empty content preservation
+- Strict deterministic fields only:
+  - source_path
+  - content
+  - size_bytes
+  - evidence_index
+  - knowledge_index
+
+---
+
+### PR-007C - Export Text Prompt Candidate CLI
+
+Completed:
+
+- export_text_prompt_candidates CLI
+
+CLI:
+
+python -m rie.prompt.export_text_prompt_candidates text-knowledge.json --output text-prompt-candidates.json
+
+Result:
+
+Text Knowledge JSON can be exported into deterministic Text Prompt Candidate JSON.
+
+---
+
+### PR-007D - Inspect Text Prompt Candidate Artifacts
+
+Completed:
+
+- TextPromptCandidateArtifactInspector
+- inspect_text_prompt_candidates CLI
+
+CLI:
+
+python -m rie.prompt.inspect_text_prompt_candidates text-prompt-candidates.json
+
+Inspection output includes:
+
+- total prompt candidates
+- total content characters
+- empty content candidate count
+- invalid record count
+- forbidden field count
+
+---
+
+### PR-007E - Prompt Candidate End-to-End Smoke Flow
+
+Completed:
+
+- End-to-end smoke test from Text Knowledge JSON to Text Prompt Candidate JSON to Prompt Candidate inspection
+
+Flow verified:
+
+Text Knowledge JSON
+    |
+    v
+export_text_prompt_candidates CLI
+    |
+    v
+Text Prompt Candidate JSON
+    |
+    v
+inspect_text_prompt_candidates CLI
+
+---
+
+## Final Prompt Candidate Foundation Flow
+
+Current safe flow:
+
+Text Knowledge JSON
+    |
+    v
+TextPromptCandidateCollector
+    |
+    v
+TextPromptCandidateCollection
+    |
+    v
+Text Prompt Candidate JSON
+    |
+    v
+Text Prompt Candidate Artifact Inspection
+
+---
+
+## Architecture Boundary Confirmation
+
+Confirmed:
+
+- Knowledge is not Prompt Generator
+- Prompt Candidate is not Final Prompt
+- Prompt Candidate is not AI interpretation
+- Prompt Candidate export is not Final Prompt generation
+- Prompt Candidate inspection is not prompt readiness judgment
+- Prompt Candidate smoke flow is not creative generation
+- No prompt writing introduced
+- No final_prompt introduced
+- No instruction introduced
+- No system_prompt introduced
+- No user_prompt introduced
+- No summaries introduced
+- No categories introduced
+- No labels introduced
+- No metadata introduced
+- No confidence introduced
+- No scoring introduced
+- No style introduced
+- No tone introduced
+- No creative_direction introduced
+- No image_generation introduced
+- No video_generation introduced
+- No embeddings introduced
+- No graph introduced
+- No analyzer integration introduced
+- No report integration introduced
+- No core pipeline integration introduced
+- Legacy evidence path remains untouched
+- PR-005 evidence production files remain untouched
+- PR-006 knowledge production files remain untouched
+
+---
+
+## Traceability Confirmation
+
+Confirmed:
+
+- source_path is preserved
+- content is preserved exactly
+- size_bytes is preserved
+- evidence_index is preserved
+- knowledge_index is added as zero-based position in Text Knowledge artifact
+- knowledge_index is not compacted after skipped invalid records
+- knowledge_index is not treated as global ID
+- knowledge_index is not treated as hash
+- knowledge_index is not treated as database ID
+- knowledge_index is not treated as artifact ID
+
+---
+
+## PR-007 Final Test Status
+
+Latest full test suite:
+
+227 passed
+
+---
+
+## Known Future Hardening
+
+Optional future hardening:
+
+- Decide later whether Prompt Candidate should support artifact-level provenance
+- Decide later whether knowledge_index should be cross-checked against an originating Knowledge artifact
+- Decide later whether Prompt Candidate should remain text-only or branch into design-specific candidates
+
+These are not blocking PR-007 completion.
+
+---
+
+## Recommended Next Phase
+
+Next phase:
+
+PR-008 - PDF Specification Extraction Architecture Review
+
+Important:
+
+Do not start PDF extraction implementation directly.
+
+PR-008 should begin with architecture review only.
+
+Questions for PR-008:
+
+- What PDF formats are expected?
+- Are PDFs text-based, scanned, or mixed?
+- What should PDF extraction produce?
+- How should PDF extraction enter Evidence?
+- How should product specification fields remain factual?
+- How should table-like product specs be handled?
+- How should extraction preserve page/source traceability?
+- What should remain outside PDF extraction?
+
