@@ -707,3 +707,159 @@ Questions for PR-006:
 - What must remain outside Knowledge?
 - How to avoid prompt-generation leakage into Knowledge?
 
+---
+
+# PR-006A Knowledge Boundary Checkpoint
+
+## Completed Milestone
+
+PR-006A — Minimal Text Knowledge Boundary
+
+Latest commit:
+
+593f9a8 feat: add minimal text knowledge boundary
+
+Latest verified test result:
+
+119 passed
+
+---
+
+## Completed in PR-006A
+
+Introduced the first minimal Knowledge boundary.
+
+New components:
+
+- TextKnowledge
+- TextKnowledgeBuilder
+- TextKnowledgeCollection
+- TextKnowledgeCollector
+
+---
+
+## Knowledge Boundary
+
+Current Knowledge input:
+
+Text Extraction Evidence JSON artifact data
+
+Current Knowledge output:
+
+TextKnowledgeCollection
+
+Flow:
+
+Evidence JSON artifact record
+    |
+    v
+TextKnowledge
+
+---
+
+## TextKnowledge Fields
+
+TextKnowledge contains only:
+
+- source_path
+- content
+- size_bytes
+- evidence_index
+
+The evidence_index field means:
+
+Zero-based position of the evidence record inside the Evidence JSON artifact.
+
+It is not:
+
+- a global ID
+- a database ID
+- a hash
+- an artifact checksum
+
+---
+
+## Boundary Rules Preserved
+
+PR-006A does not introduce:
+
+- AI interpretation
+- Semantic summaries
+- Categories
+- Labels
+- Embeddings
+- Prompt generation
+- Knowledge graph
+- Analyzer integration
+- Report integration
+- Core pipeline integration
+- Legacy evidence migration
+- Knowledge CLI
+- Knowledge serializer
+
+---
+
+## Current Safe Pipeline
+
+TextAssetExtractionReport JSON
+    |
+    v
+Text Extraction Evidence JSON
+    |
+    v
+Evidence Artifact Inspection
+    |
+    v
+TextKnowledgeCollection
+
+---
+
+## Architecture Confirmation
+
+Confirmed:
+
+- Evidence is not Knowledge
+- Knowledge is not Prompt Generator
+- Knowledge preserves traceability back to Evidence
+- Knowledge currently copies exact content from valid evidence records
+- Failed extractions do not participate in Knowledge
+- Invalid evidence records are skipped by collector
+- Valid evidence order is preserved through evidence_index
+
+---
+
+## Recommended Next Step
+
+Recommended next milestone:
+
+PR-006B — Text Knowledge Collection Serialization
+
+Goal:
+
+Serialize TextKnowledgeCollection into deterministic JSON without adding interpretation.
+
+Expected output shape:
+
+{
+  "knowledge_items": [
+    {
+      "source_path": "...",
+      "content": "...",
+      "size_bytes": 123,
+      "evidence_index": 0
+    }
+  ]
+}
+
+Do not introduce:
+
+- summary
+- category
+- embedding
+- prompt
+- knowledge graph
+- AI interpretation
+- report integration
+- analyzer integration
+- core pipeline integration
+
