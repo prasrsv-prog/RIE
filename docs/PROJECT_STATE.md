@@ -863,3 +863,153 @@ Do not introduce:
 - analyzer integration
 - core pipeline integration
 
+---
+
+# PR-006B Text Knowledge Serialization Checkpoint
+
+## Completed Milestone
+
+PR-006B — Text Knowledge Collection Serialization
+
+Latest commit:
+
+4910612 feat: serialize text knowledge collection
+
+Latest verified test result:
+
+126 passed
+
+---
+
+## Completed in PR-006B
+
+Added deterministic JSON serialization for TextKnowledgeCollection.
+
+New component:
+
+- TextKnowledgeCollectionSerializer
+
+Serializer functions:
+
+- to_dict(collection)
+- to_json(collection)
+
+No file-writing helper was added.
+
+No CLI was added.
+
+No deserialization was added.
+
+---
+
+## Text Knowledge JSON Shape
+
+Current serialized Knowledge artifact shape:
+
+{
+  "knowledge_items": [
+    {
+      "source_path": "...",
+      "content": "...",
+      "size_bytes": 123,
+      "evidence_index": 0
+    }
+  ]
+}
+
+---
+
+## Serialization Rules
+
+The serializer:
+
+- Preserves knowledge item order
+- Preserves exact content
+- Preserves non-ASCII content
+- Preserves newline content
+- Emits evidence_index exactly as stored
+- Includes only approved TextKnowledge fields
+
+Approved fields:
+
+- source_path
+- content
+- size_bytes
+- evidence_index
+
+---
+
+## Architecture Boundary Preserved
+
+PR-006B does not introduce:
+
+- AI interpretation
+- Semantic summaries
+- Categories
+- Labels
+- Embeddings
+- Prompt generation
+- Knowledge graph
+- CLI
+- File writer helper
+- Analyzer integration
+- Report integration
+- Core pipeline integration
+- Legacy evidence migration
+
+Knowledge serialization remains a deterministic artifact conversion only.
+
+---
+
+## Current Knowledge Flow
+
+Current safe Knowledge flow:
+
+Text Extraction Evidence JSON
+    |
+    v
+TextKnowledgeCollection
+    |
+    v
+Text Knowledge JSON
+
+---
+
+## Recommended Next Step
+
+Recommended next milestone:
+
+PR-006C — Export Text Knowledge CLI
+
+Goal:
+
+Add a minimal CLI that reads a Text Extraction Evidence JSON artifact, converts valid records into TextKnowledgeCollection, serializes it, and writes deterministic Text Knowledge JSON.
+
+Expected flow:
+
+Text Extraction Evidence JSON
+    |
+    v
+TextKnowledgeCollector
+    |
+    v
+TextKnowledgeCollection
+    |
+    v
+TextKnowledgeCollectionSerializer
+    |
+    v
+Text Knowledge JSON
+
+Do not introduce:
+
+- summaries
+- categories
+- embeddings
+- prompts
+- graph model
+- AI interpretation
+- analyzer integration
+- report integration
+- core pipeline integration
+
