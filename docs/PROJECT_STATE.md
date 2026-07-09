@@ -2,17 +2,17 @@
 
 ## Current Version
 
-v0.10.0-rcis-official-knowledge-foundation
+v0.11.0-rcis-official-knowledge-cli-foundation
 
 ## Status
 
-Official Knowledge Foundation Completed
+Official Knowledge CLI Foundation Completed
 
 Repository:
 RIE (RCIS Intelligence Engine)
 
 Milestone:
-PR-010 Official Knowledge Foundation
+PR-011 Official Knowledge CLI Foundation
 
 ---
 
@@ -2216,6 +2216,252 @@ v0.10.0-rcis-official-knowledge-foundation
 - Official Knowledge CLI export
 - Curated official knowledge input file loader
 - Official source registry / document classification
+- Product Knowledge Architecture Review
+- Product Library Foundation
+- Persona Library Foundation
+- Asset Library Foundation
+- Decision Engine Architecture Review
+
+---
+
+# PR-011 Complete Checkpoint
+
+## Status
+
+PR-011 Official Knowledge CLI Foundation is complete.
+
+Latest verified full test result:
+
+491 passed
+
+---
+
+## Completed PR-011 Commits
+
+- 329d434 feat: add official knowledge source input loader
+- 34269c2 feat: export official knowledge from curated input
+- fc06cef feat: inspect official knowledge artifacts from CLI
+- 05c40c9 test: add official knowledge CLI smoke flow
+
+---
+
+## Completed PR-011 Scope
+
+Added curated Official Knowledge CLI support.
+
+Completed components:
+
+- OfficialKnowledgeSourceInputLoader
+- Curated Official Knowledge source JSON input contract
+- Official Knowledge export CLI
+- Official Knowledge inspect CLI
+- Official Knowledge CLI smoke flow
+
+---
+
+## Official Knowledge CLI Commands
+
+Export curated Official Knowledge source JSON into an Official Knowledge artifact:
+
+```text
+python -m rie.knowledge.export_official_knowledge <input_json> --output <output_json>
+```
+
+Inspect an Official Knowledge artifact:
+
+```text
+python -m rie.knowledge.inspect_official_knowledge <artifact_json>
+```
+
+---
+
+## Official Knowledge CLI Flow
+
+Current safe CLI flow:
+
+curated official knowledge source JSON
+    |
+    v
+OfficialKnowledgeSourceInputLoader
+    |
+    v
+OfficialKnowledgeCollector
+    |
+    v
+OfficialKnowledgeCollectionSerializer
+    |
+    v
+official knowledge artifact JSON
+    |
+    v
+OfficialKnowledgeArtifactInspector
+    |
+    v
+inspection summary / exit code
+
+---
+
+## Curated Source Input Shape
+
+Curated Official Knowledge source JSON shape:
+
+```json
+{
+  "official_knowledge_source_items": [
+    {
+      "knowledge_id": "... or null",
+      "source_path": "...",
+      "source_document": "...",
+      "source_section": "... or null",
+      "source_page": 1 or null,
+      "title": "...",
+      "content": "...",
+      "status": "... or null",
+      "governance_level": "... or null",
+      "pdf_evidence_index": 0 or null,
+      "extraction_index": 0 or null
+    }
+  ]
+}
+```
+
+Optional fields may be omitted and default to null, including:
+
+- knowledge_id
+- source_section
+- source_page
+- status
+- governance_level
+- pdf_evidence_index
+- extraction_index
+
+---
+
+## Official Knowledge Artifact Shape
+
+Exported Official Knowledge JSON shape:
+
+```json
+{
+  "official_knowledge_items": [
+    {
+      "knowledge_id": "... or null",
+      "source_path": "...",
+      "source_document": "...",
+      "source_section": "... or null",
+      "source_page": 1 or null,
+      "title": "...",
+      "content": "...",
+      "status": "... or null",
+      "governance_level": "... or null",
+      "pdf_evidence_index": 0 or null,
+      "extraction_index": 0 or null,
+      "official_knowledge_index": 0
+    }
+  ]
+}
+```
+
+---
+
+## Loader Rules
+
+The curated source input loader enforces:
+
+- top-level input key is official_knowledge_source_items
+- top-level unknown keys are rejected
+- item-level unknown fields are rejected
+- forbidden fields are rejected immediately
+- required fields are source_path, source_document, title, and content
+- optional fields default to None when omitted
+- source_page, pdf_evidence_index, and extraction_index must be int or None
+- bool values are rejected for integer fields
+- input order is preserved
+
+---
+
+## Official Knowledge Inspection Rules
+
+The Official Knowledge artifact inspector checks:
+
+- total official knowledge items
+- missing required traceability
+- missing governance
+- forbidden fields
+- official_knowledge_index mismatch
+- artifact validity
+
+Inspection behavior:
+
+- missing governance is counted but does not invalidate the artifact
+- missing required traceability invalidates the artifact
+- forbidden fields invalidate the artifact
+- official_knowledge_index mismatch invalidates the artifact
+- empty official_knowledge_items list is valid
+
+---
+
+## Architecture Boundary Confirmation
+
+Confirmed:
+
+- PR-011 accepts curated Official Knowledge source JSON only.
+- PR-011 does not parse PDF documents.
+- PR-011 does not automatically convert PDF Evidence into Official Knowledge.
+- PR-011 does not create Product Knowledge.
+- PR-011 does not create Creative Logic Knowledge.
+- PR-011 does not create Prompt Candidate.
+- PR-011 does not create Final Prompt.
+- PR-011 does not call AI.
+- PR-011 does not infer category, brand, product model, persona, or creative meaning.
+- PR-011 does not normalize governance.
+- PR-011 does not resolve conflicts between locked source documents.
+- PR-011 does not generate knowledge IDs.
+- PR-011 preserves source-local IDs when provided.
+- PR-011 rejects forbidden prompt / AI / generated-output fields at curated input loading.
+- PR-011 keeps Official Knowledge separate from TextKnowledge.
+
+---
+
+## Reference Set / SSOT Candidate Documents
+
+Future locked / SSOT reference inputs:
+
+- COS-001 - Creative Logic Specification V2.0
+- COS-002 - RSV Brand Knowledge Specification V1.0
+- RSV Group Master Asset Library V1
+- RSV Group Project Rulebook V1
+- RSV COS Architecture Baseline v1.0 LOCKED
+- RSV Official Knowledge Base v1.0 LOCKED
+
+Important:
+
+These documents remain locked / SSOT reference inputs.
+They are not hardcoded into tests or implementation in PR-011.
+
+---
+
+## PR-011 Final Test Status
+
+Latest full test suite:
+
+491 passed
+
+---
+
+## Current Version Checkpoint
+
+Recommended version checkpoint:
+
+v0.11.0-rcis-official-knowledge-cli-foundation
+
+---
+
+## Future Work After v0.11.0
+
+- Curated official knowledge source file preparation from locked documents
+- Official source registry / document classification
+- Official Knowledge sample artifact using safe curated data
 - Product Knowledge Architecture Review
 - Product Library Foundation
 - Persona Library Foundation
