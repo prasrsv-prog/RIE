@@ -1,4 +1,6 @@
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from official_source.official_source import AuthorityStatus
@@ -98,6 +100,26 @@ class OfficialSourceRegistryLoader:
             sources.append(source)
 
         return sources
+
+    @staticmethod
+    def load_from_json_file(
+        path: str | Path,
+    ) -> list[OfficialSource]:
+        if not isinstance(path, (str, Path)):
+            raise TypeError(
+                "Official Source registry JSON path must be a string or Path."
+            )
+
+        registry_path = Path(path)
+
+        try:
+            data = json.loads(registry_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "Official Source registry JSON file is invalid."
+            ) from exc
+
+        return OfficialSourceRegistryLoader.load_from_mapping(data)
 
 
 def _load_item(
