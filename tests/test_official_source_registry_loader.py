@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 
 import pytest
@@ -33,6 +34,13 @@ def _registry(items):
     return {
         "official_sources": items,
     }
+
+
+def _write_registry_json(path, registry):
+    path.write_text(
+        json.dumps(registry),
+        encoding="utf-8",
+    )
 
 
 def test_valid_mapping_returns_ordered_official_source_objects():
@@ -272,6 +280,87 @@ def test_input_is_not_mutated():
     OfficialSourceRegistryLoader.load_from_mapping(registry)
 
     assert registry == original_registry
+
+
+def test_valid_synthetic_json_file_loads_official_source_objects(tmp_path):
+    registry_path = tmp_path / "official-source-registry.json"
+    _write_registry_json(
+        registry_path,
+        _registry([
+            _item(
+                source_id="SRC-001",
+                source_path="docs/synthetic-source-001.pdf",
+            ),
+            _item(
+                source_id="SRC-002",
+                source_path="docs/synthetic-source-002.md",
+            ),
+        ]),
+    )
+
+    sources = OfficialSourceRegistryLoader.load_from_json_file(registry_path)
+
+    assert [source.source_id for source in sources] == [
+        "SRC-001",
+        "SRC-002",
+    ]
+    assert sources[0].source_type == SourceType.PDF
+    assert sources[0].document_classification == (
+        DocumentClassification.PROJECT_RULEBOOK
+    )
+
+
+def test_json_file_path_may_be_provided_as_string(tmp_path):
+    registry_path = tmp_path / "official-source-registry.json"
+    _write_registry_json(registry_path, _registry([_item()]))
+
+    sources = OfficialSourceRegistryLoader.load_from_json_file(
+        str(registry_path),
+    )
+
+    assert sources[0].source_id == "SRC-001"
+
+
+def test_missing_registry_json_file_raises_file_not_found_error(tmp_path):
+    registry_path = tmp_path / "missing-registry.json"
+
+    with pytest.raises(FileNotFoundError):
+        OfficialSourceRegistryLoader.load_from_json_file(registry_path)
+
+
+def test_invalid_registry_json_file_raises_value_error(tmp_path):
+    registry_path = tmp_path / "official-source-registry.json"
+    registry_path.write_text("{invalid-json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Official Source registry JSON"):
+        OfficialSourceRegistryLoader.load_from_json_file(registry_path)
+
+
+def test_top_level_list_json_fails_through_mapping_validation(tmp_path):
+    registry_path = tmp_path / "official-source-registry.json"
+    registry_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(TypeError, match="mapping"):
+        OfficialSourceRegistryLoader.load_from_json_file(registry_path)
+
+
+def test_json_file_loader_does_not_check_source_path_existence(tmp_path):
+    registry_path = tmp_path / "official-source-registry.json"
+    _write_registry_json(
+        registry_path,
+        _registry([
+            _item(source_path="docs/not-a-real-synthetic-source.pdf"),
+        ]),
+    )
+
+    sources = OfficialSourceRegistryLoader.load_from_json_file(registry_path)
+
+    assert sources[0].source_path == "docs/not-a-real-synthetic-source.pdf"
+
+
+def test_json_file_loader_has_no_default_config_path():
+    with pytest.raises(TypeError):
+        OfficialSourceRegistryLoader.load_from_json_file()
 
 
 def test_test_data_is_synthetic():
