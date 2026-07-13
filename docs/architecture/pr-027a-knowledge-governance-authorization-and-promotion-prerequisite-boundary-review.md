@@ -119,6 +119,23 @@ deferred
 
 `authorized` means only that the exact candidate snapshot is eligible to be considered by a future promotion-evaluation action under the recorded policy. It does not waive conflict, authority, lifecycle, acceptance, identity, or provenance prerequisites.
 
+The initial side-effect-free governor supports exactly one governance application policy:
+
+```text
+KNOWLEDGE_GOVERNANCE_POLICY_ID = rcis-knowledge-governance-authorization
+KNOWLEDGE_GOVERNANCE_POLICY_VERSION = 1.0.0
+```
+
+This application policy controls whether a `KnowledgeGovernanceRequest` is supported. It is not the deterministic governance-decision identity policy and is not the upstream review-evidence policy. The three responsibilities remain exact and separate:
+
+| Responsibility | Exact policy ID | Version |
+|---|---|---|
+| Governance application | `rcis-knowledge-governance-authorization` | `1.0.0` |
+| Governance-decision identity | `rcis-knowledge-governance-decision-identity` | `1.0.0` |
+| Eligible review evidence | `rcis-knowledge-candidate-review` | `1.0.0` |
+
+The governor must not reuse one policy identifier for another responsibility.
+
 The initial governor accepts review evidence from exactly one review policy:
 
 ```text
@@ -202,7 +219,10 @@ The proposed `KnowledgeGovernanceRequest` must receive:
 - non-empty ordered unique reason codes;
 - explicit actor ID;
 - explicit caller-supplied timezone-aware timestamp;
-- explicit governance policy ID and version.
+- explicit `governance_policy_id` exactly `rcis-knowledge-governance-authorization` for a recorded result;
+- explicit `governance_policy_version` exactly `1.0.0` for a recorded result.
+
+The request carries both application-policy values. The governor copies the exact caller-supplied values unchanged into a recorded `KnowledgeGovernanceDecision`, and those values participate in `kg1_` identity. It must not insert, replace, normalize, repair, or infer them. A structurally valid request with another governance policy ID, version, or both is valid but unsupported application input: it returns `result_status="rejected"`, `governance_decision_record=None`, and `reason_codes=("unsupported_governance_policy",)`. An unsupported policy alone does not raise `ValueError`; non-string, empty, or whitespace-only policy values remain malformed programming inputs and do raise `ValueError`.
 
 Every supplied review record must use exact review policy ID `rcis-knowledge-candidate-review` and version `1.0.0`. This requirement is independent for every tuple member. Mixed eligible and ineligible review-policy records are not partially accepted.
 
@@ -228,7 +248,7 @@ A malformed review-record object or broken identity raises `ValueError`. A valid
 
 ## 18. Deterministic identity requirements
 
-The proposed identity policy is:
+The proposed governance-decision identity policy is:
 
 ```text
 class_name = KnowledgeGovernanceDecision
@@ -241,6 +261,8 @@ canonicalization_contract = knowledge-governance-decision-json-v1
 digest_algorithm = sha256
 timestamp_normalization = UTC with fixed microsecond precision
 ```
+
+`KNOWLEDGE_GOVERNANCE_IDENTITY_POLICY_ID = rcis-knowledge-governance-decision-identity` and `KNOWLEDGE_GOVERNANCE_IDENTITY_POLICY_VERSION = 1.0.0` govern only deterministic identity construction. They are distinct from the request's application-policy values `KNOWLEDGE_GOVERNANCE_POLICY_ID = rcis-knowledge-governance-authorization` and `KNOWLEDGE_GOVERNANCE_POLICY_VERSION = 1.0.0`.
 
 Identity fields are:
 
@@ -297,7 +319,7 @@ For a recorded governance decision, `reason_codes` remains an exact non-empty im
 
 If the requested decision is otherwise matrix-compatible but the required reason is absent, the service returns application status `rejected`, no record, and `("missing_required_governance_reason",)`. This is a valid but incompatible request.
 
-Malformed programming inputs raise `ValueError`, including wrong exact request/candidate/record/diagnostic types, non-tuple collections, empty required values, duplicate or unordered IDs/reasons, invalid identifiers, naive or wrong-type timestamps, broken record identity, and non-canonical collections.
+Malformed programming inputs raise `ValueError`, including wrong exact request/candidate/record/diagnostic types, non-tuple collections, empty or whitespace-only required values, non-string policy values, duplicate or unordered IDs/reasons, invalid identifiers, naive or wrong-type timestamps, broken record identity, and non-canonical collections. A well-formed but unsupported governance application policy is not malformed and does not raise `ValueError` solely because it is unsupported.
 
 Valid but unsupported or policy-incompatible requests return an explicit rejected application result with no record. The initial rejection vocabulary is:
 
@@ -315,7 +337,19 @@ Valid but unsupported or policy-incompatible requests return an explicit rejecte
 | `incompatible_governance_decision` | All-passed evidence is asked to deny |
 | `missing_required_governance_reason` | A compatible request omits its matrix-required reason |
 
-No eligible record compensates for an unsupported-policy record, and no evidence subset overrides the complete matrix classification.
+For every structurally valid request, application evaluation stops at the first applicable rejection in this exact precedence:
+
+1. unsupported governance application policy ID or version: `unsupported_governance_policy`;
+2. unsupported governance decision: `unsupported_governance_decision`;
+3. any supplied review record using an unsupported review-evidence policy: `unsupported_review_evidence_policy`;
+4. review candidate-ID mismatch: `review_candidate_mismatch`;
+5. review candidate-contract mismatch: `review_candidate_contract_mismatch`;
+6. review candidate-snapshot mismatch: `review_candidate_snapshot_mismatch`;
+7. evidence-composition versus requested-decision incompatibility: the applicable exact matrix reason `ineligible_review_evidence`, `contradictory_review_evidence`, `incomplete_review_evidence`, or `incompatible_governance_decision`;
+8. otherwise compatible request missing its matrix-required governance reason: `missing_required_governance_reason`;
+9. otherwise record one `KnowledgeGovernanceDecision`.
+
+This precedence begins only after request-domain validation succeeds. No later compatible evidence may override an earlier rejection. No eligible record compensates for an unsupported-policy record, and no evidence subset overrides the complete matrix classification.
 
 ## 21. Dependency and import review
 
@@ -329,6 +363,8 @@ rie.application.knowledge_governor
 ```
 
 The new domain file may import `KnowledgeCandidate` and `KnowledgeReviewRecord` for exact validation and projection helpers. Existing candidate and review-record modules must not import the new record, avoiding circular dependencies. The application service may import all three domain modules.
+
+The application module owns the exact supported request-policy constants `KNOWLEDGE_GOVERNANCE_POLICY_ID = "rcis-knowledge-governance-authorization"` and `KNOWLEDGE_GOVERNANCE_POLICY_VERSION = "1.0.0"`. The governance-decision domain module owns its separate identity-policy constants `KNOWLEDGE_GOVERNANCE_IDENTITY_POLICY_ID = "rcis-knowledge-governance-decision-identity"` and `KNOWLEDGE_GOVERNANCE_IDENTITY_POLICY_VERSION = "1.0.0"`. Eligible upstream records independently carry review policy `rcis-knowledge-candidate-review` version `1.0.0`; neither new module replaces that lineage.
 
 No new dependency is required. Legacy Knowledge, Prompt, interface, infrastructure, repository, filesystem, database, parser, network, AI, CLI, and runtime imports remain prohibited.
 
@@ -347,6 +383,10 @@ The next implementation must not:
 - perform repository lookup, filesystem reads, source-asset reads, or persistence;
 - infer current time, generate randomness, or use UUID identity;
 - infer governance from source authority, lifecycle, path, classification, actor rank, time, order, or lexical ID;
+- reuse the governance application, governance-decision identity, or review-evidence policy ID for another responsibility;
+- insert, replace, normalize, repair, or infer caller-supplied governance application policy values;
+- raise `ValueError` solely because a structurally valid governance application policy ID or version is unsupported;
+- evaluate a later decision or review-evidence condition before the supported governance application policy check;
 - accept an unsupported review-evidence policy because another supplied record is eligible;
 - classify valid unsupported-policy review evidence as malformed or raise `ValueError` solely for that policy mismatch;
 - insert, reorder, remove, normalize, or repair governance reason codes;
@@ -397,7 +437,7 @@ The smallest safe slice is exactly one immutable governance decision and one sid
 | 9 | Yes. Every review record must reference the same supplied candidate ID. |
 | 10 | Yes. Every review-record candidate snapshot digest must equal the recomputed supplied-candidate digest. |
 | 11 | `passed`, `rejected`, and `deferred` are valid evidence only from review policy `rcis-knowledge-candidate-review` version `1.0.0`; `authorized` requires every supplied record to be eligible and passed. |
-| 12 | Yes, one passed review is sufficient only under initial governance policy `1.0.0` when the complete supplied set is passed, eligible, and consistent. |
+| 12 | Yes, one passed review is sufficient only under governance application policy `rcis-knowledge-governance-authorization` version `1.0.0` when the complete supplied set is passed, eligible, and consistent. |
 | 13 | Multiple passed reviews are permitted, unique, and ordered; they are not required by policy `1.0.0`. |
 | 14 | The exact six-composition matrix controls rejected/deferred evidence: all rejected may deny or defer; all deferred and every mixed deferred set may only defer; all outcomes require their matrix reason. |
 | 15 | Passed-plus-rejected evidence, with or without deferred, is contradictory and may only yield explicit deferred with `contradictory_review_evidence`. |
@@ -415,15 +455,15 @@ The smallest safe slice is exactly one immutable governance decision and one sid
 | 27 | Promotion must verify exact candidate and snapshot, compatible `authorized` governance evidence, non-contradictory reviews and governance decisions, explicit conflict assessment, authority assignment rule, lifecycle transition, actor/reason/policy/time, new identity, and provenance. |
 | 28 | Yes. Candidate ID remains immutable lineage. |
 | 29 | Yes. Future governed Knowledge requires a separately approved new identity. |
-| 30 | Use `kg1_`, `rcis-knowledge-governance-decision-identity` version `1.0.0`, canonical JSON, and SHA-256. |
-| 31 | Identity includes contracts, candidate ID/version/snapshot, ordered review IDs, scope, decision, reasons, actor, time, policy, and canonicalization version. |
+| 30 | Use `kg1_`, identity policy `rcis-knowledge-governance-decision-identity` version `1.0.0`, canonical JSON, and SHA-256; this is separate from the governance application policy. |
+| 31 | Identity includes contracts, candidate ID/version/snapshot, ordered review IDs, scope, decision, reasons, actor, time, exact caller-supplied governance application policy ID/version, and canonicalization version. |
 | 32 | Diagnostics, paths, raw assets, object identity, ordering position, implicit time, random data, conflict/authority/lifecycle/promotion/Knowledge/persistence metadata remain outside identity. |
-| 33 | Record actor, caller-supplied reason codes including the required matrix reason, governance policy ID/version, explicit time, candidate snapshot evidence, and exact eligible review-record IDs. |
+| 33 | Record actor, caller-supplied reason codes including the required matrix reason, exact caller-supplied governance application policy `rcis-knowledge-governance-authorization` version `1.0.0`, explicit time, candidate snapshot evidence, and exact eligible review-record IDs without insertion or repair. |
 | 34 | Exact replay returns the same identity; durable duplicate suppression is deferred. |
 | 35 | Contradictory governance records coexist without winner selection and require later adjudication policy. |
 | 36 | Denial is an immutable historical record, not mutation or terminal erasure; later records never overwrite it. |
 | 37 | Wrong exact types, malformed IDs, empty strings/tuples, mutable/duplicate/unordered collections, naive timestamps, broken identities, and canonical collection violations raise `ValueError`. |
-| 38 | Unsupported governance policy/decision, unsupported review-evidence policy, consistency mismatch, matrix-incompatible decision, and missing required reason return explicit rejection with no record. |
+| 38 | Unsupported governance policy/decision, unsupported review-evidence policy, consistency mismatch, matrix-incompatible decision, and missing required reason return explicit rejection with no record in the exact first-applicable precedence defined in section 20. |
 | 39 | No repository, persistence, serialization, interface, infrastructure, database, CLI, API, or UI is required. |
 | 40 | Phase 23-26 Evidence, acceptance, candidate, review-record, identity, constructor, reviewer, repository, and adapter contracts remain unchanged. |
 | 41 | All top-level Knowledge/Prompt types, `rie.knowledge` and `rie.prompt` wrappers, and any historical governance/lifecycle/authority/conflict/repository strings remain frozen compatibility surfaces. |
@@ -481,7 +521,7 @@ No existing file needs modification. If implementation requires another layer or
 | A13 | A valid review record with an unsupported review policy ID or version returns `unsupported_review_evidence_policy` with no governance record, including mixed eligible/ineligible tuples |
 | A14 | Candidate ID, candidate contract version, complete candidate snapshot digest, and `kr1_` identity must match every review record |
 | A15 | A matrix-compatible decision missing its required governance reason returns `missing_required_governance_reason` without repairing the caller tuple |
-| A16 | Unsupported governance policy or unsupported governance decision returns an explicit rejected result with no record |
+| A16 | Unsupported governance policy ID, unsupported governance policy version, both unsupported policy values, or unsupported governance decision returns an explicit rejected result with no record; governance policy is checked before decision and review-evidence compatibility in the exact rejection precedence |
 | A17 | Exact replay produces the same governance record and `kg1_` identity; material request changes produce a distinct identity |
 | A18 | Raw dictionaries, paths, unresolved IDs, wrong domain objects, legacy Knowledge, Prompt objects, and duck-typed substitutes are rejected |
 | A19 | Candidate, review records, request, reason tuples, and recorded or rejected results remain immutable and unchanged |
@@ -511,6 +551,10 @@ PR-027A is complete when:
 - current governance, acceptance, promotion, conflict, authority, lifecycle, Knowledge, repository, and Prompt states are classified;
 - `KnowledgeGovernanceDecision` is selected as the smallest honest next object;
 - its exact relationship to one candidate and exact review records is defined;
+- governance application policy `rcis-knowledge-governance-authorization` version `1.0.0`, governance-decision identity policy `rcis-knowledge-governance-decision-identity` version `1.0.0`, and eligible review-evidence policy `rcis-knowledge-candidate-review` version `1.0.0` are explicitly distinct;
+- exact caller-supplied governance application policy values are required, copied unchanged into recorded decisions, and included in `kg1_` identity;
+- unsupported but well-formed governance policy values return `unsupported_governance_policy` rather than `ValueError`;
+- the exact first-applicable application rejection precedence is defined and begins only after request-domain validation;
 - contradiction handling permits no winner selection;
 - every review record independently uses eligible review policy `rcis-knowledge-candidate-review` version `1.0.0`;
 - the exact six-composition evidence matrix and required governance reasons are explicit;
@@ -529,6 +573,10 @@ Stop PR-027B and return to architecture review if:
 
 - exact candidate and review-record objects cannot remain the sole inputs;
 - complete candidate snapshot or review identities cannot be verified;
+- exact governance application policy `rcis-knowledge-governance-authorization` version `1.0.0` cannot remain distinct from the governance-decision identity and review-evidence policies;
+- caller-supplied governance application policy values cannot be preserved unchanged in the record and `kg1_` identity;
+- unsupported governance policy cannot remain an explicit application rejection after malformed input validation;
+- the exact first-applicable rejection precedence cannot be enforced without repair, inference, or later evidence overriding an earlier rejection;
 - exact eligible review policy cannot be enforced independently for every supplied record;
 - the complete evidence-decision matrix or required reason behavior cannot be implemented without inference or repair;
 - authorization would require candidate mutation, acceptance, promotion, authority, lifecycle, or governed Knowledge;
@@ -546,4 +594,4 @@ Stop PR-027B and return to architecture review if:
 
 The smallest honest next boundary is an immutable `KnowledgeGovernanceDecision` and side-effect-free governor for one exact `KnowledgeCandidate` plus exact compatible `KnowledgeReviewRecord` values. Approval is limited to PR-027B and the four files in section 26. It does not claim or approve implementation, candidate mutation, Knowledge acceptance, promotion, governed/final Knowledge, authority or lifecycle assignment, conflict assessment or resolution, persistence, repository lookup, Prompt Candidate, AI, business decisions, runtime integration, merge, tag, or legacy migration.
 
-Approval requires the exact eligible review policy, six-composition decision matrix, governance-reason behavior, and explicit application rejection vocabulary defined in this corrected review. No evidence subset may override another, and authorization remains only eligibility for future promotion evaluation. Later promotion still requires separately reviewed conflict assessment, authority, lifecycle, identity, provenance, and governance prerequisites.
+Approval requires governance application policy `rcis-knowledge-governance-authorization` version `1.0.0`, separate governance-decision identity policy `rcis-knowledge-governance-decision-identity` version `1.0.0`, exact eligible review policy `rcis-knowledge-candidate-review` version `1.0.0`, the first-applicable rejection precedence, six-composition decision matrix, governance-reason behavior, and explicit application rejection vocabulary defined in this corrected review. No policy identifier substitutes for another responsibility, no evidence subset may override another, and authorization remains only eligibility for future promotion evaluation. Later promotion still requires separately reviewed conflict assessment, authority, lifecycle, identity, provenance, and governance prerequisites.
