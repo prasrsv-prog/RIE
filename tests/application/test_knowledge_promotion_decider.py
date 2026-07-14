@@ -542,8 +542,41 @@ def test_a30_import_direction_is_exact_and_earlier_modules_do_not_import_phase31
     assert "rie.domain.knowledge_promotion_decision" in app_modules
     assert "rie.domain.knowledge_candidate" in domain_modules
     assert "rie.domain.knowledge_promotion_prerequisite_evaluation" in domain_modules
-    earlier = tuple(Path("src/rie/domain").glob("knowledge_*.py")) + tuple(Path("src/rie/application").glob("knowledge_*.py"))
-    for path in earlier:
-        if path.name in {"knowledge_promotion_decision.py", "knowledge_promotion_decider.py"}:
-            continue
-        assert "knowledge_promotion_decision" not in path.read_text(encoding="utf-8")
+    earlier_paths = (
+        Path("src/rie/domain/knowledge_candidate.py"),
+        Path("src/rie/domain/knowledge_review_record.py"),
+        Path("src/rie/domain/knowledge_governance_decision.py"),
+        Path("src/rie/domain/knowledge_conflict_assessment_record.py"),
+        Path("src/rie/domain/knowledge_authority_decision.py"),
+        Path(
+            "src/rie/domain/"
+            "knowledge_promotion_prerequisite_evaluation.py"
+        ),
+        Path("src/rie/application/knowledge_constructor.py"),
+        Path("src/rie/application/knowledge_reviewer.py"),
+        Path("src/rie/application/knowledge_governor.py"),
+        Path("src/rie/application/knowledge_conflict_assessor.py"),
+        Path("src/rie/application/knowledge_authority_decider.py"),
+        Path(
+            "src/rie/application/"
+            "knowledge_promotion_prerequisite_evaluator.py"
+        ),
+    )
+    forbidden_reverse_imports = {
+        "rie.domain.knowledge_promotion_decision",
+        "rie.application.knowledge_promotion_decider",
+    }
+    for path in earlier_paths:
+        earlier_tree = ast.parse(path.read_text(encoding="utf-8"))
+        imported_modules = {
+            alias.name
+            for node in ast.walk(earlier_tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        imported_modules.update(
+            node.module
+            for node in ast.walk(earlier_tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+        )
+        assert imported_modules.isdisjoint(forbidden_reverse_imports)
