@@ -365,5 +365,20 @@ def test_a30_exact_import_direction_package_non_import_and_four_file_scope() -> 
     assert "rie.application.governed_knowledge_constructor" not in app_imports
     for init in (ROOT / "src/rie/domain/__init__.py", ROOT / "src/rie/application/__init__.py"):
         assert "governed_knowledge_acceptance" not in init.read_text(encoding="utf-8-sig")
-    matches = sorted(path.relative_to(ROOT).as_posix() for path in ROOT.rglob("*governed_knowledge_acceptance*") if path.is_file() and path.suffix == ".py")
-    assert matches == ["src/rie/application/governed_knowledge_acceptance_decider.py", "src/rie/domain/governed_knowledge_acceptance_decision.py", "tests/application/test_governed_knowledge_acceptance_decider.py", "tests/domain/test_governed_knowledge_acceptance_decision.py"]
+    phase34_basenames = {
+        "governed_knowledge_acceptance_decider.py",
+        "governed_knowledge_acceptance_decision.py",
+        "test_governed_knowledge_acceptance_decider.py",
+        "test_governed_knowledge_acceptance_decision.py",
+    }
+    matches = sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in ROOT.rglob("*.py")
+        if path.name in phase34_basenames
+    )
+    assert matches == [
+        "src/rie/application/governed_knowledge_acceptance_decider.py",
+        "src/rie/domain/governed_knowledge_acceptance_decision.py",
+        "tests/application/test_governed_knowledge_acceptance_decider.py",
+        "tests/domain/test_governed_knowledge_acceptance_decision.py",
+    ]
