@@ -424,3 +424,52 @@ def governed_knowledge_lifecycle_assertion_interpretation_result_identity_input_
         interpretation_policy_version=record.interpretation_policy_version,
         reason_codes=record.reason_codes,
     )
+
+def interpret_governed_knowledge_lifecycle_assertion_premise_structurally(
+    premise: _GovernedKnowledgeLifecycleAssertionInterpretationPremise,
+    interpreted_by: str,
+    interpretation_policy_id: str,
+    interpretation_policy_version: str,
+    reason_codes: tuple[str, ...],
+) -> GovernedKnowledgeLifecycleAssertionInterpretationResult:
+    if type(premise) is not _GovernedKnowledgeLifecycleAssertionInterpretationPremise:
+        raise ValueError(
+            "premise must be an exact "
+            "GovernedKnowledgeLifecycleAssertionInterpretationPremise"
+        )
+    premise.__post_init__()
+    _require_string(interpreted_by, "interpreted_by")
+    _require_string(
+        interpretation_policy_id,
+        "interpretation_policy_id",
+    )
+    _require_string(
+        interpretation_policy_version,
+        "interpretation_policy_version",
+    )
+    _require_unique_ordered_strings(reason_codes, "reason_codes")
+
+    result_status, assertion_value_groups = _derive_expected_structure(premise)
+    identity_input = (
+        GovernedKnowledgeLifecycleAssertionInterpretationResultIdentityInput(
+            contract_version=(
+                GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_RESULT_CONTRACT_VERSION
+            ),
+            premise=premise,
+            result_status=result_status,
+            assertion_value_groups=assertion_value_groups,
+            interpreted_by=interpreted_by,
+            interpretation_policy_id=interpretation_policy_id,
+            interpretation_policy_version=interpretation_policy_version,
+            reason_codes=reason_codes,
+        )
+    )
+    result_id = (
+        compute_governed_knowledge_lifecycle_assertion_interpretation_result_id(
+            identity_input
+        )
+    )
+    return GovernedKnowledgeLifecycleAssertionInterpretationResult(
+        governed_knowledge_lifecycle_assertion_interpretation_result_id=result_id,
+        **identity_input.__dict__,
+    )

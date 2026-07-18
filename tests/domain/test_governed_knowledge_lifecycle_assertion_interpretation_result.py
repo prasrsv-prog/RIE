@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import ast
 import hashlib
+import inspect
 import json
 from pathlib import Path
 import re
@@ -35,6 +36,7 @@ PUBLIC_SYMBOLS = {
     "canonical_governed_knowledge_lifecycle_assertion_interpretation_result_identity_bytes",
     "compute_governed_knowledge_lifecycle_assertion_interpretation_result_id",
     "governed_knowledge_lifecycle_assertion_interpretation_result_identity_input_from_record",
+    "interpret_governed_knowledge_lifecycle_assertion_premise_structurally",
 }
 
 VALUE_GROUP_FIELDS = (
@@ -1163,11 +1165,14 @@ def test_no_interpretation_timestamp_selected_assertion_or_authority_fields() ->
     assert forbidden.isdisjoint(_public_names())
 
 
-def test_no_public_derive_interpreter_constructor_or_diagnostics_surface() -> None:
+def test_only_exact_public_structural_interpretation_callable_is_added() -> None:
     public_lower = {name.lower() for name in _public_names()}
+    assert (
+        "interpret_governed_knowledge_lifecycle_assertion_premise_structurally"
+        in _public_names()
+    )
     forbidden_fragments = {
         "derive",
-        "interpreter",
         "constructor",
         "diagnostic",
         "selected",
@@ -1176,6 +1181,8 @@ def test_no_public_derive_interpreter_constructor_or_diagnostics_surface() -> No
         "repository",
         "persistence",
         "serializer",
+        "registry",
+        "dispatch",
     }
     assert not any(
         fragment in name
@@ -1253,3 +1260,412 @@ def test_module_has_no_filesystem_database_network_clock_or_randomness_dependenc
         and isinstance(node.func, ast.Attribute)
     }
     assert forbidden_calls.isdisjoint(called_names | called_attributes)
+
+def _interpret(
+    premise: premise_domain.GovernedKnowledgeLifecycleAssertionInterpretationPremise
+    | None = None,
+    *,
+    interpreted_by: str = "structural-interpreter",
+    interpretation_policy_id: str = "policy.structural",
+    interpretation_policy_version: str = "1.0.0",
+    reason_codes: tuple[str, ...] = ("structural-composition",),
+) -> domain.GovernedKnowledgeLifecycleAssertionInterpretationResult:
+    return domain.interpret_governed_knowledge_lifecycle_assertion_premise_structurally(
+        premise or _premise(("active",), salt="interpret"),
+        interpreted_by,
+        interpretation_policy_id,
+        interpretation_policy_version,
+        reason_codes,
+    )
+
+
+def test_structural_interpreter_exact_signature_annotations_and_defaults() -> None:
+    signature = inspect.signature(
+        domain.interpret_governed_knowledge_lifecycle_assertion_premise_structurally
+    )
+    parameters = tuple(signature.parameters.values())
+    assert tuple(parameter.name for parameter in parameters) == (
+        "premise",
+        "interpreted_by",
+        "interpretation_policy_id",
+        "interpretation_policy_version",
+        "reason_codes",
+    )
+    assert all(
+        parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        for parameter in parameters
+    )
+    assert all(
+        parameter.default is inspect.Parameter.empty
+        for parameter in parameters
+    )
+    assert parameters[0].annotation is (
+        premise_domain.GovernedKnowledgeLifecycleAssertionInterpretationPremise
+    )
+    assert parameters[1].annotation is str
+    assert parameters[2].annotation is str
+    assert parameters[3].annotation is str
+    assert parameters[4].annotation == tuple[str, ...]
+    assert signature.return_annotation is (
+        domain.GovernedKnowledgeLifecycleAssertionInterpretationResult
+    )
+
+
+def test_structural_interpreter_supports_positional_and_keyword_invocation() -> None:
+    premise = _premise(("active",), salt="invocation")
+    positional = (
+        domain.interpret_governed_knowledge_lifecycle_assertion_premise_structurally(
+            premise,
+            "structural-interpreter",
+            "policy.structural",
+            "1.0.0",
+            ("structural-composition",),
+        )
+    )
+    keyword = (
+        domain.interpret_governed_knowledge_lifecycle_assertion_premise_structurally(
+            premise=premise,
+            interpreted_by="structural-interpreter",
+            interpretation_policy_id="policy.structural",
+            interpretation_policy_version="1.0.0",
+            reason_codes=("structural-composition",),
+        )
+    )
+    expected = _record(
+        _identity(
+            premise=premise,
+            interpreted_by="structural-interpreter",
+            interpretation_policy_id="policy.structural",
+            interpretation_policy_version="1.0.0",
+            reason_codes=("structural-composition",),
+        )
+    )
+    assert positional == keyword == expected
+
+
+def test_structural_interpreter_requires_exact_premise_type_and_rejects_subclass() -> None:
+    with pytest.raises(
+        ValueError,
+        match=(
+            "^premise must be an exact "
+            "GovernedKnowledgeLifecycleAssertionInterpretationPremise$"
+        ),
+    ):
+        domain.interpret_governed_knowledge_lifecycle_assertion_premise_structurally(
+            object(),
+            "",
+            "",
+            "",
+            (),
+        )
+
+    class PremiseSubclass(
+        premise_domain.GovernedKnowledgeLifecycleAssertionInterpretationPremise
+    ):
+        pass
+
+    base = _premise(("active",), salt="premise-subclass")
+    subclass = object.__new__(PremiseSubclass)
+    for name, value in base.__dict__.items():
+        object.__setattr__(subclass, name, value)
+    with pytest.raises(
+        ValueError,
+        match=(
+            "^premise must be an exact "
+            "GovernedKnowledgeLifecycleAssertionInterpretationPremise$"
+        ),
+    ):
+        _interpret(subclass)
+
+
+def test_structural_interpreter_revalidates_nested_premise_and_assertions() -> None:
+    premise = _premise(("active",), salt="interpreter-mutated-premise")
+    object.__setattr__(premise, "declared_by", "")
+    with pytest.raises(
+        ValueError,
+        match="^declared_by must be an exact non-empty string$",
+    ):
+        _interpret(premise)
+
+    premise = _premise(("active",), salt="interpreter-mutated-assertion")
+    object.__setattr__(premise.assertions[0], "asserted_by", "")
+    with pytest.raises(
+        ValueError,
+        match="^asserted_by must be an exact non-empty string$",
+    ):
+        _interpret(premise)
+
+
+@pytest.mark.parametrize(
+    "interpreted_by,policy_id,policy_version,message",
+    [
+        (
+            "",
+            "",
+            "",
+            "interpreted_by must be an exact non-empty string",
+        ),
+        (
+            "interpreter",
+            "",
+            "",
+            "interpretation_policy_id must be an exact non-empty string",
+        ),
+        (
+            "interpreter",
+            "policy",
+            "",
+            "interpretation_policy_version must be an exact non-empty string",
+        ),
+    ],
+)
+def test_structural_interpreter_provenance_validation_order(
+    interpreted_by,
+    policy_id,
+    policy_version,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        _interpret(
+            interpreted_by=interpreted_by,
+            interpretation_policy_id=policy_id,
+            interpretation_policy_version=policy_version,
+            reason_codes=(),
+        )
+
+
+@pytest.mark.parametrize(
+    "reason_codes,message",
+    [
+        ((), "reason_codes must be a non-empty tuple"),
+        ([], "reason_codes must be a non-empty tuple"),
+        (("",), "reason_codes must be an exact non-empty string"),
+        ((1,), "reason_codes must be an exact non-empty string"),
+        (
+            ("same", "same"),
+            "reason_codes must contain unique values",
+        ),
+        (
+            ("z", "a"),
+            "reason_codes must be lexicographically ordered",
+        ),
+    ],
+)
+def test_structural_interpreter_reason_code_validation(
+    reason_codes,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        _interpret(reason_codes=reason_codes)
+
+
+@pytest.mark.parametrize(
+    "values,completeness,expected_status,expected_group_count",
+    [
+        (
+            (),
+            premise_domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_PREMISE_COMPLETENESS_COMPLETE,
+            domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_RESULT_STATUS_EMPTY,
+            0,
+        ),
+        (
+            (),
+            premise_domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_PREMISE_COMPLETENESS_INCOMPLETE,
+            domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_RESULT_STATUS_EMPTY,
+            0,
+        ),
+        (
+            ("active", "active"),
+            premise_domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_PREMISE_COMPLETENESS_COMPLETE,
+            domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_RESULT_STATUS_UNIFORM,
+            1,
+        ),
+        (
+            ("active", "withdrawn"),
+            premise_domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_PREMISE_COMPLETENESS_COMPLETE,
+            domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_RESULT_STATUS_CONTRADICTORY,
+            2,
+        ),
+    ],
+)
+def test_structural_interpreter_empty_uniform_and_contradictory_results(
+    values: tuple[str, ...],
+    completeness: str,
+    expected_status: str,
+    expected_group_count: int,
+) -> None:
+    premise = _premise(
+        values,
+        completeness=completeness,
+        salt="interpreter-structure-" + str(expected_group_count),
+    )
+    result = _interpret(premise)
+    expected_status_value, expected_groups = _expected_structure(premise)
+    assert result.result_status == expected_status == expected_status_value
+    assert result.assertion_value_groups == expected_groups
+    assert len(result.assertion_value_groups) == expected_group_count
+    assert result.premise is premise
+
+
+def test_structural_interpreter_unicode_nfc_grouping_without_other_normalization() -> None:
+    nfc_result = _interpret(
+        _premise(("\u00e9", "e\u0301"), salt="interpreter-nfc")
+    )
+    assert nfc_result.result_status == (
+        domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_RESULT_STATUS_UNIFORM
+    )
+    assert tuple(
+        group.assertion_value for group in nfc_result.assertion_value_groups
+    ) == ("\u00e9",)
+
+    distinct_result = _interpret(
+        _premise(
+            ("Active", "active", "active ", "enabled"),
+            salt="interpreter-distinct",
+        )
+    )
+    assert distinct_result.result_status == (
+        domain.GOVERNED_KNOWLEDGE_LIFECYCLE_ASSERTION_INTERPRETATION_RESULT_STATUS_CONTRADICTORY
+    )
+    assert tuple(
+        group.assertion_value for group in distinct_result.assertion_value_groups
+    ) == ("Active", "active", "active ", "enabled")
+
+
+def test_structural_interpreter_preserves_each_assertion_id_exactly_once() -> None:
+    premise = _premise(
+        ("active", "withdrawn", "active"),
+        salt="interpreter-membership",
+    )
+    result = _interpret(premise)
+    actual_ids = tuple(
+        assertion_id
+        for group in result.assertion_value_groups
+        for assertion_id in group.assertion_ids
+    )
+    expected_ids = tuple(
+        sorted(
+            assertion.governed_knowledge_lifecycle_assertion_id
+            for assertion in premise.assertions
+        )
+    )
+    assert tuple(sorted(actual_ids)) == expected_ids
+    assert len(actual_ids) == len(set(actual_ids)) == len(premise.assertions)
+
+
+def test_structural_interpreter_is_deterministic_and_identity_binds_provenance() -> None:
+    premise = _premise(
+        ("active", "withdrawn"),
+        salt="interpreter-identity",
+    )
+    base = _interpret(premise)
+    repeated = _interpret(premise)
+    assert repeated == base
+    assert (
+        repeated.governed_knowledge_lifecycle_assertion_interpretation_result_id
+        == base.governed_knowledge_lifecycle_assertion_interpretation_result_id
+    )
+
+    changed_results = (
+        _interpret(premise, interpreted_by="other-interpreter"),
+        _interpret(premise, interpretation_policy_id="policy.other"),
+        _interpret(premise, interpretation_policy_version="2.0.0"),
+        _interpret(premise, reason_codes=("other-reason",)),
+    )
+    assert all(
+        result.governed_knowledge_lifecycle_assertion_interpretation_result_id
+        != base.governed_knowledge_lifecycle_assertion_interpretation_result_id
+        for result in changed_results
+    )
+
+
+def test_structural_interpreter_preserves_inputs_and_returns_frozen_record() -> None:
+    premise = _premise(("active",), salt="interpreter-immutable")
+    before = premise
+    before_assertions = premise.assertions
+    reason_codes = ("structural-composition",)
+    result = _interpret(premise, reason_codes=reason_codes)
+    assert premise is before
+    assert premise.assertions is before_assertions
+    assert result.premise is premise
+    assert result.reason_codes is reason_codes
+    with pytest.raises(FrozenInstanceError):
+        result.interpreted_by = "changed"  # type: ignore[misc]
+
+
+def test_structural_interpreter_has_no_timestamp_selection_transition_or_storage_surface() -> None:
+    result = _interpret()
+    forbidden = {
+        "interpreted_at",
+        "interpretation_timestamp",
+        "selected_assertion",
+        "selected_assertion_id",
+        "winning_assertion",
+        "preferred_value",
+        "current_effective",
+        "confidence",
+        "authority_rank",
+        "recommendation",
+        "resolution",
+        "prior_state",
+        "resulting_state",
+        "current_state",
+        "transition",
+        "repository",
+        "persistence",
+        "serializer",
+    }
+    assert forbidden.isdisjoint(result.__dict__)
+    signature = inspect.signature(
+        domain.interpret_governed_knowledge_lifecycle_assertion_premise_structurally
+    )
+    assert forbidden.isdisjoint(signature.parameters)
+
+
+def test_structural_interpreter_reuses_private_structural_derivation_once() -> None:
+    source = Path(
+        "src/rie/domain/"
+        "governed_knowledge_lifecycle_assertion_interpretation_result.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name
+        == "interpret_governed_knowledge_lifecycle_assertion_premise_structurally"
+    )
+    calls = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_derive_expected_structure"
+    ]
+    assert len(calls) == 1
+
+
+def test_structural_interpreter_does_not_add_policy_registry_or_external_dependencies() -> None:
+    source = Path(
+        "src/rie/domain/"
+        "governed_knowledge_lifecycle_assertion_interpretation_result.py"
+    ).read_text(encoding="utf-8")
+    lowered = source.lower()
+    forbidden = {
+        "policy_registry",
+        "plugin",
+        "repository",
+        "persistence",
+        "serializer",
+        "sqlite",
+        "requests",
+        "socket",
+        "random",
+        "uuid",
+        "datetime",
+        "time.time",
+        "os.environ",
+        "callback",
+        "dispatch",
+    }
+    assert all(item not in lowered for item in forbidden)
