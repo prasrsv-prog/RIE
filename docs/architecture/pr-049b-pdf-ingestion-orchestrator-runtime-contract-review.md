@@ -95,6 +95,7 @@ The issue fields are exactly:
 The public failure classes are exactly:
 - `source_missing`
 - `source_not_file`
+- `source_checksum_mismatch`
 - `unsupported_source`
 - `encrypted_pdf`
 - `parser_failure`
@@ -107,6 +108,7 @@ Failure mapping:
 
 - missing source -> `source_missing`;
 - non-file source -> `source_not_file`;
+- admitted source checksum mismatch -> `source_checksum_mismatch`;
 - non-PDF or unsupported PDF input -> `unsupported_source`;
 - encrypted PDF -> `encrypted_pdf`;
 - parser dependency or parser execution failure -> `parser_failure`;
@@ -114,6 +116,8 @@ Failure mapping:
 - invalid or unsuccessful page-text result -> `text_extraction_failure`;
 - collision, serialization, write, read-back, or publication failure -> `output_failure`;
 - invalid or unacceptable authority, lifecycle, or eligibility snapshot -> `authority_rejected`.
+
+An admitted checksum mismatch is an integrity failure and must never be reported as `authority_rejected`.
 
 Internal exception text, host paths beyond the admitted source, and stack traces must not become public issue messages.
 
