@@ -1,0 +1,50 @@
+"""Public Gate 8 persisted-Evidence Knowledge construction API."""
+
+from .persisted_evidence_knowledge_construction_canonicalization import (
+    canonicalize_persisted_evidence_knowledge_compatibility_identity,
+    derive_persisted_evidence_knowledge_compatibility_record_id,
+)
+from .persisted_evidence_knowledge_construction_contract import (
+    PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_DIGEST_ALGORITHM,
+    PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_IDENTITY_CANONICALIZATION_VERSION,
+    PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_POLICY_ID,
+    PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_POLICY_VERSION,
+    PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_RECORD_CONTRACT_VERSION,
+    PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_RECORD_ID_PREFIX,
+    PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_ISSUE_CODES,
+    PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_ISSUE_CONTRACT_VERSION,
+    PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_REQUEST_CONTRACT_VERSION,
+    PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_RESULT_CONTRACT_VERSION,
+    PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_STATUS_CONSTRUCTED,
+    PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_STATUS_REJECTED,
+    PersistedEvidenceKnowledgeCompatibilityRecord,
+    PersistedEvidenceKnowledgeConstructionIssue,
+    PersistedEvidenceKnowledgeConstructionRequest,
+    PersistedEvidenceKnowledgeConstructionResult,
+)
+from .persisted_evidence_knowledge_construction_service import (
+    construct_knowledge_from_persisted_evidence,
+)
+
+
+__all__ = (
+    "PersistedEvidenceKnowledgeConstructionRequest",
+    "PersistedEvidenceKnowledgeCompatibilityRecord",
+    "PersistedEvidenceKnowledgeConstructionResult",
+    "PersistedEvidenceKnowledgeConstructionIssue",
+    "canonicalize_persisted_evidence_knowledge_compatibility_identity",
+    "derive_persisted_evidence_knowledge_compatibility_record_id",
+    "construct_knowledge_from_persisted_evidence",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_REQUEST_CONTRACT_VERSION",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_RECORD_CONTRACT_VERSION",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_RESULT_CONTRACT_VERSION",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_ISSUE_CONTRACT_VERSION",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_IDENTITY_CANONICALIZATION_VERSION",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_RECORD_ID_PREFIX",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_POLICY_ID",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_POLICY_VERSION",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_COMPATIBILITY_DIGEST_ALGORITHM",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_STATUS_CONSTRUCTED",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_STATUS_REJECTED",
+    "PERSISTED_EVIDENCE_KNOWLEDGE_CONSTRUCTION_ISSUE_CODES",
+)
