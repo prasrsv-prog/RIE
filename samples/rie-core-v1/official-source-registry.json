@@ -1,0 +1,15 @@
+{
+  "official_sources": [
+    {
+      "source_id": "RIE-SAMPLE-PDF-001",
+      "source_path": "sample-source.pdf",
+      "source_type": "pdf",
+      "document_classification": "official_knowledge_base",
+      "authority_status": "official",
+      "lifecycle_status": "locked",
+      "evidence_eligibility": "eligible",
+      "version": "1.0.0",
+      "review_notes": "Synthetic controlled Gate 11 sample."
+    }
+  ]
+}

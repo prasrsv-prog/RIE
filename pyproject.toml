@@ -31,3 +31,6 @@ pythonpath = [
 testpaths = [
     "tests"
 ]
+
+[project.scripts]
+rie = "rie.operator.operator_cli:main"

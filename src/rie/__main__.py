@@ -1,10 +1,4 @@
-from rie.core.engine import Engine
-
-
-def main() -> None:
-    engine = Engine()
-    engine.run()
-
+from rie.operator.operator_cli import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
