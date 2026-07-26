@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from rie.extraction import (
+    MAX_INPUT_BYTES,
     ImageStructureResult,
     inspect_image_structure_bytes,
 )
@@ -22,6 +23,14 @@ def inspect_controlled_image_structure_bytes(
     data: bytes,
 ) -> ImageStructureResult:
     return inspect_image_structure_bytes(data)
+
+
+def inspect_controlled_image_structure_file(
+    path: str | Path,
+) -> ImageStructureResult:
+    with open(Path(path), "rb") as file:
+        data = file.read(MAX_INPUT_BYTES + 1)
+    return inspect_controlled_image_structure_bytes(data)
 
 
 def inspect_unknown_assets(
