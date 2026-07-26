@@ -7,3 +7,11 @@ __all__ = [
     "TextAssetExtractionReport",
     "TextAssetExtractor",
 ]
+
+from .image_structure_parser import (
+    MAX_INPUT_BYTES,
+    PARSER_ID,
+    PARSER_VERSION,
+    ImageStructureResult,
+    inspect_image_structure_bytes,
+)
