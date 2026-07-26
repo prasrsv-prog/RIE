@@ -2,6 +2,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from rie.extraction import (
+    ImageStructureResult,
+    inspect_image_structure_bytes,
+)
+
 
 @dataclass(frozen=True)
 class UnknownAssetHeaderInspection:
@@ -11,6 +16,12 @@ class UnknownAssetHeaderInspection:
     header_ascii: str
     candidate: str
     error: str | None = None
+
+
+def inspect_controlled_image_structure_bytes(
+    data: bytes,
+) -> ImageStructureResult:
+    return inspect_image_structure_bytes(data)
 
 
 def inspect_unknown_assets(
