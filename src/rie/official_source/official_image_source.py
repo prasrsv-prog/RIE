@@ -8,7 +8,7 @@ intentionally outside this boundary.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from datetime import datetime, timezone
 from enum import Enum
 import re
@@ -49,6 +49,29 @@ class AdmissionStatus(str, Enum):
     PENDING = "PENDING"
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"
+
+
+_ALLOWED_LIFECYCLE_TRANSITIONS: Final[
+    dict[LifecycleState, frozenset[LifecycleState]]
+] = {
+    LifecycleState.CANDIDATE: frozenset(
+        {
+            LifecycleState.ACTIVE,
+            LifecycleState.RETIRED,
+            LifecycleState.REVOKED,
+        }
+    ),
+    LifecycleState.ACTIVE: frozenset(
+        {
+            LifecycleState.SUPERSEDED,
+            LifecycleState.RETIRED,
+            LifecycleState.REVOKED,
+        }
+    ),
+    LifecycleState.SUPERSEDED: frozenset(),
+    LifecycleState.RETIRED: frozenset(),
+    LifecycleState.REVOKED: frozenset(),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +115,16 @@ class OfficialImageSource:
         """Return the canonical twelve-field record order."""
 
         return tuple(field.name for field in fields(cls))
+
+    def transition_to(
+        self,
+        lifecycle_state: LifecycleState,
+    ) -> OfficialImageSource:
+        """Return a new record after a valid Contract V1 transition."""
+
+        _require_enum("lifecycle_state", lifecycle_state, LifecycleState)
+        _require_lifecycle_transition(self.lifecycle_state, lifecycle_state)
+        return replace(self, lifecycle_state=lifecycle_state)
 
 
 def _require_clean_nonempty_text(name: str, value: object) -> None:
@@ -143,6 +176,17 @@ def _require_normalized_utc(value: object) -> None:
         raise TypeError("registered_at_utc must be a datetime")
     if value.tzinfo is not timezone.utc:
         raise ValueError("registered_at_utc must use datetime.timezone.utc")
+
+
+def _require_lifecycle_transition(
+    current_state: LifecycleState,
+    target_state: LifecycleState,
+) -> None:
+    if target_state not in _ALLOWED_LIFECYCLE_TRANSITIONS[current_state]:
+        raise ValueError(
+            "lifecycle transition "
+            f"{current_state.value} -> {target_state.value} is not allowed"
+        )
 
 
 def _require_state_admission_consistency(

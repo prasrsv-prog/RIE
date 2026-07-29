@@ -298,3 +298,177 @@ def test_rejected_candidate_is_constructible() -> None:
     source = make_source(admission_status=AdmissionStatus.REJECTED)
 
     assert source.admission_status is AdmissionStatus.REJECTED
+
+def test_transition_to_rejects_untyped_target_string() -> None:
+    source = make_source()
+
+    with pytest.raises(TypeError, match="lifecycle_state must be a LifecycleState"):
+        source.transition_to("ACTIVE")  # type: ignore[arg-type]
+
+
+def test_transition_to_rejects_candidate_no_op() -> None:
+    source = make_source()
+
+    with pytest.raises(
+        ValueError,
+        match="CANDIDATE -> CANDIDATE is not allowed",
+    ):
+        source.transition_to(LifecycleState.CANDIDATE)
+
+
+def test_transition_to_active_returns_new_immutable_record() -> None:
+    source = make_source(admission_status=AdmissionStatus.ACCEPTED)
+
+    transitioned = source.transition_to(LifecycleState.ACTIVE)
+
+    assert transitioned is not source
+    assert source.lifecycle_state is LifecycleState.CANDIDATE
+    assert transitioned.lifecycle_state is LifecycleState.ACTIVE
+    assert transitioned.source_id == source.source_id
+    assert transitioned.content_sha256 == source.content_sha256
+
+
+def test_transition_to_active_rejects_pending_candidate() -> None:
+    source = make_source(admission_status=AdmissionStatus.PENDING)
+
+    with pytest.raises(
+        ValueError,
+        match="ACTIVE requires admission_status ACCEPTED",
+    ):
+        source.transition_to(LifecycleState.ACTIVE)
+
+
+def test_transition_to_active_rejects_rejected_candidate() -> None:
+    source = make_source(admission_status=AdmissionStatus.REJECTED)
+
+    with pytest.raises(
+        ValueError,
+        match="ACTIVE requires admission_status ACCEPTED",
+    ):
+        source.transition_to(LifecycleState.ACTIVE)
+
+
+def test_transition_candidate_to_retired() -> None:
+    source = make_source()
+
+    transitioned = source.transition_to(LifecycleState.RETIRED)
+
+    assert transitioned.lifecycle_state is LifecycleState.RETIRED
+    assert transitioned.admission_status is AdmissionStatus.PENDING
+
+
+def test_transition_candidate_to_revoked() -> None:
+    source = make_source(admission_status=AdmissionStatus.REJECTED)
+
+    transitioned = source.transition_to(LifecycleState.REVOKED)
+
+    assert transitioned.lifecycle_state is LifecycleState.REVOKED
+    assert transitioned.admission_status is AdmissionStatus.REJECTED
+
+
+def test_transition_candidate_to_superseded_is_rejected() -> None:
+    source = make_source(
+        admission_status=AdmissionStatus.ACCEPTED,
+        provenance_parent_id="image-source-parent",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="CANDIDATE -> SUPERSEDED is not allowed",
+    ):
+        source.transition_to(LifecycleState.SUPERSEDED)
+
+
+def test_transition_active_to_superseded_with_parent() -> None:
+    source = make_source(
+        lifecycle_state=LifecycleState.ACTIVE,
+        admission_status=AdmissionStatus.ACCEPTED,
+        provenance_parent_id="image-source-parent",
+    )
+
+    transitioned = source.transition_to(LifecycleState.SUPERSEDED)
+
+    assert transitioned.lifecycle_state is LifecycleState.SUPERSEDED
+    assert transitioned.provenance_parent_id == "image-source-parent"
+
+
+def test_transition_active_to_superseded_requires_parent() -> None:
+    source = make_source(
+        lifecycle_state=LifecycleState.ACTIVE,
+        admission_status=AdmissionStatus.ACCEPTED,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="SUPERSEDED requires provenance_parent_id",
+    ):
+        source.transition_to(LifecycleState.SUPERSEDED)
+
+
+def test_transition_active_to_retired() -> None:
+    source = make_source(
+        lifecycle_state=LifecycleState.ACTIVE,
+        admission_status=AdmissionStatus.ACCEPTED,
+    )
+
+    transitioned = source.transition_to(LifecycleState.RETIRED)
+
+    assert transitioned.lifecycle_state is LifecycleState.RETIRED
+
+
+def test_transition_active_to_revoked() -> None:
+    source = make_source(
+        lifecycle_state=LifecycleState.ACTIVE,
+        admission_status=AdmissionStatus.ACCEPTED,
+    )
+
+    transitioned = source.transition_to(LifecycleState.REVOKED)
+
+    assert transitioned.lifecycle_state is LifecycleState.REVOKED
+
+
+def test_transition_active_to_candidate_is_rejected() -> None:
+    source = make_source(
+        lifecycle_state=LifecycleState.ACTIVE,
+        admission_status=AdmissionStatus.ACCEPTED,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="ACTIVE -> CANDIDATE is not allowed",
+    ):
+        source.transition_to(LifecycleState.CANDIDATE)
+
+
+def test_transition_superseded_is_terminal() -> None:
+    source = make_source(
+        lifecycle_state=LifecycleState.SUPERSEDED,
+        admission_status=AdmissionStatus.ACCEPTED,
+        provenance_parent_id="image-source-parent",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="SUPERSEDED -> RETIRED is not allowed",
+    ):
+        source.transition_to(LifecycleState.RETIRED)
+
+
+def test_transition_retired_is_terminal() -> None:
+    source = make_source(lifecycle_state=LifecycleState.RETIRED)
+
+    with pytest.raises(
+        ValueError,
+        match="RETIRED -> REVOKED is not allowed",
+    ):
+        source.transition_to(LifecycleState.REVOKED)
+
+
+def test_transition_revoked_is_terminal() -> None:
+    source = make_source(lifecycle_state=LifecycleState.REVOKED)
+
+    with pytest.raises(
+        ValueError,
+        match="REVOKED -> RETIRED is not allowed",
+    ):
+        source.transition_to(LifecycleState.RETIRED)
