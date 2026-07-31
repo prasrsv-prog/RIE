@@ -23,6 +23,13 @@ KNOWLEDGE_CANDIDATE_ID_PREFIX = "kc1_"
 KNOWLEDGE_CANDIDATE_DIGEST_ALGORITHM = "sha256"
 
 VERBATIM_TEXT_STATEMENT_TYPE = "verbatim_text_fact"
+IMAGE_STRUCTURAL_FACT_STATEMENT_TYPE = "image_structural_fact"
+_SUPPORTED_STATEMENT_TYPES = frozenset(
+    {
+        VERBATIM_TEXT_STATEMENT_TYPE,
+        IMAGE_STRUCTURAL_FACT_STATEMENT_TYPE,
+    }
+)
 INITIAL_AUTHORITY_STATUS = "unassessed"
 INITIAL_LIFECYCLE_STATUS = "candidate"
 INITIAL_REVIEW_STATUS = "pending_review"
@@ -219,6 +226,8 @@ class KnowledgeCandidateIdentityInput:
             "construction_rule_version",
         ):
             _require_string(getattr(self, field_name), field_name)
+        if self.statement_type not in _SUPPORTED_STATEMENT_TYPES:
+            raise ValueError("unsupported statement_type")
         _validate_support(self.support)
         _validate_initial_states(
             self.authority_status,
@@ -338,7 +347,7 @@ class KnowledgeCandidate:
         )
         if self.contract_version != KNOWLEDGE_CANDIDATE_CONTRACT_VERSION:
             raise ValueError("unsupported contract_version")
-        if self.statement_type != VERBATIM_TEXT_STATEMENT_TYPE:
+        if self.statement_type not in _SUPPORTED_STATEMENT_TYPES:
             raise ValueError("unsupported statement_type")
         for field_name in (
             "statement",

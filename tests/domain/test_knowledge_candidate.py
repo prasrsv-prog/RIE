@@ -12,6 +12,7 @@ from rie.domain.knowledge_candidate import (
     KNOWLEDGE_CANDIDATE_CONTRACT_VERSION,
     KNOWLEDGE_CANDIDATE_IDENTITY_POLICY_ID,
     KNOWLEDGE_CANDIDATE_IDENTITY_POLICY_VERSION,
+    IMAGE_STRUCTURAL_FACT_STATEMENT_TYPE,
     VERBATIM_TEXT_STATEMENT_TYPE,
     KnowledgeCandidate,
     KnowledgeCandidateIdentityInput,
@@ -367,3 +368,45 @@ def test_identity_extraction_rejects_duck_typed_inputs() -> None:
 def test_identity_extraction_round_trip_is_exact() -> None:
     candidate = _candidate()
     assert identity_input_from_knowledge_candidate(candidate) == _identity_input()
+
+def test_image_structural_fact_statement_type_constant_is_exact() -> None:
+    assert IMAGE_STRUCTURAL_FACT_STATEMENT_TYPE == "image_structural_fact"
+
+
+def test_identity_input_accepts_image_structural_fact_statement_type() -> None:
+    identity_input = _identity_input(
+        statement_type=IMAGE_STRUCTURAL_FACT_STATEMENT_TYPE,
+        statement="width=100",
+        construction_rule_id=(
+            "rcis-accepted-image-structural-fact-selection"
+        ),
+    )
+    first = compute_knowledge_candidate_id(identity_input)
+    second = compute_knowledge_candidate_id(identity_input)
+    assert first == second
+    assert first.startswith("kc1_")
+
+
+def test_candidate_accepts_image_structural_fact_statement_type() -> None:
+    identity_input = _identity_input(
+        statement_type=IMAGE_STRUCTURAL_FACT_STATEMENT_TYPE,
+        statement="height=200",
+        construction_rule_id=(
+            "rcis-accepted-image-structural-fact-selection"
+        ),
+    )
+    candidate = _candidate(identity_input=identity_input)
+    assert candidate.statement_type == IMAGE_STRUCTURAL_FACT_STATEMENT_TYPE
+    assert identity_input_from_knowledge_candidate(candidate) == identity_input
+
+
+def test_unsupported_statement_type_rejected_and_verbatim_preserved() -> None:
+    with pytest.raises(ValueError, match="unsupported statement_type"):
+        _identity_input(statement_type="unsupported_fact")
+    unsafe = object.__new__(KnowledgeCandidateIdentityInput)
+    for name, value in _identity_input().__dict__.items():
+        object.__setattr__(unsafe, name, value)
+    object.__setattr__(unsafe, "statement_type", "unsupported_fact")
+    with pytest.raises(ValueError, match="unsupported statement_type"):
+        _candidate(identity_input=unsafe)
+    assert _candidate().statement_type == VERBATIM_TEXT_STATEMENT_TYPE
