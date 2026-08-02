@@ -139,6 +139,7 @@ class OperatorRolePermissionEvaluation:
     action: str
     outcome: AuthorizationOutcome
     reason_code: AuthorizationReasonCode
+    permission_reference: str | None
     reason_reference: str
     audit_context_reference: str
 
@@ -158,6 +159,12 @@ class OperatorRolePermissionEvaluation:
                 getattr(self, field_name),
             )
 
+        if self.permission_reference is not None:
+            _validate_required_ascii_text(
+                "permission_reference",
+                self.permission_reference,
+            )
+
         if self.outcome not in ALLOWED_OUTCOMES:
             raise ValueError("outcome must be ALLOW or DENY")
         if self.reason_code not in ALLOWED_REASON_CODES:
@@ -169,6 +176,18 @@ class OperatorRolePermissionEvaluation:
             raise ValueError(
                 "AUTHORIZED_EXACT_MATCH requires an ALLOW outcome"
             )
+        if (
+            self.reason_code == REASON_AUTHORIZED_EXACT_MATCH
+            and self.permission_reference is None
+        ):
+            raise ValueError(
+                "AUTHORIZED_EXACT_MATCH requires a permission reference"
+            )
+        if (
+            self.outcome == OUTCOME_ALLOW
+            and self.permission_reference is None
+        ):
+            raise ValueError("ALLOW requires a permission reference")
         if (
             self.reason_code != REASON_AUTHORIZED_EXACT_MATCH
             and self.outcome != OUTCOME_DENY
@@ -183,6 +202,7 @@ def _evaluation(
     *,
     outcome: AuthorizationOutcome,
     reason_code: AuthorizationReasonCode,
+    permission_reference: str | None,
     reason_reference: str,
     audit_context_reference: str,
 ) -> OperatorRolePermissionEvaluation:
@@ -193,6 +213,7 @@ def _evaluation(
         action=decision.action,
         outcome=outcome,
         reason_code=reason_code,
+        permission_reference=permission_reference,
         reason_reference=reason_reference,
         audit_context_reference=audit_context_reference,
     )
@@ -234,6 +255,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_UNSUPPORTED_ACTION,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -242,6 +264,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_UNSUPPORTED_TARGET_TYPE,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -251,6 +274,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_INVALID_INPUT,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -259,6 +283,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_INVALID_INPUT,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -270,6 +295,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_INVALID_INPUT,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -281,6 +307,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_INVALID_INPUT,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -298,6 +325,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_AMBIGUOUS_AUTHORITY_EVIDENCE,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -318,6 +346,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=reason_code,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -336,6 +365,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_AMBIGUOUS_AUTHORITY_EVIDENCE,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -344,6 +374,7 @@ def evaluate_operator_role_permission(
             decision,
             outcome=OUTCOME_DENY,
             reason_code=REASON_NO_EXACT_ROLE_ACTION_TARGET_PERMISSION,
+            permission_reference=None,
             reason_reference=reason_reference,
             audit_context_reference=audit_context_reference,
         )
@@ -352,6 +383,7 @@ def evaluate_operator_role_permission(
         decision,
         outcome=OUTCOME_ALLOW,
         reason_code=REASON_AUTHORIZED_EXACT_MATCH,
+        permission_reference=exact_permissions[0].permission_reference,
         reason_reference=reason_reference,
         audit_context_reference=audit_context_reference,
     )

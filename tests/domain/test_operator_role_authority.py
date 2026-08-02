@@ -124,6 +124,7 @@ def evaluate(
                 "action",
                 "outcome",
                 "reason_code",
+                "permission_reference",
                 "reason_reference",
                 "audit_context_reference",
             ),
@@ -152,6 +153,7 @@ def test_models_have_exact_required_fields(
             action=ACTION_APPROVE,
             outcome=OUTCOME_ALLOW,
             reason_code=REASON_AUTHORIZED_EXACT_MATCH,
+            permission_reference="permission-001",
             reason_reference="evaluation-reason-001",
             audit_context_reference="evaluation-audit-001",
         ),
@@ -287,6 +289,7 @@ def test_evaluation_rejects_invalid_outcome_reason_pair(
         "action": ACTION_APPROVE,
         "outcome": OUTCOME_ALLOW,
         "reason_code": REASON_AUTHORIZED_EXACT_MATCH,
+        "permission_reference": "permission-001",
         "reason_reference": "evaluation-reason-001",
         "audit_context_reference": "evaluation-audit-001",
     }
@@ -304,6 +307,7 @@ def test_exact_binding_and_permission_allow_submission_only() -> None:
         action=ACTION_APPROVE,
         outcome=OUTCOME_ALLOW,
         reason_code=REASON_AUTHORIZED_EXACT_MATCH,
+        permission_reference="permission-001",
         reason_reference="evaluation-reason-001",
         audit_context_reference="evaluation-audit-001",
     )
@@ -315,6 +319,7 @@ def test_reject_action_can_be_authorized_exactly() -> None:
     result = evaluate(decision=decision, permissions=(permission,))
     assert result.outcome == OUTCOME_ALLOW
     assert result.reason_code == REASON_AUTHORIZED_EXACT_MATCH
+    assert result.permission_reference == "permission-001"
 
 
 def test_evaluator_is_deterministic_for_identical_ordered_inputs() -> None:
@@ -366,6 +371,7 @@ def test_binding_failures_deny_by_default(
     result = evaluate(bindings=bindings)
     assert result.outcome == OUTCOME_DENY
     assert result.reason_code == reason_code
+    assert result.permission_reference is None
 
 
 @pytest.mark.parametrize(
@@ -387,18 +393,21 @@ def test_missing_exact_permission_denies_by_default(
     result = evaluate(permissions=permissions)
     assert result.outcome == OUTCOME_DENY
     assert result.reason_code == REASON_NO_EXACT_ROLE_ACTION_TARGET_PERMISSION
+    assert result.permission_reference is None
 
 
 def test_duplicate_exact_bindings_are_ambiguous() -> None:
     result = evaluate(bindings=(make_binding(), make_binding()))
     assert result.outcome == OUTCOME_DENY
     assert result.reason_code == REASON_AMBIGUOUS_AUTHORITY_EVIDENCE
+    assert result.permission_reference is None
 
 
 def test_duplicate_exact_permissions_are_ambiguous() -> None:
     result = evaluate(permissions=(make_permission(), make_permission()))
     assert result.outcome == OUTCOME_DENY
     assert result.reason_code == REASON_AMBIGUOUS_AUTHORITY_EVIDENCE
+    assert result.permission_reference is None
 
 
 @pytest.mark.parametrize(
@@ -417,6 +426,7 @@ def test_invalid_evidence_input_denies_with_invalid_input(
     result = evaluate(bindings=bindings, permissions=permissions)
     assert result.outcome == OUTCOME_DENY
     assert result.reason_code == REASON_INVALID_INPUT
+    assert result.permission_reference is None
 
 
 def test_non_decision_input_is_rejected() -> None:
@@ -479,6 +489,7 @@ def test_mutated_decision_with_unsupported_action_denies() -> None:
     result = evaluate(decision=decision)
     assert result.outcome == OUTCOME_DENY
     assert result.reason_code == REASON_UNSUPPORTED_ACTION
+    assert result.permission_reference is None
 
 
 def test_mutated_decision_with_unsupported_target_type_denies() -> None:
@@ -487,6 +498,7 @@ def test_mutated_decision_with_unsupported_target_type_denies() -> None:
     result = evaluate(decision=decision)
     assert result.outcome == OUTCOME_DENY
     assert result.reason_code == REASON_UNSUPPORTED_TARGET_TYPE
+    assert result.permission_reference is None
 
 
 def test_allow_does_not_mutate_or_promote_target() -> None:
@@ -495,3 +507,135 @@ def test_allow_does_not_mutate_or_promote_target() -> None:
     assert not hasattr(result, "target_reference")
     assert not hasattr(result, "executed")
     assert not hasattr(result, "persisted")
+
+
+def test_allow_preserves_exact_permission_reference_without_substitution() -> None:
+    permission = make_permission(permission_reference="permission-exact-777")
+    result = evaluate(permissions=(permission,))
+    assert result.outcome == OUTCOME_ALLOW
+    assert result.permission_reference == "permission-exact-777"
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        (),
+        (make_permission(action=ACTION_REJECT),),
+        (
+            make_permission(
+                target_type=TARGET_TYPE_GOVERNED_ASSET_RECORD,
+            ),
+        ),
+        (make_permission(role_reference="other-role"),),
+    ],
+)
+def test_no_match_permission_denies_without_reference(
+    permissions: tuple[RoleActionTargetPermission, ...],
+) -> None:
+    result = evaluate(permissions=permissions)
+    assert result.outcome == OUTCOME_DENY
+    assert result.permission_reference is None
+
+
+
+def test_direct_non_authorized_allow_without_permission_reference_is_rejected() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^ALLOW requires a permission reference$",
+    ):
+        OperatorRolePermissionEvaluation(
+            operator_reference="operator-001",
+            role_reference="reviewer-role-001",
+            target_type=TARGET_TYPE_EVIDENCE,
+            action=ACTION_APPROVE,
+            outcome=OUTCOME_ALLOW,
+            reason_code=REASON_INVALID_INPUT,
+            permission_reference=None,
+            reason_reference="evaluation-reason-001",
+            audit_context_reference="evaluation-audit-001",
+        )
+
+def test_direct_allow_without_permission_reference_is_rejected() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^AUTHORIZED_EXACT_MATCH requires a permission reference$",
+    ):
+        OperatorRolePermissionEvaluation(
+            operator_reference="operator-001",
+            role_reference="reviewer-role-001",
+            target_type=TARGET_TYPE_EVIDENCE,
+            action=ACTION_APPROVE,
+            outcome=OUTCOME_ALLOW,
+            reason_code=REASON_AUTHORIZED_EXACT_MATCH,
+            permission_reference=None,
+            reason_reference="evaluation-reason-001",
+            audit_context_reference="evaluation-audit-001",
+        )
+
+
+@pytest.mark.parametrize(
+    ("permission_reference", "error_type", "message"),
+    [
+        (1, TypeError, "permission_reference must be text"),
+        ("", ValueError, "permission_reference must not be empty"),
+        (
+            " permission-001",
+            ValueError,
+            "permission_reference must not contain leading or trailing whitespace",
+        ),
+        (
+            "permission-001 ",
+            ValueError,
+            "permission_reference must not contain leading or trailing whitespace",
+        ),
+        (
+            "permission\n001",
+            ValueError,
+            "permission_reference must not contain control characters",
+        ),
+        (
+            "permission-" + chr(233),
+            ValueError,
+            "permission_reference must contain ASCII text only",
+        ),
+    ],
+)
+def test_evaluation_rejects_invalid_permission_reference_text(
+    permission_reference: object,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error_type, match=rf"^{message}$"):
+        OperatorRolePermissionEvaluation(
+            operator_reference="operator-001",
+            role_reference="reviewer-role-001",
+            target_type=TARGET_TYPE_EVIDENCE,
+            action=ACTION_APPROVE,
+            outcome=OUTCOME_ALLOW,
+            reason_code=REASON_AUTHORIZED_EXACT_MATCH,
+            permission_reference=permission_reference,  # type: ignore[arg-type]
+            reason_reference="evaluation-reason-001",
+            audit_context_reference="evaluation-audit-001",
+        )
+
+
+def test_deny_with_permission_reference_remains_denied() -> None:
+    result = OperatorRolePermissionEvaluation(
+        operator_reference="operator-001",
+        role_reference="reviewer-role-001",
+        target_type=TARGET_TYPE_EVIDENCE,
+        action=ACTION_APPROVE,
+        outcome=OUTCOME_DENY,
+        reason_code=REASON_NO_EXACT_ROLE_ACTION_TARGET_PERMISSION,
+        permission_reference="permission-001",
+        reason_reference="evaluation-reason-001",
+        audit_context_reference="evaluation-audit-001",
+    )
+    assert result.outcome == OUTCOME_DENY
+    assert result.permission_reference == "permission-001"
+
+
+def test_permission_reference_is_immutable() -> None:
+    result = evaluate()
+    with pytest.raises(FrozenInstanceError):
+        result.permission_reference = "changed"  # type: ignore[misc]
