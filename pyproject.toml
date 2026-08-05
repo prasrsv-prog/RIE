@@ -34,3 +34,4 @@ testpaths = [
 
 [project.scripts]
 rie = "rie.operator.operator_cli:main"
+rcis-local = "rie.local_operator_interface:main"
