@@ -205,3 +205,94 @@ def test_serializer_rejects_non_finite_numeric_value():
 def test_serializer_is_in_memory_only():
     assert not hasattr(ExtractionArtifactSerializer, "write")
     assert not hasattr(ExtractionArtifactSerializer, "read")
+
+def _d34_zero_page_artifact(*, contract_version: str, provenance: object):
+    from dataclasses import replace
+    import rie.extraction.extraction_artifact_contract as contract
+    from rie.extraction.extraction_artifact_serializer import (
+        ExtractionArtifactSerializer,
+    )
+
+    source_path = "controlled/d34.pdf"
+    metadata = contract.ExtractionArtifactStructuralMetadata(
+        allowed=True,
+        reason="Controlled source is allowed.",
+        fixture_id="d34-fixture",
+        source_label="D34 synthetic source",
+        fixture_path=source_path,
+        fixture_type="pdf",
+        inspection_mode="bounded",
+        inspection_status="inspected",
+        encrypted=False,
+        page_count=0,
+        inspected_page_count=0,
+        page_details_truncated=False,
+        page_details=(),
+        max_inspected_pages=10,
+        inspection_error="",
+        evidence_allowed=False,
+        notes="D34 synthetic artifact.",
+    )
+    provisional = contract.ExtractionArtifact(
+        contract_version=contract_version,
+        artifact_id="0" * 64,
+        upstream_contract_version=(
+            contract.EXTRACTION_ARTIFACT_UPSTREAM_CONTRACT_VERSION
+        ),
+        upstream_status="completed",
+        job_id="d34-job",
+        source_id="d34-source",
+        source_path=source_path,
+        source_checksum="c" * 64,
+        structural_metadata=metadata,
+        page_extractions=(),
+        execution_report_location="memory://d34-report",
+        cleanup_completed=True,
+        ocr_remediation_provenance=provenance,
+    )
+    return replace(
+        provisional,
+        artifact_id=ExtractionArtifactSerializer.derive_artifact_id(
+            provisional
+        ),
+    )
+
+
+def _d34_gate5_provenance():
+    import rie.extraction.extraction_artifact_contract as contract
+    return contract.ExtractionArtifactOcrRemediationProvenance(
+        producer_operation_id="PR_086K_D27_REAL_RSV_ASSET_PILOT_BOUNDED_PDF_IMAGE_TEXT_EXTRACTION_EXECUTION",
+        producer_artifact_path="memory://ocr-index",
+        producer_artifact_sha256="a" * 64,
+        producer_artifact_set_digest="b" * 64,
+        extraction_method="bounded_local_ocr",
+    )
+
+def test_d34_v1_bytes_omit_ocr_field_and_v2_bytes_include_it() -> None:
+    import json
+    import rie.extraction.extraction_artifact_contract as contract
+    from rie.extraction.extraction_artifact_serializer import (
+        ExtractionArtifactSerializer,
+    )
+
+    legacy = _d34_zero_page_artifact(
+        contract_version=contract.EXTRACTION_ARTIFACT_CONTRACT_VERSION,
+        provenance=None,
+    )
+    legacy_bytes = ExtractionArtifactSerializer.to_bytes(legacy)
+    assert b'"ocr_remediation_provenance"' not in legacy_bytes
+    assert tuple(json.loads(legacy_bytes).keys()) == (
+        contract.EXTRACTION_ARTIFACT_FIELD_ORDER
+    )
+
+    remediated = _d34_zero_page_artifact(
+        contract_version=contract.EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION,
+        provenance=_d34_gate5_provenance(),
+    )
+    first = ExtractionArtifactSerializer.to_bytes(remediated)
+    second = ExtractionArtifactSerializer.to_bytes(remediated)
+    assert first == second
+    assert b'"ocr_remediation_provenance"' in first
+    assert tuple(json.loads(first).keys()) == (
+        contract.EXTRACTION_ARTIFACT_OCR_FIELD_ORDER
+    )

@@ -302,3 +302,51 @@ def test_artifact_rejects_source_count_and_sequence_mismatch():
             artifact,
             page_extractions=(bad_page, artifact.page_extractions[1]),
         )
+
+# PR-086K-D34 OCR provenance extension tests.
+def test_d34_ocr_remediation_provenance_contract_and_dual_version_rules() -> None:
+    from dataclasses import fields
+    import pytest
+    import rie.extraction.extraction_artifact_contract as contract
+
+    provenance = contract.ExtractionArtifactOcrRemediationProvenance(
+        producer_operation_id="PR_086K_D27_REAL_RSV_ASSET_PILOT_BOUNDED_PDF_IMAGE_TEXT_EXTRACTION_EXECUTION",
+        producer_artifact_path="memory://ocr-index",
+        producer_artifact_sha256="a" * 64,
+        producer_artifact_set_digest="b" * 64,
+        extraction_method="bounded_local_ocr",
+    )
+    assert tuple(field.name for field in fields(type(provenance))) == (
+        "producer_operation_id",
+        "producer_artifact_path",
+        "producer_artifact_sha256",
+        "producer_artifact_set_digest",
+        "extraction_method",
+    )
+    assert contract.EXTRACTION_ARTIFACT_CONTRACT_VERSION == (
+        "extraction_artifact_contract_v1"
+    )
+    assert contract.EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION == (
+        "extraction_artifact_contract_v2"
+    )
+    artifact_field_names = tuple(
+        field.name for field in fields(contract.ExtractionArtifact)
+    )
+    assert artifact_field_names == contract.EXTRACTION_ARTIFACT_FIELD_ORDER
+    assert "ocr_remediation_provenance" not in artifact_field_names
+    with pytest.raises(contract.ExtractionArtifactContractError):
+        contract.ExtractionArtifactOcrRemediationProvenance(
+            producer_operation_id="producer",
+            producer_artifact_path="artifact",
+            producer_artifact_sha256="A" * 64,
+            producer_artifact_set_digest="b" * 64,
+            extraction_method="bounded_local_ocr",
+        )
+    with pytest.raises(contract.ExtractionArtifactContractError):
+        contract.ExtractionArtifactOcrRemediationProvenance(
+            producer_operation_id="producer",
+            producer_artifact_path="artifact",
+            producer_artifact_sha256="a" * 64,
+            producer_artifact_set_digest="b" * 64,
+            extraction_method="other",
+        )

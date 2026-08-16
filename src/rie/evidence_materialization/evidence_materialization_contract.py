@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 import hashlib
 from typing import Final
+from dataclasses import InitVar
 
 
 EVIDENCE_MATERIALIZATION_RESULT_CONTRACT_VERSION: Final = (
@@ -120,6 +121,27 @@ EVIDENCE_MATERIALIZATION_RESULT_FIELD_ORDER: Final = (
     "source_id",
     "collection",
     "issue",
+)
+
+
+EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION: Final = (
+    "evidence_collection_contract_v2"
+)
+TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION: Final = (
+    "traceable_evidence_contract_v2"
+)
+TRACEABLE_EVIDENCE_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER: Final = (
+    "producer_operation_id",
+    "producer_artifact_path",
+    "producer_artifact_sha256",
+    "producer_artifact_set_digest",
+    "extraction_method",
+)
+TRACEABLE_EVIDENCE_OCR_FIELD_ORDER: Final = (
+    TRACEABLE_EVIDENCE_FIELD_ORDER + ("ocr_remediation_provenance",)
+)
+TRACEABLE_EVIDENCE_OCR_IDENTITY_FIELD_ORDER: Final = (
+    TRACEABLE_EVIDENCE_IDENTITY_FIELD_ORDER + ("ocr_remediation_provenance",)
 )
 
 _LOWER_HEX: Final = frozenset("0123456789abcdef")
@@ -430,6 +452,34 @@ class TraceableEvidenceProvenance:
             )
 
 
+
+@dataclass(frozen=True)
+class TraceableEvidenceOcrRemediationProvenance:
+    producer_operation_id: str
+    producer_artifact_path: str
+    producer_artifact_sha256: str
+    producer_artifact_set_digest: str
+    extraction_method: str
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "producer_operation_id",
+            "producer_artifact_path",
+        ):
+            _require_string(
+                getattr(self, field_name),
+                EvidenceMaterializationIssueCode.INVALID_VALUE,
+            )
+        if (
+            not _is_sha256(self.producer_artifact_sha256)
+            or not _is_sha256(self.producer_artifact_set_digest)
+            or self.extraction_method != "bounded_local_ocr"
+        ):
+            raise_evidence_materialization_error(
+                EvidenceMaterializationIssueCode.INVALID_VALUE
+            )
+
+
 @dataclass(frozen=True)
 class TraceableEvidence:
     contract_version: str
@@ -440,10 +490,43 @@ class TraceableEvidence:
     warnings: tuple[str, ...]
     provenance: TraceableEvidenceProvenance
     eligibility_snapshot_digest: str
+    ocr_remediation_provenance: InitVar[TraceableEvidenceOcrRemediationProvenance | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(
+        self,
+        ocr_remediation_provenance: (
+            TraceableEvidenceOcrRemediationProvenance | None
+        ) = None,
+    ) -> None:
+        stored_ocr_remediation_provenance = self.__dict__.get(
+            "ocr_remediation_provenance",
+            None,
+        )
+        effective_ocr_remediation_provenance = (
+            ocr_remediation_provenance
+            if ocr_remediation_provenance is not None
+            else stored_ocr_remediation_provenance
+        )
+        object.__setattr__(
+            self,
+            "ocr_remediation_provenance",
+            effective_ocr_remediation_provenance,
+        )
         object.__setattr__(self, "warnings", _freeze_warnings(self.warnings))
-        if self.contract_version != TRACEABLE_EVIDENCE_CONTRACT_VERSION:
+        if self.contract_version == TRACEABLE_EVIDENCE_CONTRACT_VERSION:
+            if self.ocr_remediation_provenance is not None:
+                raise_evidence_materialization_error(
+                    EvidenceMaterializationIssueCode.INVALID_VALUE
+                )
+        elif self.contract_version == TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION:
+            if (
+                type(self.ocr_remediation_provenance)
+                is not TraceableEvidenceOcrRemediationProvenance
+            ):
+                raise_evidence_materialization_error(
+                    EvidenceMaterializationIssueCode.INVALID_VALUE
+                )
+        else:
             raise_evidence_materialization_error(
                 EvidenceMaterializationIssueCode.UNSUPPORTED_VERSION
             )
@@ -517,9 +600,20 @@ class EvidenceCollection:
             )
         object.__setattr__(self, "evidence_items", frozen_items)
 
-        if self.contract_version != EVIDENCE_COLLECTION_CONTRACT_VERSION:
+        if self.contract_version not in (
+            EVIDENCE_COLLECTION_CONTRACT_VERSION,
+            EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION,
+        ):
             raise_evidence_materialization_error(
                 EvidenceMaterializationIssueCode.UNSUPPORTED_VERSION
+            )
+        if (
+            self.contract_version == EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION
+            and self.artifact_contract_version
+            != "extraction_artifact_contract_v2"
+        ):
+            raise_evidence_materialization_error(
+                EvidenceMaterializationIssueCode.INVALID_VALUE
             )
         if not _is_prefixed_sha256(
             self.collection_id,
@@ -584,6 +678,18 @@ class EvidenceCollection:
                 raise_evidence_materialization_error(
                     EvidenceMaterializationIssueCode.INVALID_VALUE
                 )
+        if self.contract_version == EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION:
+            for item in frozen_items:
+                if (
+                    item.contract_version
+                    != TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION
+                    or type(item.ocr_remediation_provenance)
+                    is not TraceableEvidenceOcrRemediationProvenance
+                ):
+                    raise_evidence_materialization_error(
+                        EvidenceMaterializationIssueCode.INVALID_VALUE
+                    )
+
         from .evidence_materialization_canonicalization import (
             derive_evidence_collection_id,
         )

@@ -274,3 +274,46 @@ def test_zero_page_collection_has_deterministic_identity() -> None:
     second = _materialized(())
     assert first.evidence_items == ()
     assert first.collection_id == second.collection_id
+
+# PR-086K-D34 dual-version canonicalization tests.
+def test_d34_v1_canonical_bytes_omit_ocr_and_v2_include_ocr() -> None:
+    from dataclasses import replace
+    import rie.extraction.extraction_artifact_contract as gate5
+    import rie.evidence_materialization.evidence_materialization_contract as gate6
+
+    legacy = _materialized(("Legacy",))
+    legacy_bytes = canonicalize_traceable_evidence_identity(
+        legacy.evidence_items[0]
+    )
+    assert b'"ocr_remediation_provenance"' not in legacy_bytes
+
+    provenance = gate5.ExtractionArtifactOcrRemediationProvenance(
+        producer_operation_id="PR_086K_D27_REAL_RSV_ASSET_PILOT_BOUNDED_PDF_IMAGE_TEXT_EXTRACTION_EXECUTION",
+        producer_artifact_path="memory://ocr-index",
+        producer_artifact_sha256="a" * 64,
+        producer_artifact_set_digest="b" * 64,
+        extraction_method="bounded_local_ocr",
+    )
+    base = _artifact(("D34 OCR text",))
+    provisional = replace(
+        base,
+        contract_version=gate5.EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION,
+        artifact_id="0" * 64,
+        ocr_remediation_provenance=provenance,
+    )
+    artifact = replace(
+        provisional,
+        artifact_id=ExtractionArtifactSerializer.derive_artifact_id(
+            provisional
+        ),
+    )
+    result = materialize_evidence_collection(artifact, _snapshot())
+    assert result.collection is not None
+    evidence = result.collection.evidence_items[0]
+    assert evidence.contract_version == (
+        gate6.TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION
+    )
+    first = canonicalize_traceable_evidence_identity(evidence)
+    second = canonicalize_traceable_evidence_identity(evidence)
+    assert first == second
+    assert b'"ocr_remediation_provenance"' in first

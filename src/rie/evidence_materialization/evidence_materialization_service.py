@@ -31,6 +31,10 @@ from .evidence_materialization_contract import (
     evidence_materialization_issue,
 )
 
+from . import evidence_materialization_contract as _contract
+
+_OCR_EXTRACTION_ARTIFACT_CONTRACT_VERSION = "extraction_artifact_contract_v2"
+
 
 def _rejected(
     code: EvidenceMaterializationIssueCode,
@@ -47,6 +51,7 @@ def _rejected(
     )
 
 
+
 def _artifact_is_valid(value: object) -> bool:
     if type(value) is not ExtractionArtifact:
         return False
@@ -55,7 +60,11 @@ def _artifact_is_valid(value: object) -> bool:
     except Exception:
         return False
     return (
-        value.contract_version == EXTRACTION_ARTIFACT_CONTRACT_VERSION
+        value.contract_version
+        in (
+            EXTRACTION_ARTIFACT_CONTRACT_VERSION,
+            _OCR_EXTRACTION_ARTIFACT_CONTRACT_VERSION,
+        )
         and value.upstream_status == "completed"
         and value.cleanup_completed is True
     )
@@ -132,20 +141,19 @@ def _snapshot_issue(
     return None
 
 
+
 def _unchecked_traceable_evidence(
     *,
+    contract_version: str,
     content: str,
     content_digest: str,
     warnings: tuple[str, ...],
     provenance: TraceableEvidenceProvenance,
     eligibility_snapshot_digest: str,
+    ocr_remediation_provenance: object,
 ) -> TraceableEvidence:
     value = object.__new__(TraceableEvidence)
-    object.__setattr__(
-        value,
-        "contract_version",
-        TRACEABLE_EVIDENCE_CONTRACT_VERSION,
-    )
+    object.__setattr__(value, "contract_version", contract_version)
     object.__setattr__(value, "evidence_id", "")
     object.__setattr__(
         value,
@@ -161,21 +169,24 @@ def _unchecked_traceable_evidence(
         "eligibility_snapshot_digest",
         eligibility_snapshot_digest,
     )
+    object.__setattr__(
+        value,
+        "ocr_remediation_provenance",
+        ocr_remediation_provenance,
+    )
     return value
+
 
 
 def _unchecked_collection(
     *,
+    contract_version: str,
     artifact: ExtractionArtifact,
     eligibility_snapshot: EvidenceEligibilitySnapshot,
     evidence_items: tuple[TraceableEvidence, ...],
 ) -> EvidenceCollection:
     value = object.__new__(EvidenceCollection)
-    object.__setattr__(
-        value,
-        "contract_version",
-        EVIDENCE_COLLECTION_CONTRACT_VERSION,
-    )
+    object.__setattr__(value, "contract_version", contract_version)
     object.__setattr__(value, "collection_id", "")
     object.__setattr__(
         value,
@@ -205,6 +216,7 @@ def _unchecked_collection(
     return value
 
 
+
 def _materialized_collection(
     artifact: ExtractionArtifact,
     snapshot: EvidenceEligibilitySnapshot,
@@ -212,6 +224,35 @@ def _materialized_collection(
     eligibility_digest = (
         derive_evidence_eligibility_snapshot_digest(snapshot)
     )
+    traceable_contract_version = TRACEABLE_EVIDENCE_CONTRACT_VERSION
+    collection_contract_version = EVIDENCE_COLLECTION_CONTRACT_VERSION
+    ocr_remediation_provenance = None
+
+    if (
+        artifact.contract_version
+        == _OCR_EXTRACTION_ARTIFACT_CONTRACT_VERSION
+    ):
+        source_provenance = artifact.ocr_remediation_provenance
+        ocr_remediation_provenance = (
+            _contract.TraceableEvidenceOcrRemediationProvenance(
+                producer_operation_id=source_provenance.producer_operation_id,
+                producer_artifact_path=source_provenance.producer_artifact_path,
+                producer_artifact_sha256=(
+                    source_provenance.producer_artifact_sha256
+                ),
+                producer_artifact_set_digest=(
+                    source_provenance.producer_artifact_set_digest
+                ),
+                extraction_method=source_provenance.extraction_method,
+            )
+        )
+        traceable_contract_version = (
+            _contract.TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION
+        )
+        collection_contract_version = (
+            _contract.EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION
+        )
+
     items: list[TraceableEvidence] = []
 
     for extraction in artifact.page_extractions:
@@ -236,16 +277,18 @@ def _materialized_collection(
             extraction.content.encode("utf-8")
         ).hexdigest()
         provisional = _unchecked_traceable_evidence(
+            contract_version=traceable_contract_version,
             content=extraction.content,
             content_digest=content_digest,
             warnings=tuple(extraction.warnings),
             provenance=provenance,
             eligibility_snapshot_digest=eligibility_digest,
+            ocr_remediation_provenance=ocr_remediation_provenance,
         )
         evidence_id = derive_traceable_evidence_id(provisional)
         items.append(
             TraceableEvidence(
-                contract_version=TRACEABLE_EVIDENCE_CONTRACT_VERSION,
+                contract_version=traceable_contract_version,
                 evidence_id=evidence_id,
                 content_type=TRACEABLE_EVIDENCE_CONTENT_TYPE,
                 content=extraction.content,
@@ -253,11 +296,13 @@ def _materialized_collection(
                 warnings=tuple(extraction.warnings),
                 provenance=provenance,
                 eligibility_snapshot_digest=eligibility_digest,
+                ocr_remediation_provenance=ocr_remediation_provenance,
             )
         )
 
     evidence_items = tuple(items)
     provisional_collection = _unchecked_collection(
+        contract_version=collection_contract_version,
         artifact=artifact,
         eligibility_snapshot=snapshot,
         evidence_items=evidence_items,
@@ -266,7 +311,7 @@ def _materialized_collection(
         provisional_collection
     )
     return EvidenceCollection(
-        contract_version=EVIDENCE_COLLECTION_CONTRACT_VERSION,
+        contract_version=collection_contract_version,
         collection_id=collection_id,
         artifact_contract_version=artifact.contract_version,
         artifact_id=artifact.artifact_id,

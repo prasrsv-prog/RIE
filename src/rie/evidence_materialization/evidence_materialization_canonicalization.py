@@ -20,6 +20,8 @@ from .evidence_materialization_contract import (
     TraceableEvidenceProvenance,
 )
 
+from . import evidence_materialization_contract as _contract
+
 
 def _canonical_json_bytes(value: object) -> bytes:
     text = json.dumps(
@@ -99,6 +101,31 @@ def _provenance_dict(
     return payload
 
 
+
+def _ocr_remediation_provenance_dict(value: object) -> dict[str, Any]:
+    expected_type = _contract.TraceableEvidenceOcrRemediationProvenance
+    if type(value) is not expected_type:
+        raise TypeError(
+            "OCR remediation provenance has an invalid exact type."
+        )
+    payload = {
+        "producer_operation_id": value.producer_operation_id,
+        "producer_artifact_path": value.producer_artifact_path,
+        "producer_artifact_sha256": value.producer_artifact_sha256,
+        "producer_artifact_set_digest": value.producer_artifact_set_digest,
+        "extraction_method": value.extraction_method,
+    }
+    if (
+        tuple(payload)
+        != _contract.TRACEABLE_EVIDENCE_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER
+    ):
+        raise RuntimeError(
+            "OCR remediation provenance field order is invalid."
+        )
+    return payload
+
+
+
 def _evidence_identity_dict(
     evidence: TraceableEvidence,
 ) -> dict[str, Any]:
@@ -114,9 +141,24 @@ def _evidence_identity_dict(
         "eligibility_snapshot_digest":
             evidence.eligibility_snapshot_digest,
     }
-    if tuple(payload) != TRACEABLE_EVIDENCE_IDENTITY_FIELD_ORDER:
+    if (
+        evidence.contract_version
+        == _contract.TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION
+    ):
+        payload["ocr_remediation_provenance"] = (
+            _ocr_remediation_provenance_dict(
+                evidence.ocr_remediation_provenance
+            )
+        )
+        expected_order = (
+            _contract.TRACEABLE_EVIDENCE_OCR_IDENTITY_FIELD_ORDER
+        )
+    else:
+        expected_order = TRACEABLE_EVIDENCE_IDENTITY_FIELD_ORDER
+    if tuple(payload) != expected_order:
         raise RuntimeError("Evidence identity field order is invalid.")
     return payload
+
 
 
 def _evidence_dict(evidence: TraceableEvidence) -> dict[str, Any]:
@@ -131,7 +173,19 @@ def _evidence_dict(evidence: TraceableEvidence) -> dict[str, Any]:
         "eligibility_snapshot_digest":
             evidence.eligibility_snapshot_digest,
     }
-    if tuple(payload) != TRACEABLE_EVIDENCE_FIELD_ORDER:
+    if (
+        evidence.contract_version
+        == _contract.TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION
+    ):
+        payload["ocr_remediation_provenance"] = (
+            _ocr_remediation_provenance_dict(
+                evidence.ocr_remediation_provenance
+            )
+        )
+        expected_order = _contract.TRACEABLE_EVIDENCE_OCR_FIELD_ORDER
+    else:
+        expected_order = TRACEABLE_EVIDENCE_FIELD_ORDER
+    if tuple(payload) != expected_order:
         raise RuntimeError("Evidence field order is invalid.")
     return payload
 

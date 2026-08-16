@@ -24,6 +24,8 @@ from rie.extraction.extraction_artifact_serializer import (
     ExtractionArtifactSerializer,
 )
 
+from rie.extraction import extraction_artifact_contract as _artifact_contract
+
 
 class _DuplicateFieldError(ValueError):
     pass
@@ -80,14 +82,61 @@ class ExtractionArtifactDeserializer:
         return artifact
 
 
+
+def _ocr_remediation_provenance_from_raw(
+    raw: object,
+) -> _artifact_contract.ExtractionArtifactOcrRemediationProvenance:
+    mapping = _require_mapping(raw)
+    _validate_fields(
+        mapping,
+        _artifact_contract.EXTRACTION_ARTIFACT_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER,
+    )
+    try:
+        return _artifact_contract.ExtractionArtifactOcrRemediationProvenance(
+            producer_operation_id=mapping["producer_operation_id"],
+            producer_artifact_path=mapping["producer_artifact_path"],
+            producer_artifact_sha256=mapping["producer_artifact_sha256"],
+            producer_artifact_set_digest=(
+                mapping["producer_artifact_set_digest"]
+            ),
+            extraction_method=mapping["extraction_method"],
+        )
+    except ExtractionArtifactContractError:
+        raise
+    except (TypeError, ValueError):
+        raise_artifact_error(
+            ExtractionArtifactIssueCode.INVALID_VALUE
+        )
+
+
+
 def _artifact_from_raw(raw: object) -> ExtractionArtifact:
     mapping = _require_mapping(raw)
-    _validate_fields(mapping, EXTRACTION_ARTIFACT_FIELD_ORDER)
+    contract_version = mapping.get("contract_version")
+
+    if contract_version == EXTRACTION_ARTIFACT_CONTRACT_VERSION:
+        _validate_fields(mapping, EXTRACTION_ARTIFACT_FIELD_ORDER)
+        ocr_remediation_provenance = None
+    elif (
+        contract_version
+        == _artifact_contract.EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION
+    ):
+        _validate_fields(
+            mapping,
+            _artifact_contract.EXTRACTION_ARTIFACT_OCR_FIELD_ORDER,
+        )
+        ocr_remediation_provenance = (
+            _ocr_remediation_provenance_from_raw(
+                mapping["ocr_remediation_provenance"]
+            )
+        )
+    else:
+        raise_artifact_error(
+            ExtractionArtifactIssueCode.UNSUPPORTED_VERSION
+        )
 
     if (
-        mapping["contract_version"]
-        != EXTRACTION_ARTIFACT_CONTRACT_VERSION
-        or mapping["upstream_contract_version"]
+        mapping["upstream_contract_version"]
         != EXTRACTION_ARTIFACT_UPSTREAM_CONTRACT_VERSION
     ):
         raise_artifact_error(
@@ -121,6 +170,7 @@ def _artifact_from_raw(raw: object) -> ExtractionArtifact:
                 mapping["execution_report_location"]
             ),
             cleanup_completed=mapping["cleanup_completed"],
+            ocr_remediation_provenance=ocr_remediation_provenance,
         )
     except ExtractionArtifactContractError:
         raise

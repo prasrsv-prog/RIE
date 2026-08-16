@@ -248,3 +248,125 @@ def test_semantically_valid_non_canonical_bytes_are_rejected():
     assert _code(non_canonical) is (
         ExtractionArtifactIssueCode.NON_CANONICAL_BYTES
     )
+
+def _d34_zero_page_artifact(*, contract_version: str, provenance: object):
+    from dataclasses import replace
+    import rie.extraction.extraction_artifact_contract as contract
+    from rie.extraction.extraction_artifact_serializer import (
+        ExtractionArtifactSerializer,
+    )
+
+    source_path = "controlled/d34.pdf"
+    metadata = contract.ExtractionArtifactStructuralMetadata(
+        allowed=True,
+        reason="Controlled source is allowed.",
+        fixture_id="d34-fixture",
+        source_label="D34 synthetic source",
+        fixture_path=source_path,
+        fixture_type="pdf",
+        inspection_mode="bounded",
+        inspection_status="inspected",
+        encrypted=False,
+        page_count=0,
+        inspected_page_count=0,
+        page_details_truncated=False,
+        page_details=(),
+        max_inspected_pages=10,
+        inspection_error="",
+        evidence_allowed=False,
+        notes="D34 synthetic artifact.",
+    )
+    provisional = contract.ExtractionArtifact(
+        contract_version=contract_version,
+        artifact_id="0" * 64,
+        upstream_contract_version=(
+            contract.EXTRACTION_ARTIFACT_UPSTREAM_CONTRACT_VERSION
+        ),
+        upstream_status="completed",
+        job_id="d34-job",
+        source_id="d34-source",
+        source_path=source_path,
+        source_checksum="c" * 64,
+        structural_metadata=metadata,
+        page_extractions=(),
+        execution_report_location="memory://d34-report",
+        cleanup_completed=True,
+        ocr_remediation_provenance=provenance,
+    )
+    return replace(
+        provisional,
+        artifact_id=ExtractionArtifactSerializer.derive_artifact_id(
+            provisional
+        ),
+    )
+
+
+def _d34_gate5_provenance():
+    import rie.extraction.extraction_artifact_contract as contract
+    return contract.ExtractionArtifactOcrRemediationProvenance(
+        producer_operation_id="PR_086K_D27_REAL_RSV_ASSET_PILOT_BOUNDED_PDF_IMAGE_TEXT_EXTRACTION_EXECUTION",
+        producer_artifact_path="memory://ocr-index",
+        producer_artifact_sha256="a" * 64,
+        producer_artifact_set_digest="b" * 64,
+        extraction_method="bounded_local_ocr",
+    )
+
+def test_d34_deserializer_dual_version_and_field_presence_rules() -> None:
+    import json
+    import pytest
+    import rie.extraction.extraction_artifact_contract as contract
+    from rie.extraction.extraction_artifact_deserializer import (
+        ExtractionArtifactDeserializer,
+    )
+    from rie.extraction.extraction_artifact_serializer import (
+        ExtractionArtifactSerializer,
+    )
+
+    remediated = _d34_zero_page_artifact(
+        contract_version=contract.EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION,
+        provenance=_d34_gate5_provenance(),
+    )
+    encoded = ExtractionArtifactSerializer.to_bytes(remediated)
+    decoded = ExtractionArtifactDeserializer.from_bytes(encoded)
+    assert decoded == remediated
+    assert decoded.ocr_remediation_provenance == (
+        remediated.ocr_remediation_provenance
+    )
+
+    legacy = _d34_zero_page_artifact(
+        contract_version=contract.EXTRACTION_ARTIFACT_CONTRACT_VERSION,
+        provenance=None,
+    )
+    legacy_raw = json.loads(ExtractionArtifactSerializer.to_bytes(legacy))
+    legacy_raw["ocr_remediation_provenance"] = {
+        "producer_operation_id": "producer",
+        "producer_artifact_path": "artifact",
+        "producer_artifact_sha256": "a" * 64,
+        "producer_artifact_set_digest": "b" * 64,
+        "extraction_method": "bounded_local_ocr",
+    }
+    legacy_extra = (
+        json.dumps(
+            legacy_raw,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    with pytest.raises(contract.ExtractionArtifactContractError):
+        ExtractionArtifactDeserializer.from_bytes(legacy_extra)
+
+    v2_missing = json.loads(encoded)
+    del v2_missing["ocr_remediation_provenance"]
+    v2_missing_bytes = (
+        json.dumps(
+            v2_missing,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    with pytest.raises(contract.ExtractionArtifactContractError):
+        ExtractionArtifactDeserializer.from_bytes(v2_missing_bytes)

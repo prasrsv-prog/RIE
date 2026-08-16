@@ -10,6 +10,7 @@ from rie.evidence_materialization.evidence_materialization_canonicalization impo
 )
 from rie.evidence_materialization.evidence_materialization_contract import (
     EVIDENCE_COLLECTION_CONTRACT_VERSION,
+    EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION as _EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION,
     EvidenceCollection,
 )
 
@@ -171,7 +172,10 @@ class EvidenceRepositoryWriteRequest:
             raise ValueError("unsupported write request contract version")
         if type(self.collection) is not EvidenceCollection:
             raise TypeError("collection must be EvidenceCollection")
-        if self.collection.contract_version != EVIDENCE_COLLECTION_CONTRACT_VERSION:
+        if self.collection.contract_version not in (
+            EVIDENCE_COLLECTION_CONTRACT_VERSION,
+            _EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION,
+        ):
             raise ValueError("unsupported EvidenceCollection contract version")
         if derive_evidence_collection_id(self.collection) != self.collection.collection_id:
             raise ValueError("EvidenceCollection identity mismatch")

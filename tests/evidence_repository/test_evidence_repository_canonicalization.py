@@ -376,3 +376,160 @@ def test_audit_identity_is_deterministic_and_timestamp_bearing():
     assert first == second
     assert first.startswith("eva1_")
     assert first != changed
+
+# PR-086K-D39 synthetic v2 repository compatibility fixture.
+def _pr086k_d39_v2_collection():
+    import hashlib as _d39_hashlib
+
+    from rie.evidence_materialization.evidence_materialization_canonicalization import (
+        derive_evidence_collection_id as _d39_derive_collection_id,
+        derive_evidence_eligibility_snapshot_digest as _d39_derive_snapshot_digest,
+        derive_traceable_evidence_id as _d39_derive_evidence_id,
+    )
+    from rie.evidence_materialization.evidence_materialization_contract import (
+        EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION as _D39_COLLECTION_V2,
+        EVIDENCE_ELIGIBILITY_SNAPSHOT_CONTRACT_VERSION as _D39_SNAPSHOT_V1,
+        TRACEABLE_EVIDENCE_CONTENT_TYPE as _D39_CONTENT_TYPE,
+        TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION as _D39_TRACEABLE_V2,
+        EvidenceCollection as _D39_EvidenceCollection,
+        EvidenceEligibilitySnapshot as _D39_Snapshot,
+        TraceableEvidence as _D39_TraceableEvidence,
+        TraceableEvidenceOcrRemediationProvenance as _D39_OcrProvenance,
+        TraceableEvidenceProvenance as _D39_Provenance,
+    )
+
+    snapshot = _D39_Snapshot(
+        contract_version=_D39_SNAPSHOT_V1,
+        source_id="d39-source",
+        source_path="synthetic-d39.pdf",
+        source_checksum="a" * 64,
+        source_type="pdf",
+        document_classification="product_manual",
+        authority_status="approved",
+        lifecycle_status="locked",
+        evidence_eligibility="eligible",
+        evidence_collection_allowed=True,
+        requires_review=False,
+        reason="D39 synthetic eligible source.",
+        policy_id="d39-synthetic-policy",
+        policy_version="1.0.0",
+        registry_version="d39-registry-v1",
+    )
+    provenance = _D39_Provenance(
+        artifact_contract_version="extraction_artifact_contract_v2",
+        artifact_id="b" * 64,
+        upstream_contract_version="controlled_pdf_text_extraction_result_v1",
+        job_id="d39-job",
+        source_id=snapshot.source_id,
+        source_path=snapshot.source_path,
+        source_checksum=snapshot.source_checksum,
+        page_index=0,
+        page_number=1,
+        extraction_index=0,
+        extraction_method="bounded_local_ocr",
+        extraction_status="completed",
+        execution_report_location="report://d39",
+    )
+    ocr = _D39_OcrProvenance(
+        producer_operation_id=(
+            "PR_086K_D27_REAL_RSV_ASSET_PILOT_BOUNDED_PDF_IMAGE_TEXT_"
+            "EXTRACTION_EXECUTION"
+        ),
+        producer_artifact_path=(
+            r"C:\Users\Kreatif Kris\Downloads\RCIS-RSV-Real-Asset-Pilot-01-"
+            r"Intake\pilot-bounded-pdf-image-text-extraction-state\ocr-"
+            r"extraction-index.json"
+        ),
+        producer_artifact_sha256=(
+            "d509a7d6337f332038e9a37a42b0855b68762b7cfd15cbd1a34190ba74382ee4"
+        ),
+        producer_artifact_set_digest=(
+            "a36604df0195d6a213a5bbd8e69c1e1726f56f64f8d280935c8b57681fd43264"
+        ),
+        extraction_method="bounded_local_ocr",
+    )
+
+    content = "D39 synthetic repository v2 evidence"
+    evidence_values = {
+        "contract_version": _D39_TRACEABLE_V2,
+        "evidence_id": "evm1_" + "0" * 64,
+        "content_type": _D39_CONTENT_TYPE,
+        "content": content,
+        "content_digest": _d39_hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "warnings": (),
+        "provenance": provenance,
+        "eligibility_snapshot_digest": _d39_derive_snapshot_digest(snapshot),
+    }
+    provisional_evidence = object.__new__(_D39_TraceableEvidence)
+    for _name, _value in evidence_values.items():
+        object.__setattr__(provisional_evidence, _name, _value)
+    object.__setattr__(
+        provisional_evidence,
+        "ocr_remediation_provenance",
+        ocr,
+    )
+    evidence_values["evidence_id"] = _d39_derive_evidence_id(
+        provisional_evidence
+    )
+    evidence = _D39_TraceableEvidence(
+        **evidence_values,
+        ocr_remediation_provenance=ocr,
+    )
+
+    collection_values = {
+        "contract_version": _D39_COLLECTION_V2,
+        "collection_id": "evc1_" + "0" * 64,
+        "artifact_contract_version": provenance.artifact_contract_version,
+        "artifact_id": provenance.artifact_id,
+        "upstream_contract_version": provenance.upstream_contract_version,
+        "job_id": provenance.job_id,
+        "source_id": snapshot.source_id,
+        "source_path": snapshot.source_path,
+        "source_checksum": snapshot.source_checksum,
+        "eligibility_snapshot": snapshot,
+        "evidence_items": (evidence,),
+    }
+    provisional_collection = object.__new__(_D39_EvidenceCollection)
+    for _name, _value in collection_values.items():
+        object.__setattr__(provisional_collection, _name, _value)
+    collection_values["collection_id"] = _d39_derive_collection_id(
+        provisional_collection
+    )
+    return _D39_EvidenceCollection(**collection_values)
+
+def test_pr086k_d39_v2_repository_payload_roundtrip_is_exact_and_canonical():
+    import hashlib as _d39_hashlib
+    import json as _d39_json
+
+    from rie.evidence_materialization.evidence_materialization_contract import (
+        EVIDENCE_COLLECTION_FIELD_ORDER as _D39_COLLECTION_FIELDS,
+        TRACEABLE_EVIDENCE_OCR_FIELD_ORDER as _D39_EVIDENCE_FIELDS,
+        TRACEABLE_EVIDENCE_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER as _D39_OCR_FIELDS,
+    )
+    from rie.evidence_repository.evidence_repository_canonicalization import (
+        calculate_evidence_collection_repository_payload_digest as _d39_digest,
+        deserialize_evidence_collection_repository_payload as _d39_deserialize,
+        serialize_evidence_collection_repository_payload as _d39_serialize,
+    )
+
+    collection = _pr086k_d39_v2_collection()
+    payload = _d39_serialize(collection)
+    restored = _d39_deserialize(payload)
+
+    assert restored == collection
+    assert getattr(
+        restored.evidence_items[0],
+        "ocr_remediation_provenance",
+    ) == getattr(
+        collection.evidence_items[0],
+        "ocr_remediation_provenance",
+    )
+    assert _d39_serialize(restored) == payload
+    assert _d39_digest(collection) == _d39_hashlib.sha256(payload).hexdigest()
+
+    raw = _d39_json.loads(payload.decode("utf-8"))
+    assert tuple(raw) == _D39_COLLECTION_FIELDS
+    assert tuple(raw["evidence_items"][0]) == _D39_EVIDENCE_FIELDS
+    assert tuple(
+        raw["evidence_items"][0]["ocr_remediation_provenance"]
+    ) == _D39_OCR_FIELDS

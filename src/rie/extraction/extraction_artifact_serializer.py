@@ -20,6 +20,8 @@ from rie.extraction.extraction_artifact_contract import (
     raise_artifact_error,
 )
 
+from rie.extraction import extraction_artifact_contract as _artifact_contract
+
 
 class ExtractionArtifactSerializer:
     @staticmethod
@@ -46,7 +48,19 @@ class ExtractionArtifactSerializer:
                 artifact.execution_report_location,
             "cleanup_completed": artifact.cleanup_completed,
         }
-        if tuple(payload) != EXTRACTION_ARTIFACT_FIELD_ORDER:
+        if (
+            artifact.contract_version
+            == _artifact_contract.EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION
+        ):
+            payload["ocr_remediation_provenance"] = (
+                _ocr_remediation_provenance_to_dict(
+                    artifact.ocr_remediation_provenance
+                )
+            )
+            expected_order = _artifact_contract.EXTRACTION_ARTIFACT_OCR_FIELD_ORDER
+        else:
+            expected_order = EXTRACTION_ARTIFACT_FIELD_ORDER
+        if tuple(payload) != expected_order:
             raise RuntimeError("artifact field order is invalid.")
         return payload
 
@@ -75,7 +89,21 @@ class ExtractionArtifactSerializer:
                 artifact.execution_report_location,
             "cleanup_completed": artifact.cleanup_completed,
         }
-        if tuple(payload) != EXTRACTION_ARTIFACT_IDENTITY_FIELD_ORDER:
+        if (
+            artifact.contract_version
+            == _artifact_contract.EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION
+        ):
+            payload["ocr_remediation_provenance"] = (
+                _ocr_remediation_provenance_to_dict(
+                    artifact.ocr_remediation_provenance
+                )
+            )
+            expected_order = (
+                _artifact_contract.EXTRACTION_ARTIFACT_OCR_IDENTITY_FIELD_ORDER
+            )
+        else:
+            expected_order = EXTRACTION_ARTIFACT_IDENTITY_FIELD_ORDER
+        if tuple(payload) != expected_order:
             raise RuntimeError(
                 "artifact identity field order is invalid."
             )
@@ -107,6 +135,30 @@ class ExtractionArtifactSerializer:
         return _canonical_json_bytes(
             ExtractionArtifactSerializer.to_dict(artifact)
         )
+
+
+
+def _ocr_remediation_provenance_to_dict(value: object) -> dict[str, Any]:
+    expected_type = _artifact_contract.ExtractionArtifactOcrRemediationProvenance
+    if type(value) is not expected_type:
+        raise_artifact_error(
+            ExtractionArtifactIssueCode.INVALID_VALUE
+        )
+    payload = {
+        "producer_operation_id": value.producer_operation_id,
+        "producer_artifact_path": value.producer_artifact_path,
+        "producer_artifact_sha256": value.producer_artifact_sha256,
+        "producer_artifact_set_digest": value.producer_artifact_set_digest,
+        "extraction_method": value.extraction_method,
+    }
+    if (
+        tuple(payload)
+        != _artifact_contract.EXTRACTION_ARTIFACT_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER
+    ):
+        raise RuntimeError(
+            "OCR remediation provenance field order is invalid."
+        )
+    return payload
 
 
 def _canonical_json_bytes(value: object) -> bytes:

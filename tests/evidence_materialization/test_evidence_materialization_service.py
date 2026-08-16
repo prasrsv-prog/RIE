@@ -384,3 +384,57 @@ def test_materialized_result_preserves_artifact_identity() -> None:
     assert result.source_id == artifact.source_id
     assert result.collection is not None
     assert result.collection.artifact_id == artifact.artifact_id
+
+# PR-086K-D34 OCR provenance propagation tests.
+def test_d34_v2_artifact_propagates_ocr_provenance_to_gate6() -> None:
+    from dataclasses import replace
+    import rie.extraction.extraction_artifact_contract as gate5
+    import rie.evidence_materialization.evidence_materialization_contract as gate6
+    from rie.extraction.extraction_artifact_serializer import (
+        ExtractionArtifactSerializer,
+    )
+
+    provenance = gate5.ExtractionArtifactOcrRemediationProvenance(
+        producer_operation_id="PR_086K_D27_REAL_RSV_ASSET_PILOT_BOUNDED_PDF_IMAGE_TEXT_EXTRACTION_EXECUTION",
+        producer_artifact_path="memory://ocr-index",
+        producer_artifact_sha256="a" * 64,
+        producer_artifact_set_digest="b" * 64,
+        extraction_method="bounded_local_ocr",
+    )
+    base = _artifact(("D34 OCR text",))
+    provisional = replace(
+        base,
+        contract_version=gate5.EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION,
+        artifact_id="0" * 64,
+        ocr_remediation_provenance=provenance,
+    )
+    artifact = replace(
+        provisional,
+        artifact_id=ExtractionArtifactSerializer.derive_artifact_id(
+            provisional
+        ),
+    )
+
+    result = materialize_evidence_collection(artifact, _snapshot())
+    assert result.collection is not None
+    assert result.collection.contract_version == (
+        gate6.EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION
+    )
+    evidence = result.collection.evidence_items[0]
+    assert evidence.contract_version == (
+        gate6.TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION
+    )
+    assert evidence.ocr_remediation_provenance is not None
+    assert evidence.ocr_remediation_provenance.producer_operation_id == (
+        provenance.producer_operation_id
+    )
+    assert evidence.ocr_remediation_provenance.producer_artifact_sha256 == (
+        provenance.producer_artifact_sha256
+    )
+
+    legacy = materialize_evidence_collection(_artifact(("Legacy",)), _snapshot())
+    assert legacy.collection is not None
+    assert legacy.collection.contract_version == (
+        gate6.EVIDENCE_COLLECTION_CONTRACT_VERSION
+    )
+    assert legacy.collection.evidence_items[0].ocr_remediation_provenance is None

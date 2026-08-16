@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
 from typing import Final
+from dataclasses import InitVar
 
 
 EXTRACTION_ARTIFACT_CONTRACT_VERSION: Final = (
@@ -79,6 +80,24 @@ EXTRACTION_ARTIFACT_PAGE_EXTRACTION_FIELD_ORDER: Final = (
     "extraction_method",
     "content",
     "warnings",
+)
+
+
+EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION: Final = (
+    "extraction_artifact_contract_v2"
+)
+EXTRACTION_ARTIFACT_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER: Final = (
+    "producer_operation_id",
+    "producer_artifact_path",
+    "producer_artifact_sha256",
+    "producer_artifact_set_digest",
+    "extraction_method",
+)
+EXTRACTION_ARTIFACT_OCR_FIELD_ORDER: Final = (
+    EXTRACTION_ARTIFACT_FIELD_ORDER + ("ocr_remediation_provenance",)
+)
+EXTRACTION_ARTIFACT_OCR_IDENTITY_FIELD_ORDER: Final = (
+    EXTRACTION_ARTIFACT_IDENTITY_FIELD_ORDER + ("ocr_remediation_provenance",)
 )
 
 _LOWER_HEX = frozenset("0123456789abcdef")
@@ -379,6 +398,35 @@ class ExtractionArtifactPageExtraction:
             )
 
 
+
+@dataclass(frozen=True)
+class ExtractionArtifactOcrRemediationProvenance:
+    producer_operation_id: str
+    producer_artifact_path: str
+    producer_artifact_sha256: str
+    producer_artifact_set_digest: str
+    extraction_method: str
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "producer_operation_id",
+            "producer_artifact_path",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or value.strip() == "":
+                raise_artifact_error(
+                    ExtractionArtifactIssueCode.INVALID_VALUE
+                )
+        if (
+            not _is_sha256(self.producer_artifact_sha256)
+            or not _is_sha256(self.producer_artifact_set_digest)
+            or self.extraction_method != "bounded_local_ocr"
+        ):
+            raise_artifact_error(
+                ExtractionArtifactIssueCode.INVALID_VALUE
+            )
+
+
 @dataclass(frozen=True)
 class ExtractionArtifact:
     contract_version: str
@@ -393,8 +441,28 @@ class ExtractionArtifact:
     page_extractions: tuple[ExtractionArtifactPageExtraction, ...]
     execution_report_location: str
     cleanup_completed: bool
+    ocr_remediation_provenance: InitVar[ExtractionArtifactOcrRemediationProvenance | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(
+        self,
+        ocr_remediation_provenance: (
+            ExtractionArtifactOcrRemediationProvenance | None
+        ) = None,
+    ) -> None:
+        stored_ocr_remediation_provenance = self.__dict__.get(
+            "ocr_remediation_provenance",
+            None,
+        )
+        effective_ocr_remediation_provenance = (
+            ocr_remediation_provenance
+            if ocr_remediation_provenance is not None
+            else stored_ocr_remediation_provenance
+        )
+        object.__setattr__(
+            self,
+            "ocr_remediation_provenance",
+            effective_ocr_remediation_provenance,
+        )
         object.__setattr__(
             self,
             "page_extractions",
@@ -404,7 +472,20 @@ class ExtractionArtifact:
             ),
         )
 
-        if self.contract_version != EXTRACTION_ARTIFACT_CONTRACT_VERSION:
+        if self.contract_version == EXTRACTION_ARTIFACT_CONTRACT_VERSION:
+            if self.ocr_remediation_provenance is not None:
+                raise_artifact_error(
+                    ExtractionArtifactIssueCode.INVALID_VALUE
+                )
+        elif self.contract_version == EXTRACTION_ARTIFACT_OCR_CONTRACT_VERSION:
+            if (
+                type(self.ocr_remediation_provenance)
+                is not ExtractionArtifactOcrRemediationProvenance
+            ):
+                raise_artifact_error(
+                    ExtractionArtifactIssueCode.INVALID_VALUE
+                )
+        else:
             raise_artifact_error(
                 ExtractionArtifactIssueCode.UNSUPPORTED_VERSION
             )

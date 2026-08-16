@@ -249,3 +249,43 @@ def test_contract_classes_are_not_enums_except_reviewed_enums() -> None:
     assert issubclass(EvidenceMaterializationStatus, Enum)
     assert issubclass(EvidenceMaterializationIssueCode, Enum)
     assert not issubclass(EvidenceEligibilitySnapshot, Enum)
+
+# PR-086K-D34 OCR provenance extension tests.
+def test_d34_traceable_ocr_provenance_contract_is_exact_and_validated() -> None:
+    from dataclasses import fields
+    import pytest
+    import rie.evidence_materialization.evidence_materialization_contract as contract
+
+    value = contract.TraceableEvidenceOcrRemediationProvenance(
+        producer_operation_id="PR_086K_D27_REAL_RSV_ASSET_PILOT_BOUNDED_PDF_IMAGE_TEXT_EXTRACTION_EXECUTION",
+        producer_artifact_path="memory://ocr-index",
+        producer_artifact_sha256="a" * 64,
+        producer_artifact_set_digest="b" * 64,
+        extraction_method="bounded_local_ocr",
+    )
+    assert tuple(field.name for field in fields(type(value))) == (
+        "producer_operation_id",
+        "producer_artifact_path",
+        "producer_artifact_sha256",
+        "producer_artifact_set_digest",
+        "extraction_method",
+    )
+    assert contract.TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION == (
+        "traceable_evidence_contract_v2"
+    )
+    assert contract.EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION == (
+        "evidence_collection_contract_v2"
+    )
+    traceable_field_names = tuple(
+        field.name for field in fields(contract.TraceableEvidence)
+    )
+    assert traceable_field_names == contract.TRACEABLE_EVIDENCE_FIELD_ORDER
+    assert "ocr_remediation_provenance" not in traceable_field_names
+    with pytest.raises(contract.EvidenceMaterializationContractError):
+        contract.TraceableEvidenceOcrRemediationProvenance(
+            producer_operation_id="producer",
+            producer_artifact_path="artifact",
+            producer_artifact_sha256="a" * 64,
+            producer_artifact_set_digest="b" * 64,
+            extraction_method="other",
+        )
