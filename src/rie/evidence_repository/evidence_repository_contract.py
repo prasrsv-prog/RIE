@@ -11,11 +11,15 @@ from rie.evidence_materialization.evidence_materialization_canonicalization impo
 from rie.evidence_materialization.evidence_materialization_contract import (
     EVIDENCE_COLLECTION_CONTRACT_VERSION,
     EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION as _EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION,
+    EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION as _EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION,
     EvidenceCollection,
 )
 
 EVIDENCE_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION: Final = (
     "evidence_repository_write_request_contract_v1"
+)
+EVIDENCE_REPOSITORY_WRITE_REQUEST_V2_CONTRACT_VERSION: Final = (
+    "evidence_repository_write_request_contract_v2"
 )
 EVIDENCE_REPOSITORY_WRITE_RESULT_CONTRACT_VERSION: Final = (
     "evidence_repository_write_result_contract_v1"
@@ -168,14 +172,24 @@ class EvidenceRepositoryWriteRequest:
     recorded_at_utc: datetime
 
     def __post_init__(self) -> None:
-        if self.contract_version != EVIDENCE_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION:
+        if self.contract_version == EVIDENCE_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION:
+            accepted_collection_versions = (
+                EVIDENCE_COLLECTION_CONTRACT_VERSION,
+                _EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION,
+            )
+        elif (
+            self.contract_version
+            == EVIDENCE_REPOSITORY_WRITE_REQUEST_V2_CONTRACT_VERSION
+        ):
+            accepted_collection_versions = (
+                _EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION,
+            )
+        else:
             raise ValueError("unsupported write request contract version")
+
         if type(self.collection) is not EvidenceCollection:
             raise TypeError("collection must be EvidenceCollection")
-        if self.collection.contract_version not in (
-            EVIDENCE_COLLECTION_CONTRACT_VERSION,
-            _EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION,
-        ):
+        if self.collection.contract_version not in accepted_collection_versions:
             raise ValueError("unsupported EvidenceCollection contract version")
         if derive_evidence_collection_id(self.collection) != self.collection.collection_id:
             raise ValueError("EvidenceCollection identity mismatch")
@@ -385,6 +399,7 @@ class EvidenceRepositoryHistoryResult:
 
 __all__ = (
     "EVIDENCE_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION",
+    "EVIDENCE_REPOSITORY_WRITE_REQUEST_V2_CONTRACT_VERSION",
     "EVIDENCE_REPOSITORY_WRITE_RESULT_CONTRACT_VERSION",
     "EVIDENCE_REPOSITORY_REVISION_CONTRACT_VERSION",
     "EVIDENCE_REPOSITORY_AUDIT_RECORD_CONTRACT_VERSION",

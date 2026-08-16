@@ -703,3 +703,120 @@ def test_pr086k_d39_write_request_still_rejects_unknown_collection_version():
                 2026, 8, 12, 0, 0, 0, tzinfo=_d39_timezone.utc
             ),
         )
+
+# PR-086BL synthetic v3 compatibility fixture.
+def _pr086bl_v3_collection(*, reverse=False):
+    import hashlib as _bl_hashlib
+
+    from rie.evidence_materialization.evidence_materialization_canonicalization import (
+        derive_evidence_collection_id as _bl_derive_collection_id,
+        derive_traceable_evidence_id as _bl_derive_evidence_id,
+    )
+    from rie.evidence_materialization.evidence_materialization_contract import (
+        EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION as _BL_COLLECTION_V3,
+        TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION as _BL_TRACEABLE_V3,
+        TRACEABLE_EVIDENCE_CONTENT_TYPE as _BL_CONTENT_TYPE,
+        EvidenceCollection as _BL_Collection,
+        TraceableEvidence as _BL_Evidence,
+        TraceableEvidenceAtomicTextDerivationProvenance as _BL_AtomicProvenance,
+    )
+
+    base = _pr086k_d39_v2_collection()
+    parent = base.evidence_items[0]
+    items = []
+
+    for content in ("S: 55-56 cm", "M: 57-58 cm"):
+        content_digest = _bl_hashlib.sha256(content.encode("utf-8")).hexdigest()
+        atomic = _BL_AtomicProvenance(
+            contract_version="traceable_evidence_atomic_text_derivation_provenance_v1",
+            derivation_type="operator_approved_verbatim_atomic_text",
+            parent_traceable_evidence_id=parent.evidence_id,
+            parent_content_digest=parent.content_digest,
+            source_span_ids=("span-ffs21-0056",),
+            operator_decision_packet_sha256="a" * 64,
+            atomic_statement_sha256=content_digest,
+        )
+        values = {
+            "contract_version": _BL_TRACEABLE_V3,
+            "evidence_id": "evm1_" + "0" * 64,
+            "content_type": _BL_CONTENT_TYPE,
+            "content": content,
+            "content_digest": content_digest,
+            "warnings": parent.warnings,
+            "provenance": parent.provenance,
+            "eligibility_snapshot_digest": parent.eligibility_snapshot_digest,
+            "ocr_remediation_provenance": parent.ocr_remediation_provenance,
+            "atomic_text_derivation_provenance": atomic,
+        }
+        provisional = object.__new__(_BL_Evidence)
+        for name, value in values.items():
+            object.__setattr__(provisional, name, value)
+        values["evidence_id"] = _bl_derive_evidence_id(provisional)
+        items.append(_BL_Evidence(**values))
+
+    if reverse:
+        items.reverse()
+
+    collection_values = {
+        "contract_version": _BL_COLLECTION_V3,
+        "collection_id": "evc1_" + "0" * 64,
+        "artifact_contract_version": base.artifact_contract_version,
+        "artifact_id": base.artifact_id,
+        "upstream_contract_version": base.upstream_contract_version,
+        "job_id": base.job_id,
+        "source_id": base.source_id,
+        "source_path": base.source_path,
+        "source_checksum": base.source_checksum,
+        "eligibility_snapshot": base.eligibility_snapshot,
+        "evidence_items": tuple(items),
+    }
+    provisional_collection = object.__new__(_BL_Collection)
+    for name, value in collection_values.items():
+        object.__setattr__(provisional_collection, name, value)
+    collection_values["collection_id"] = _bl_derive_collection_id(
+        provisional_collection
+    )
+    return _BL_Collection(**collection_values)
+
+def test_pr086bl_v3_collection_preserves_duplicate_parent_page_indexes_and_order():
+    first = _pr086bl_v3_collection()
+    reversed_collection = _pr086bl_v3_collection(reverse=True)
+    assert tuple(item.provenance.page_index for item in first.evidence_items) == (0, 0)
+    assert tuple(item.provenance.page_number for item in first.evidence_items) == (1, 1)
+    assert first.collection_id != reversed_collection.collection_id
+    assert tuple(item.content for item in first.evidence_items) == (
+        "S: 55-56 cm",
+        "M: 57-58 cm",
+    )
+
+
+def test_pr086bl_write_request_v2_accepts_v3_and_v1_rejects_v3():
+    from datetime import datetime as _bl_datetime, timezone as _bl_timezone
+    import pytest as _bl_pytest
+
+    from rie.evidence_repository.evidence_repository_canonicalization import (
+        calculate_evidence_collection_repository_payload_digest as _bl_digest,
+    )
+    from rie.evidence_repository.evidence_repository_contract import (
+        EVIDENCE_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION as _BL_REQUEST_V1,
+        EVIDENCE_REPOSITORY_WRITE_REQUEST_V2_CONTRACT_VERSION as _BL_REQUEST_V2,
+        EvidenceRepositoryWriteRequest as _BL_Request,
+    )
+
+    collection = _pr086bl_v3_collection()
+    kwargs = {
+        "collection": collection,
+        "expected_collection_payload_digest": _bl_digest(collection),
+        "actor_id": "pr086bl-synthetic-operator",
+        "recorded_at_utc": _bl_datetime(
+            2026, 8, 16, 0, 0, 0, tzinfo=_bl_timezone.utc
+        ),
+    }
+    request = _BL_Request(contract_version=_BL_REQUEST_V2, **kwargs)
+    assert request.collection is collection
+
+    with _bl_pytest.raises(
+        ValueError,
+        match="unsupported EvidenceCollection contract version",
+    ):
+        _BL_Request(contract_version=_BL_REQUEST_V1, **kwargs)

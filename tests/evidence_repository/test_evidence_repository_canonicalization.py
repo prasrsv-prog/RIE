@@ -533,3 +533,123 @@ def test_pr086k_d39_v2_repository_payload_roundtrip_is_exact_and_canonical():
     assert tuple(
         raw["evidence_items"][0]["ocr_remediation_provenance"]
     ) == _D39_OCR_FIELDS
+
+# PR-086BL synthetic v3 compatibility fixture.
+def _pr086bl_v3_collection(*, reverse=False):
+    import hashlib as _bl_hashlib
+
+    from rie.evidence_materialization.evidence_materialization_canonicalization import (
+        derive_evidence_collection_id as _bl_derive_collection_id,
+        derive_traceable_evidence_id as _bl_derive_evidence_id,
+    )
+    from rie.evidence_materialization.evidence_materialization_contract import (
+        EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION as _BL_COLLECTION_V3,
+        TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION as _BL_TRACEABLE_V3,
+        TRACEABLE_EVIDENCE_CONTENT_TYPE as _BL_CONTENT_TYPE,
+        EvidenceCollection as _BL_Collection,
+        TraceableEvidence as _BL_Evidence,
+        TraceableEvidenceAtomicTextDerivationProvenance as _BL_AtomicProvenance,
+    )
+
+    base = _pr086k_d39_v2_collection()
+    parent = base.evidence_items[0]
+    items = []
+
+    for content in ("S: 55-56 cm", "M: 57-58 cm"):
+        content_digest = _bl_hashlib.sha256(content.encode("utf-8")).hexdigest()
+        atomic = _BL_AtomicProvenance(
+            contract_version="traceable_evidence_atomic_text_derivation_provenance_v1",
+            derivation_type="operator_approved_verbatim_atomic_text",
+            parent_traceable_evidence_id=parent.evidence_id,
+            parent_content_digest=parent.content_digest,
+            source_span_ids=("span-ffs21-0056",),
+            operator_decision_packet_sha256="a" * 64,
+            atomic_statement_sha256=content_digest,
+        )
+        values = {
+            "contract_version": _BL_TRACEABLE_V3,
+            "evidence_id": "evm1_" + "0" * 64,
+            "content_type": _BL_CONTENT_TYPE,
+            "content": content,
+            "content_digest": content_digest,
+            "warnings": parent.warnings,
+            "provenance": parent.provenance,
+            "eligibility_snapshot_digest": parent.eligibility_snapshot_digest,
+            "ocr_remediation_provenance": parent.ocr_remediation_provenance,
+            "atomic_text_derivation_provenance": atomic,
+        }
+        provisional = object.__new__(_BL_Evidence)
+        for name, value in values.items():
+            object.__setattr__(provisional, name, value)
+        values["evidence_id"] = _bl_derive_evidence_id(provisional)
+        items.append(_BL_Evidence(**values))
+
+    if reverse:
+        items.reverse()
+
+    collection_values = {
+        "contract_version": _BL_COLLECTION_V3,
+        "collection_id": "evc1_" + "0" * 64,
+        "artifact_contract_version": base.artifact_contract_version,
+        "artifact_id": base.artifact_id,
+        "upstream_contract_version": base.upstream_contract_version,
+        "job_id": base.job_id,
+        "source_id": base.source_id,
+        "source_path": base.source_path,
+        "source_checksum": base.source_checksum,
+        "eligibility_snapshot": base.eligibility_snapshot,
+        "evidence_items": tuple(items),
+    }
+    provisional_collection = object.__new__(_BL_Collection)
+    for name, value in collection_values.items():
+        object.__setattr__(provisional_collection, name, value)
+    collection_values["collection_id"] = _bl_derive_collection_id(
+        provisional_collection
+    )
+    return _BL_Collection(**collection_values)
+
+def test_pr086bl_v3_repository_payload_roundtrip_is_exact_and_json_v1_is_preserved():
+    import hashlib as _bl_hashlib
+    import json as _bl_json
+
+    from rie.evidence_materialization.evidence_materialization_contract import (
+        EVIDENCE_COLLECTION_FIELD_ORDER as _BL_COLLECTION_FIELDS,
+        TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_FIELD_ORDER as _BL_EVIDENCE_FIELDS,
+        TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_PROVENANCE_FIELD_ORDER as _BL_ATOMIC_FIELDS,
+        TRACEABLE_EVIDENCE_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER as _BL_OCR_FIELDS,
+    )
+    from rie.evidence_repository.evidence_repository_canonicalization import (
+        calculate_evidence_collection_repository_payload_digest as _bl_digest,
+        deserialize_evidence_collection_repository_payload as _bl_deserialize,
+        serialize_evidence_collection_repository_payload as _bl_serialize,
+    )
+    from rie.evidence_repository.evidence_repository_contract import (
+        EVIDENCE_COLLECTION_REPOSITORY_PAYLOAD_CANONICALIZATION_VERSION as _BL_PAYLOAD_VERSION,
+    )
+
+    collection = _pr086bl_v3_collection()
+    payload = _bl_serialize(collection)
+    restored = _bl_deserialize(payload)
+
+    assert _BL_PAYLOAD_VERSION == "evidence_collection_repository_payload_json_v1"
+    assert restored == collection
+    assert _bl_serialize(restored) == payload
+    assert _bl_digest(collection) == _bl_hashlib.sha256(payload).hexdigest()
+    assert tuple(item.provenance.page_index for item in restored.evidence_items) == (0, 0)
+
+    raw = _bl_json.loads(payload.decode("utf-8"))
+    assert tuple(raw) == _BL_COLLECTION_FIELDS
+    assert tuple(raw["evidence_items"][0]) == _BL_EVIDENCE_FIELDS
+    assert tuple(raw["evidence_items"][0]["ocr_remediation_provenance"]) == _BL_OCR_FIELDS
+    assert tuple(raw["evidence_items"][0]["atomic_text_derivation_provenance"]) == _BL_ATOMIC_FIELDS
+
+
+def test_pr086bl_v3_caller_item_order_changes_collection_identity_and_payload():
+    from rie.evidence_repository.evidence_repository_canonicalization import (
+        serialize_evidence_collection_repository_payload as _bl_serialize,
+    )
+
+    first = _pr086bl_v3_collection()
+    second = _pr086bl_v3_collection(reverse=True)
+    assert first.collection_id != second.collection_id
+    assert _bl_serialize(first) != _bl_serialize(second)

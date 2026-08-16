@@ -14,9 +14,13 @@ from rie.evidence_materialization.evidence_materialization_contract import (
     EVIDENCE_COLLECTION_CONTRACT_VERSION,
     EVIDENCE_COLLECTION_FIELD_ORDER,
     EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION as _EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION,
+    EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION as _EVIDENCE_COLLECTION_V3_CONTRACT_VERSION,
     EVIDENCE_ELIGIBILITY_FIELD_ORDER,
     TRACEABLE_EVIDENCE_FIELD_ORDER,
     TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION as _TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION,
+    TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION as _TRACEABLE_EVIDENCE_V3_CONTRACT_VERSION,
+    TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_FIELD_ORDER as _TRACEABLE_EVIDENCE_V3_FIELD_ORDER,
+    TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_PROVENANCE_FIELD_ORDER as _TRACEABLE_EVIDENCE_ATOMIC_PROVENANCE_FIELD_ORDER,
     TRACEABLE_EVIDENCE_OCR_FIELD_ORDER as _TRACEABLE_EVIDENCE_OCR_FIELD_ORDER,
     TRACEABLE_EVIDENCE_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER as _TRACEABLE_EVIDENCE_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER,
     TRACEABLE_EVIDENCE_PROVENANCE_FIELD_ORDER,
@@ -24,6 +28,7 @@ from rie.evidence_materialization.evidence_materialization_contract import (
     EvidenceEligibilitySnapshot,
     TraceableEvidence,
     TraceableEvidenceOcrRemediationProvenance as _TraceableEvidenceOcrRemediationProvenance,
+    TraceableEvidenceAtomicTextDerivationProvenance as _TraceableEvidenceAtomicTextDerivationProvenance,
     TraceableEvidenceProvenance,
 )
 
@@ -147,6 +152,10 @@ def serialize_evidence_collection_repository_payload(
 ) -> bytes:
     if type(collection) is not EvidenceCollection:
         raise TypeError("collection must be EvidenceCollection")
+    if collection.contract_version == _EVIDENCE_COLLECTION_V3_CONTRACT_VERSION:
+        return _pr086bl_serialize_evidence_collection_repository_payload_v3(
+            collection
+        )
     if collection.contract_version == _EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION:
         return _d39_serialize_evidence_collection_repository_payload_v2(collection)
     if collection.contract_version != EVIDENCE_COLLECTION_CONTRACT_VERSION:
@@ -171,6 +180,12 @@ def deserialize_evidence_collection_repository_payload(
 ) -> EvidenceCollection:
     if type(payload_bytes) is not bytes:
         raise TypeError("payload_bytes must be bytes")
+    if payload_bytes.startswith(
+        b'{"contract_version":"evidence_collection_contract_v3",'
+    ):
+        return _pr086bl_deserialize_evidence_collection_repository_payload_v3(
+            payload_bytes
+        )
     if payload_bytes.startswith(
         b'{"contract_version":"evidence_collection_contract_v2",'
     ):
@@ -605,3 +620,230 @@ __all__ = (
     "calculate_evidence_repository_revision_id",
     "calculate_evidence_repository_audit_id",
 )
+
+# PR-086BL: minimum private TraceableEvidence-v3 repository compatibility.
+def _pr086bl_atomic_provenance_object(provenance):
+    if type(provenance) is not _TraceableEvidenceAtomicTextDerivationProvenance:
+        raise TypeError(
+            "atomic_text_derivation_provenance must be exact "
+            "TraceableEvidenceAtomicTextDerivationProvenance"
+        )
+    payload = {
+        "contract_version": provenance.contract_version,
+        "derivation_type": provenance.derivation_type,
+        "parent_traceable_evidence_id": provenance.parent_traceable_evidence_id,
+        "parent_content_digest": provenance.parent_content_digest,
+        "source_span_ids": list(provenance.source_span_ids),
+        "operator_decision_packet_sha256":
+            provenance.operator_decision_packet_sha256,
+        "atomic_statement_sha256": provenance.atomic_statement_sha256,
+    }
+    if tuple(payload) != _TRACEABLE_EVIDENCE_ATOMIC_PROVENANCE_FIELD_ORDER:
+        raise RuntimeError("atomic derivation provenance field order is invalid")
+    return payload
+
+
+def _pr086bl_evidence_object_v3(evidence):
+    if type(evidence) is not TraceableEvidence:
+        raise TypeError("evidence must be exact TraceableEvidence")
+    if evidence.contract_version != _TRACEABLE_EVIDENCE_V3_CONTRACT_VERSION:
+        raise ValueError("unsupported TraceableEvidence contract version")
+    payload = {
+        "contract_version": evidence.contract_version,
+        "evidence_id": evidence.evidence_id,
+        "content_type": evidence.content_type,
+        "content": evidence.content,
+        "content_digest": evidence.content_digest,
+        "warnings": list(evidence.warnings),
+        "provenance": _d39_provenance_object(evidence.provenance),
+        "eligibility_snapshot_digest": evidence.eligibility_snapshot_digest,
+        "ocr_remediation_provenance": _d39_ocr_provenance_object(
+            evidence.ocr_remediation_provenance
+        ),
+        "atomic_text_derivation_provenance": _pr086bl_atomic_provenance_object(
+            evidence.atomic_text_derivation_provenance
+        ),
+    }
+    if tuple(payload) != _TRACEABLE_EVIDENCE_V3_FIELD_ORDER:
+        raise RuntimeError("TraceableEvidence v3 field order is invalid")
+    return payload
+
+
+def _pr086bl_collection_object_v3(collection):
+    payload = {
+        "contract_version": collection.contract_version,
+        "collection_id": collection.collection_id,
+        "artifact_contract_version": collection.artifact_contract_version,
+        "artifact_id": collection.artifact_id,
+        "upstream_contract_version": collection.upstream_contract_version,
+        "job_id": collection.job_id,
+        "source_id": collection.source_id,
+        "source_path": collection.source_path,
+        "source_checksum": collection.source_checksum,
+        "eligibility_snapshot": _d39_eligibility_object(
+            collection.eligibility_snapshot
+        ),
+        "evidence_items": [
+            _pr086bl_evidence_object_v3(item)
+            for item in collection.evidence_items
+        ],
+    }
+    if tuple(payload) != EVIDENCE_COLLECTION_FIELD_ORDER:
+        raise RuntimeError("EvidenceCollection v3 field order is invalid")
+    return payload
+
+
+def _pr086bl_serialize_evidence_collection_repository_payload_v3(collection):
+    if type(collection) is not EvidenceCollection:
+        raise TypeError("collection must be exact EvidenceCollection")
+    collection.__post_init__()
+    if collection.contract_version != _EVIDENCE_COLLECTION_V3_CONTRACT_VERSION:
+        raise ValueError("unsupported EvidenceCollection contract version")
+    if derive_evidence_collection_id(collection) != collection.collection_id:
+        raise ValueError("EvidenceCollection identity mismatch")
+    expected_snapshot_digest = derive_evidence_eligibility_snapshot_digest(
+        collection.eligibility_snapshot
+    )
+    for evidence in collection.evidence_items:
+        evidence.__post_init__()
+        if evidence.contract_version != _TRACEABLE_EVIDENCE_V3_CONTRACT_VERSION:
+            raise ValueError("unsupported TraceableEvidence contract version")
+        if derive_traceable_evidence_id(evidence) != evidence.evidence_id:
+            raise ValueError("TraceableEvidence identity mismatch")
+        if _sha256(evidence.content.encode("utf-8")) != evidence.content_digest:
+            raise ValueError("TraceableEvidence content digest mismatch")
+        if evidence.eligibility_snapshot_digest != expected_snapshot_digest:
+            raise ValueError("Evidence eligibility snapshot digest mismatch")
+        if any(type(warning) is not str for warning in evidence.warnings):
+            raise TypeError("evidence warnings must contain strings")
+        if type(evidence.ocr_remediation_provenance) is not (
+            _TraceableEvidenceOcrRemediationProvenance
+        ):
+            raise ValueError("TraceableEvidence v3 OCR provenance is required")
+        if type(evidence.atomic_text_derivation_provenance) is not (
+            _TraceableEvidenceAtomicTextDerivationProvenance
+        ):
+            raise ValueError("TraceableEvidence v3 atomic provenance is required")
+    return _canonical_json_bytes(_pr086bl_collection_object_v3(collection))
+
+
+def _pr086bl_deserialize_evidence_collection_repository_payload_v3(payload_bytes):
+    if type(payload_bytes) is not bytes:
+        raise TypeError("payload_bytes must be bytes")
+    try:
+        text = payload_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("payload must be UTF-8") from exc
+    try:
+        raw = json.loads(
+            text,
+            object_pairs_hook=_d39_pairs,
+            parse_constant=_d39_reject_constant,
+        )
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("payload JSON is invalid") from exc
+
+    collection_data = _d39_require_exact_keys(
+        raw, EVIDENCE_COLLECTION_FIELD_ORDER, "EvidenceCollection"
+    )
+    if collection_data["contract_version"] != _EVIDENCE_COLLECTION_V3_CONTRACT_VERSION:
+        raise ValueError("unsupported EvidenceCollection contract version")
+
+    snapshot_data = _d39_require_exact_keys(
+        collection_data["eligibility_snapshot"],
+        EVIDENCE_ELIGIBILITY_FIELD_ORDER,
+        "EvidenceEligibilitySnapshot",
+    )
+    snapshot = EvidenceEligibilitySnapshot(**snapshot_data)
+
+    evidence_raw = collection_data["evidence_items"]
+    if type(evidence_raw) is not list:
+        raise TypeError("evidence_items must be array")
+
+    evidence_items = []
+    for evidence_value in evidence_raw:
+        evidence_data = _d39_require_exact_keys(
+            evidence_value, _TRACEABLE_EVIDENCE_V3_FIELD_ORDER, "TraceableEvidence"
+        )
+        if evidence_data["contract_version"] != _TRACEABLE_EVIDENCE_V3_CONTRACT_VERSION:
+            raise ValueError("unsupported TraceableEvidence contract version")
+
+        warnings = evidence_data["warnings"]
+        if type(warnings) is not list or any(
+            type(warning) is not str for warning in warnings
+        ):
+            raise TypeError("warnings must be array of strings")
+
+        provenance_data = _d39_require_exact_keys(
+            evidence_data["provenance"],
+            TRACEABLE_EVIDENCE_PROVENANCE_FIELD_ORDER,
+            "TraceableEvidenceProvenance",
+        )
+        provenance = TraceableEvidenceProvenance(**provenance_data)
+
+        ocr_data = _d39_require_exact_keys(
+            evidence_data["ocr_remediation_provenance"],
+            _TRACEABLE_EVIDENCE_OCR_REMEDIATION_PROVENANCE_FIELD_ORDER,
+            "TraceableEvidenceOcrRemediationProvenance",
+        )
+        ocr = _TraceableEvidenceOcrRemediationProvenance(**ocr_data)
+
+        atomic_data = _d39_require_exact_keys(
+            evidence_data["atomic_text_derivation_provenance"],
+            _TRACEABLE_EVIDENCE_ATOMIC_PROVENANCE_FIELD_ORDER,
+            "TraceableEvidenceAtomicTextDerivationProvenance",
+        )
+        span_ids = atomic_data["source_span_ids"]
+        if type(span_ids) is not list or not span_ids or any(
+            type(value) is not str for value in span_ids
+        ):
+            raise TypeError("source_span_ids must be a non-empty string array")
+        atomic = _TraceableEvidenceAtomicTextDerivationProvenance(
+            contract_version=atomic_data["contract_version"],
+            derivation_type=atomic_data["derivation_type"],
+            parent_traceable_evidence_id=atomic_data[
+                "parent_traceable_evidence_id"
+            ],
+            parent_content_digest=atomic_data["parent_content_digest"],
+            source_span_ids=tuple(span_ids),
+            operator_decision_packet_sha256=atomic_data[
+                "operator_decision_packet_sha256"
+            ],
+            atomic_statement_sha256=atomic_data["atomic_statement_sha256"],
+        )
+
+        evidence_items.append(
+            TraceableEvidence(
+                contract_version=evidence_data["contract_version"],
+                evidence_id=evidence_data["evidence_id"],
+                content_type=evidence_data["content_type"],
+                content=evidence_data["content"],
+                content_digest=evidence_data["content_digest"],
+                warnings=tuple(warnings),
+                provenance=provenance,
+                eligibility_snapshot_digest=evidence_data[
+                    "eligibility_snapshot_digest"
+                ],
+                ocr_remediation_provenance=ocr,
+                atomic_text_derivation_provenance=atomic,
+            )
+        )
+
+    collection = EvidenceCollection(
+        contract_version=collection_data["contract_version"],
+        collection_id=collection_data["collection_id"],
+        artifact_contract_version=collection_data["artifact_contract_version"],
+        artifact_id=collection_data["artifact_id"],
+        upstream_contract_version=collection_data["upstream_contract_version"],
+        job_id=collection_data["job_id"],
+        source_id=collection_data["source_id"],
+        source_path=collection_data["source_path"],
+        source_checksum=collection_data["source_checksum"],
+        eligibility_snapshot=snapshot,
+        evidence_items=tuple(evidence_items),
+    )
+    if _pr086bl_serialize_evidence_collection_repository_payload_v3(
+        collection
+    ) != payload_bytes:
+        raise ValueError("payload is not canonical")
+    return collection

@@ -22,6 +22,7 @@ EXPECTED_PACKAGE_FILES = {
 }
 EXPECTED_PUBLIC_API = (
     "EVIDENCE_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION",
+    "EVIDENCE_REPOSITORY_WRITE_REQUEST_V2_CONTRACT_VERSION",
     "EVIDENCE_REPOSITORY_WRITE_RESULT_CONTRACT_VERSION",
     "EVIDENCE_REPOSITORY_REVISION_CONTRACT_VERSION",
     "EVIDENCE_REPOSITORY_AUDIT_RECORD_CONTRACT_VERSION",
@@ -112,7 +113,7 @@ def test_package_public_api_is_exact_and_ordered():
 
 
 def test_module_public_api_counts_are_exact():
-    assert len(contract_module.__all__) == 25
+    assert len(contract_module.__all__) == 26
     assert len(canonicalization_module.__all__) == 5
     assert protocol_module.__all__ == ("EvidenceCollectionRepository",)
     assert sqlite_module.__all__ == ("SqliteEvidenceCollectionRepository",)

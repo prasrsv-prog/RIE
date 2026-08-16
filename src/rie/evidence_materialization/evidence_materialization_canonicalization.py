@@ -124,6 +124,36 @@ def _ocr_remediation_provenance_dict(value: object) -> dict[str, Any]:
         )
     return payload
 
+def _atomic_text_derivation_provenance_dict(
+    value: object,
+) -> dict[str, Any]:
+    expected_type = _contract.TraceableEvidenceAtomicTextDerivationProvenance
+    if type(value) is not expected_type:
+        raise TypeError(
+            "atomic_text_derivation_provenance must be exact "
+            "TraceableEvidenceAtomicTextDerivationProvenance"
+        )
+    payload = {
+        "contract_version": value.contract_version,
+        "derivation_type": value.derivation_type,
+        "parent_traceable_evidence_id":
+            value.parent_traceable_evidence_id,
+        "parent_content_digest": value.parent_content_digest,
+        "source_span_ids": list(value.source_span_ids),
+        "operator_decision_packet_sha256":
+            value.operator_decision_packet_sha256,
+        "atomic_statement_sha256": value.atomic_statement_sha256,
+    }
+    if (
+        tuple(payload)
+        != _contract.TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_PROVENANCE_FIELD_ORDER
+    ):
+        raise RuntimeError(
+            "atomic text derivation provenance field order is invalid."
+        )
+    return payload
+
+
 
 
 def _evidence_identity_dict(
@@ -143,6 +173,23 @@ def _evidence_identity_dict(
     }
     if (
         evidence.contract_version
+        == _contract.TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION
+    ):
+        payload["ocr_remediation_provenance"] = (
+            _ocr_remediation_provenance_dict(
+                evidence.ocr_remediation_provenance
+            )
+        )
+        payload["atomic_text_derivation_provenance"] = (
+            _atomic_text_derivation_provenance_dict(
+                evidence.atomic_text_derivation_provenance
+            )
+        )
+        expected_order = (
+            _contract.TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_IDENTITY_FIELD_ORDER
+        )
+    elif (
+        evidence.contract_version
         == _contract.TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION
     ):
         payload["ocr_remediation_provenance"] = (
@@ -161,6 +208,7 @@ def _evidence_identity_dict(
 
 
 
+
 def _evidence_dict(evidence: TraceableEvidence) -> dict[str, Any]:
     payload = {
         "contract_version": evidence.contract_version,
@@ -174,6 +222,23 @@ def _evidence_dict(evidence: TraceableEvidence) -> dict[str, Any]:
             evidence.eligibility_snapshot_digest,
     }
     if (
+        evidence.contract_version
+        == _contract.TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION
+    ):
+        payload["ocr_remediation_provenance"] = (
+            _ocr_remediation_provenance_dict(
+                evidence.ocr_remediation_provenance
+            )
+        )
+        payload["atomic_text_derivation_provenance"] = (
+            _atomic_text_derivation_provenance_dict(
+                evidence.atomic_text_derivation_provenance
+            )
+        )
+        expected_order = (
+            _contract.TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_FIELD_ORDER
+        )
+    elif (
         evidence.contract_version
         == _contract.TRACEABLE_EVIDENCE_OCR_CONTRACT_VERSION
     ):
