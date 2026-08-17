@@ -196,3 +196,280 @@ def test_dataset_root_missing_or_extra_field_fails_closed() -> None:
         materialize_canonical_knowledge_taxonomy_mapping_records(missing)
     with pytest.raises(ValueError):
         materialize_canonical_knowledge_taxonomy_mapping_records(extra)
+
+def _extension_dataset() -> dict[str, object]:
+    mappings = [
+        _row(f"gk-{index}", f"knowledge-{index}", "ffs21")
+        for index in range(5)
+    ]
+    return {
+        "schema_version": 1,
+        "artifact_type": (
+            "rcis_authoritative_knowledge_taxonomy_mapping_extension"
+        ),
+        "extension_id": "extension-five",
+        "extension_role": "provenance-preserving-extension",
+        "base_mapping_reference": {
+            "filename": "base.json",
+            "sha256": "a" * 64,
+            "bytes": 100,
+            "lf": 1,
+            "mapping_record_count": 3,
+            "source_decision_packet_sha256": "b" * 64,
+        },
+        "extension_provenance": {
+            "source_decision_packet_filename": "atomic.json",
+            "source_decision_packet_sha256": "c" * 64,
+            "governed_repository_sha256": "d" * 64,
+            "code_checkpoint": "e" * 40,
+            "source_pr086cg_report_sha256": "f" * 64,
+        },
+        "scope": {
+            "product_id": "ffs21",
+            "variant_id": None,
+            "exact_five_facts_only": True,
+            "corrected_l_excluded": True,
+            "other_products_or_facts_authorized": False,
+        },
+        "canonical_binding": {
+            "product_id": "ffs21",
+            "variant_id": None,
+            "knowledge_ids": [
+                row["knowledge_id"] for row in mappings
+            ],
+        },
+        "mapping_record_count": 5,
+        "mappings": mappings,
+        "authorization": {
+            "existing_base_mapping_mutation_authorized": False,
+            "governed_repository_write_authorized": False,
+            "evidence_repository_write_authorized": False,
+            "source_code_mutation_authorized": False,
+            "git_mutation_authorized": False,
+            "network_operation_authorized": False,
+            "semantic_inference_authorized": False,
+        },
+    }
+
+
+def test_existing_v1_materializer_remains_strict_for_extension_shape() -> None:
+    with pytest.raises(ValueError, match="fields mismatch"):
+        materialize_canonical_knowledge_taxonomy_mapping_records(
+            _extension_dataset()
+        )
+
+
+def test_extension_adapter_materializes_five_records_deterministically() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _extension_dataset()
+    result = materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+        dataset
+    )
+
+    assert len(result) == 5
+    assert all(
+        isinstance(item, GovernedKnowledgePromptInputMappingRecord)
+        for item in result
+    )
+    assert [item.governed_knowledge_id for item in result] == [
+        "gk-0",
+        "gk-1",
+        "gk-2",
+        "gk-3",
+        "gk-4",
+    ]
+
+
+def test_extension_adapter_preserves_mapping_fields() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _extension_dataset()
+    rows = {
+        row["governed_knowledge_id"]: row
+        for row in dataset["mappings"]
+    }
+    result = materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+        dataset
+    )
+
+    for item in result:
+        row = rows[item.governed_knowledge_id]
+        assert item.knowledge_id == row["knowledge_id"]
+        assert item.product_id == row["product_id"]
+        assert item.variant_id == row["variant_id"]
+        assert item.source_id == row["source_id"]
+        assert item.source_asset_id == row["source_asset_id"]
+        assert item.knowledge_type == row["knowledge_type"]
+        assert item.subject == row["subject"]
+        assert item.property == row["property"]
+
+
+def test_extension_adapter_does_not_mutate_input() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _extension_dataset()
+    before = deepcopy(dataset)
+
+    materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+        dataset
+    )
+
+    assert dataset == before
+
+
+def test_extension_adapter_rejects_missing_or_extra_root_field() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    missing = _extension_dataset()
+    del missing["extension_role"]
+    extra = _extension_dataset()
+    extra["unexpected"] = "value"
+
+    with pytest.raises(ValueError, match="fields mismatch"):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            missing
+        )
+    with pytest.raises(ValueError, match="fields mismatch"):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            extra
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", 2),
+        ("artifact_type", "wrong"),
+    ],
+)
+def test_extension_adapter_rejects_invalid_root_contract(
+    field: str,
+    value: object,
+) -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _extension_dataset()
+    dataset[field] = value
+
+    with pytest.raises(ValueError):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            dataset
+        )
+
+
+def test_extension_adapter_rejects_provenance_field_drift() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _extension_dataset()
+    del dataset["extension_provenance"]["source_pr086cg_report_sha256"]
+
+    with pytest.raises(ValueError, match="fields mismatch"):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            dataset
+        )
+
+
+def test_extension_adapter_rejects_base_reference_field_drift() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _extension_dataset()
+    dataset["base_mapping_reference"]["extra"] = "value"
+
+    with pytest.raises(ValueError, match="fields mismatch"):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            dataset
+        )
+
+
+def test_extension_adapter_rejects_scope_or_binding_mismatch() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    bad_scope = _extension_dataset()
+    bad_scope["scope"]["corrected_l_excluded"] = False
+    bad_binding = _extension_dataset()
+    bad_binding["canonical_binding"]["knowledge_ids"][0] = "other"
+
+    with pytest.raises(ValueError):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            bad_scope
+        )
+    with pytest.raises(ValueError):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            bad_binding
+        )
+
+
+def test_extension_adapter_rejects_authorization_escalation() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _extension_dataset()
+    dataset["authorization"]["git_mutation_authorized"] = True
+
+    with pytest.raises(ValueError, match="authorization"):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            dataset
+        )
+
+
+def test_extension_adapter_reuses_existing_duplicate_guards() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    duplicate = _extension_dataset()
+    duplicate["mappings"][1]["knowledge_id"] = (
+        duplicate["mappings"][0]["knowledge_id"]
+    )
+    duplicate["canonical_binding"]["knowledge_ids"][1] = (
+        duplicate["canonical_binding"]["knowledge_ids"][0]
+    )
+
+    with pytest.raises(ValueError, match="duplicate"):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            duplicate
+        )
+
+def test_extension_adapter_preserves_nonlexicographic_mapping_order() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _extension_dataset()
+    original_mappings = list(dataset["mappings"])
+    order = (2, 0, 4, 3, 1)
+    dataset["mappings"] = [
+        original_mappings[index] for index in order
+    ]
+    dataset["canonical_binding"]["knowledge_ids"] = [
+        row["knowledge_id"] for row in dataset["mappings"]
+    ]
+
+    result = materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+        dataset
+    )
+
+    assert [record.knowledge_id for record in result] == [
+        row["knowledge_id"] for row in dataset["mappings"]
+    ]
+    assert [record.governed_knowledge_id for record in result] == [
+        row["governed_knowledge_id"] for row in dataset["mappings"]
+    ]
