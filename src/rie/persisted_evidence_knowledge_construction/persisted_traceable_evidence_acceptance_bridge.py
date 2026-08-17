@@ -455,9 +455,9 @@ def materialize_persisted_traceable_evidence_acceptance(
         producer_contract_version=target.provenance.artifact_contract_version,
     )
     factual_payload = EvidencePayload(
-        payload_type=target.content_type,
-        payload_schema_version=target.contract_version,
-        payload=target.content,
+        payload_type="text",
+        payload_schema_version="1.0.0",
+        payload=(("text", target.content),),
         payload_digest=target.content_digest,
         locator=EvidenceLocator(
             locator_type=target.provenance.extraction_method,

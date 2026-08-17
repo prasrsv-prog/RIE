@@ -318,7 +318,9 @@ def test_materializes_exact_legacy_contracts_from_persisted_v3_plus_explicit_met
     acceptance = result.acceptance_record
     assert evidence.source_snapshot.source_id == target.provenance.source_id
     assert evidence.source_snapshot.source_content_digest == target.provenance.source_checksum
-    assert evidence.factual_payload.payload == target.content
+    assert evidence.factual_payload.payload_type == "text"
+    assert evidence.factual_payload.payload_schema_version == "1.0.0"
+    assert evidence.factual_payload.payload == (("text", target.content),)
     assert evidence.factual_payload.payload_digest == target.content_digest
     assert evidence.candidate_reference.candidate_snapshot_digest == target.content_digest
     assert evidence.provenance.lineage[0] == target.evidence_id
