@@ -28,6 +28,17 @@ _APPROVED_STATEMENT_SHA256_TO_SOURCE_SPAN_IDS = {
     '0aebb4a3fd1030a553c05506ea890467071285d6f30c8a524d1e44e08b0f0f72': ('span-ffs21-0057',),
 }
 
+_CORRECTED_L_OPERATOR_STATEMENT_SHA256 = "cc2ede60e51f222d69181e92d0107ab600c35f6e214e4ed85c7dc4d045052cc8"
+_CORRECTED_L_SOURCE_LITERAL = "L: 59-60,"
+_CORRECTED_L_SOURCE_SPAN_IDS = ("span-ffs21-0056",)
+
+_APPROVED_CORRECTED_STATEMENT_SHA256_TO_SOURCE_PROOF = {
+    _CORRECTED_L_OPERATOR_STATEMENT_SHA256: (
+        _CORRECTED_L_SOURCE_LITERAL,
+        _CORRECTED_L_SOURCE_SPAN_IDS,
+    ),
+}
+
 
 @dataclass(frozen=True)
 class AtomicTextEvidenceDerivationRequest:
@@ -69,17 +80,37 @@ class AtomicTextEvidenceDerivationRequest:
                 statement_sha256
             )
         )
-        if expected_span_ids is None:
-            raise ValueError("atomic statement is outside approved fact scope")
-        if self.source_span_ids != expected_span_ids:
-            raise ValueError("source_span_ids do not match approved fact")
-        if parent.content.count(self.atomic_statement) != 1:
-            raise ValueError(
-                "atomic statement must occur exactly once in approved parent"
+        if expected_span_ids is not None:
+            if self.source_span_ids != expected_span_ids:
+                raise ValueError("source_span_ids do not match approved fact")
+            if parent.content.count(self.atomic_statement) != 1:
+                raise ValueError(
+                    "atomic statement must occur exactly once in approved parent"
+                )
+            if self.approved_span_text.count(self.atomic_statement) != 1:
+                raise ValueError(
+                    "atomic statement must occur exactly once in approved span text"
+                )
+            return
+
+        correction_proof = (
+            _APPROVED_CORRECTED_STATEMENT_SHA256_TO_SOURCE_PROOF.get(
+                statement_sha256
             )
-        if self.approved_span_text.count(self.atomic_statement) != 1:
+        )
+        if correction_proof is None:
+            raise ValueError("atomic statement is outside approved fact scope")
+
+        source_literal, corrected_span_ids = correction_proof
+        if self.source_span_ids != corrected_span_ids:
+            raise ValueError("source_span_ids do not match approved correction")
+        if parent.content.count(source_literal) != 1:
             raise ValueError(
-                "atomic statement must occur exactly once in approved span text"
+                "corrected source literal must occur exactly once in approved parent"
+            )
+        if self.approved_span_text.count(source_literal) != 1:
+            raise ValueError(
+                "corrected source literal must occur exactly once in approved span text"
             )
 
 

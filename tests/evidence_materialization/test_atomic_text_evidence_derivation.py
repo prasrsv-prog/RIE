@@ -126,3 +126,84 @@ def test_scope_rejects_wrong_span_ids() -> None:
             approved_span_text=statement,
             source_span_ids=("span-ffs21-0055",),
         )
+
+def _pr086cq_corrected_l_parent() -> TraceableEvidence:
+    parent = _approved_parent()
+    object.__setattr__(
+        parent,
+        "content",
+        "prefix L: 59-60, suffix",
+    )
+    return parent
+
+
+def test_pr086cq_corrected_l_derivation_uses_explicit_source_omission_proof() -> None:
+    parent = _pr086cq_corrected_l_parent()
+    request = AtomicTextEvidenceDerivationRequest(
+        parent_traceable_evidence=parent,
+        atomic_statement="L: 59-60 cm",
+        approved_span_text="context L: 59-60, context",
+        source_span_ids=("span-ffs21-0056",),
+    )
+    first = derive_operator_approved_atomic_text_evidence(request)
+    second = derive_operator_approved_atomic_text_evidence(request)
+
+    assert first == second
+    assert first.content == "L: 59-60 cm"
+    assert first.content_digest == "cc2ede60e51f222d69181e92d0107ab600c35f6e214e4ed85c7dc4d045052cc8"
+    assert first.atomic_text_derivation_provenance is not None
+    assert first.atomic_text_derivation_provenance.source_span_ids == (
+        "span-ffs21-0056",
+    )
+    assert (
+        first.atomic_text_derivation_provenance.operator_decision_packet_sha256
+        == "5210145e81bd83de277fc4a831291802b0cdc5a763542c36e6342f95beb65d65"
+    )
+    assert (
+        first.atomic_text_derivation_provenance.atomic_statement_sha256
+        == "cc2ede60e51f222d69181e92d0107ab600c35f6e214e4ed85c7dc4d045052cc8"
+    )
+
+
+def test_pr086cq_corrected_l_requires_locked_source_span() -> None:
+    parent = _pr086cq_corrected_l_parent()
+    with pytest.raises(ValueError):
+        AtomicTextEvidenceDerivationRequest(
+            parent_traceable_evidence=parent,
+            atomic_statement="L: 59-60 cm",
+            approved_span_text="context L: 59-60, context",
+            source_span_ids=("span-ffs21-0057",),
+        )
+
+
+def test_pr086cq_corrected_l_requires_source_literal_in_parent() -> None:
+    parent = _approved_parent()
+    with pytest.raises(ValueError):
+        AtomicTextEvidenceDerivationRequest(
+            parent_traceable_evidence=parent,
+            atomic_statement="L: 59-60 cm",
+            approved_span_text="context L: 59-60, context",
+            source_span_ids=("span-ffs21-0056",),
+        )
+
+
+def test_pr086cq_corrected_l_requires_source_literal_in_approved_span() -> None:
+    parent = _pr086cq_corrected_l_parent()
+    with pytest.raises(ValueError):
+        AtomicTextEvidenceDerivationRequest(
+            parent_traceable_evidence=parent,
+            atomic_statement="L: 59-60 cm",
+            approved_span_text="context without corrected source literal",
+            source_span_ids=("span-ffs21-0056",),
+        )
+
+
+def test_pr086cq_rejects_unapproved_correction_like_statement() -> None:
+    parent = _pr086cq_corrected_l_parent()
+    with pytest.raises(ValueError):
+        AtomicTextEvidenceDerivationRequest(
+            parent_traceable_evidence=parent,
+            atomic_statement="L: 59-60 mm",
+            approved_span_text="context L: 59-60, context",
+            source_span_ids=("span-ffs21-0056",),
+        )
