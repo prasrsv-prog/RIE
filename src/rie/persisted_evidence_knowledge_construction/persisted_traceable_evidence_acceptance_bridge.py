@@ -80,11 +80,21 @@ PILOT_FFS21_FIVE_CLEAN_ATOMIC_EVIDENCE_IDS: Final = frozenset(
         "evm1_1d00dc2e1cb02e5d1b6510f8e1598ff2c9bcd1df3b6df21b38725e5437536c94",
     }
 )
+PILOT_FFS21_CORRECTED_L_ATOMIC_EVIDENCE_ID: Final = (
+    "evm1_2abb90e9e4c753e5e857e91e2c894480df51a701d00f7489d1e19769f64afe86"
+)
+PILOT_FFS21_APPROVED_ATOMIC_EVIDENCE_IDS: Final = (
+    PILOT_FFS21_FIVE_CLEAN_ATOMIC_EVIDENCE_IDS
+    | frozenset({PILOT_FFS21_CORRECTED_L_ATOMIC_EVIDENCE_ID})
+)
 PILOT_FFS21_PRIMARY_OPERATOR: Final = (
     "rcis-rsv-real-asset-pilot-primary-operator"
 )
 PILOT_FFS21_ACCEPTANCE_REASON: Final = (
     "explicit_operator_approved_five_clean_ffs21_atomic_facts"
+)
+PILOT_FFS21_CORRECTED_L_ACCEPTANCE_REASON: Final = (
+    "explicit_operator_approved_corrected_l_ffs21_atomic_fact"
 )
 PILOT_FFS21_ACCEPTANCE_POLICY_ID: Final = (
     "rcis-explicit-operator-atomic-evidence-acceptance"
@@ -173,7 +183,13 @@ class PersistedTraceableEvidenceAcceptanceBridgeRequest:
             raise ValueError("unsupported bridge compatibility policy")
         if self.accepted_by != PILOT_FFS21_PRIMARY_OPERATOR:
             raise ValueError("accepted_by is outside approved pilot authority")
-        if self.acceptance_reason != PILOT_FFS21_ACCEPTANCE_REASON:
+        expected_acceptance_reason = (
+            PILOT_FFS21_CORRECTED_L_ACCEPTANCE_REASON
+            if self.target_traceable_evidence_id
+            == PILOT_FFS21_CORRECTED_L_ATOMIC_EVIDENCE_ID
+            else PILOT_FFS21_ACCEPTANCE_REASON
+        )
+        if self.acceptance_reason != expected_acceptance_reason:
             raise ValueError("acceptance_reason is outside approved pilot authority")
         if self.acceptance_policy_id != PILOT_FFS21_ACCEPTANCE_POLICY_ID:
             raise ValueError("unsupported approved acceptance policy")
@@ -335,7 +351,7 @@ def materialize_persisted_traceable_evidence_acceptance(
 
     if (
         request.target_traceable_evidence_id
-        not in PILOT_FFS21_FIVE_CLEAN_ATOMIC_EVIDENCE_IDS
+        not in PILOT_FFS21_APPROVED_ATOMIC_EVIDENCE_IDS
     ):
         return _rejected(
             request.target_traceable_evidence_id,

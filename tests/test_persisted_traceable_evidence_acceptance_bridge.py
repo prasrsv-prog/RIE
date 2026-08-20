@@ -272,10 +272,15 @@ def _request(**changes):
 
 
 def _materialize_authorized_test_target(request):
+    authorized_test_target = frozenset({request.target_traceable_evidence_id})
     with patch.object(
         bridge_module,
         "PILOT_FFS21_FIVE_CLEAN_ATOMIC_EVIDENCE_IDS",
-        frozenset({request.target_traceable_evidence_id}),
+        authorized_test_target,
+    ), patch.object(
+        bridge_module,
+        "PILOT_FFS21_APPROVED_ATOMIC_EVIDENCE_IDS",
+        authorized_test_target,
     ):
         return materialize_persisted_traceable_evidence_acceptance(request)
 
@@ -446,3 +451,66 @@ def test_projection_uses_only_persisted_or_explicit_values_for_acceptance_surfac
     assert evidence.provenance.observed_at == request.provenance_observed_at
     assert acceptance.acceptance_policy_id == request.acceptance_policy_id
     assert acceptance.materializer_id == request.materializer_id
+
+
+def test_approved_runtime_scope_is_exact_five_plus_corrected_l():
+    assert bridge_module.PILOT_FFS21_FIVE_CLEAN_ATOMIC_EVIDENCE_IDS == frozenset(
+        {
+            "evm1_a3e18a4f76968b308e10cf1f0c9de37f709336e6a0f0c2b25515cd98e9d88499",
+            "evm1_0bab2e3d3f2ef04b39660d287c7479ce5967027ecf8fb61092b1a72a533db1d0",
+            "evm1_32f14d29ef3880b87a658962bdbe6b63c361e6c6c8c2ce6c8d13669948f6c3eb",
+            "evm1_57f2bd478bb59f16aa6cd2114d70fdef7e70ddbfb7dd317e166946cd539e6607",
+            "evm1_1d00dc2e1cb02e5d1b6510f8e1598ff2c9bcd1df3b6df21b38725e5437536c94",
+        }
+    )
+    assert bridge_module.PILOT_FFS21_CORRECTED_L_ATOMIC_EVIDENCE_ID == (
+        "evm1_2abb90e9e4c753e5e857e91e2c894480df51a701d00f7489d1e19769f64afe86"
+    )
+    assert bridge_module.PILOT_FFS21_APPROVED_ATOMIC_EVIDENCE_IDS == (
+        bridge_module.PILOT_FFS21_FIVE_CLEAN_ATOMIC_EVIDENCE_IDS
+        | frozenset({bridge_module.PILOT_FFS21_CORRECTED_L_ATOMIC_EVIDENCE_ID})
+    )
+    assert len(bridge_module.PILOT_FFS21_APPROVED_ATOMIC_EVIDENCE_IDS) == 6
+
+
+def test_corrected_l_target_requires_target_specific_acceptance_reason():
+    request = _request(
+        target_traceable_evidence_id=(
+            bridge_module.PILOT_FFS21_CORRECTED_L_ATOMIC_EVIDENCE_ID
+        ),
+        acceptance_reason=bridge_module.PILOT_FFS21_CORRECTED_L_ACCEPTANCE_REASON,
+    )
+    assert request.acceptance_reason == (
+        bridge_module.PILOT_FFS21_CORRECTED_L_ACCEPTANCE_REASON
+    )
+    with pytest.raises(ValueError, match="acceptance_reason"):
+        _request(
+            target_traceable_evidence_id=(
+                bridge_module.PILOT_FFS21_CORRECTED_L_ATOMIC_EVIDENCE_ID
+            ),
+            acceptance_reason=PILOT_FFS21_ACCEPTANCE_REASON,
+        )
+
+
+def test_exact_five_target_rejects_corrected_l_acceptance_reason():
+    exact_five_target = sorted(PILOT_FFS21_FIVE_CLEAN_ATOMIC_EVIDENCE_IDS)[0]
+    with pytest.raises(ValueError, match="acceptance_reason"):
+        _request(
+            target_traceable_evidence_id=exact_five_target,
+            acceptance_reason=bridge_module.PILOT_FFS21_CORRECTED_L_ACCEPTANCE_REASON,
+        )
+
+
+def test_corrected_l_reason_does_not_expand_outside_approved_six_scope():
+    outside_target = "evm1_" + ("8" * 64)
+    with pytest.raises(ValueError, match="acceptance_reason"):
+        _request(
+            target_traceable_evidence_id=outside_target,
+            acceptance_reason=bridge_module.PILOT_FFS21_CORRECTED_L_ACCEPTANCE_REASON,
+        )
+    request = _request(target_traceable_evidence_id=outside_target)
+    result = materialize_persisted_traceable_evidence_acceptance(request)
+    assert result.status == BRIDGE_STATUS_REJECTED
+    assert result.reason_codes == (
+        "target_traceable_evidence_outside_approved_five_fact_scope",
+    )
