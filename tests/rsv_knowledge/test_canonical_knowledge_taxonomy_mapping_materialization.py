@@ -473,3 +473,163 @@ def test_extension_adapter_preserves_nonlexicographic_mapping_order() -> None:
     assert [record.governed_knowledge_id for record in result] == [
         row["governed_knowledge_id"] for row in dataset["mappings"]
     ]
+
+
+_CORRECTED_L_TEST_GOVERNED_ID = (
+    "gk1_319de8156ac006f0536ed8f2ef43e424aa9f0a5113951063b3d4954a931e7b04"
+)
+_CORRECTED_L_TEST_KNOWLEDGE_ID = "knowledge-ffs21-head-circumference-size-l"
+
+
+def _corrected_l_single_record_extension_dataset() -> dict[str, object]:
+    dataset = _extension_dataset()
+    corrected_row = {
+        "governed_knowledge_id": _CORRECTED_L_TEST_GOVERNED_ID,
+        "knowledge_id": _CORRECTED_L_TEST_KNOWLEDGE_ID,
+        "product_id": "ffs21",
+        "variant_id": None,
+        "source_id": "pilot-rsv-ffs21-product-manual",
+        "source_asset_id": (
+            "asset-67e7d5f723fd84180bcfcf091dfc16801b3498d95b5caefe8be351aebfc40a82"
+        ),
+        "knowledge_type": "product_specification",
+        "subject": "ffs21",
+        "property": "head_circumference_size_l",
+    }
+    dataset["extension_id"] = "extension-corrected-l"
+    dataset["extension_role"] = (
+        "provenance-preserving-single-corrected-l-extension"
+    )
+    dataset["scope"] = {
+        "product_id": "ffs21",
+        "variant_id": None,
+        "exact_five_facts_only": False,
+        "corrected_l_excluded": False,
+        "other_products_or_facts_authorized": False,
+    }
+    dataset["canonical_binding"] = {
+        "product_id": "ffs21",
+        "variant_id": None,
+        "knowledge_ids": [_CORRECTED_L_TEST_KNOWLEDGE_ID],
+    }
+    dataset["mapping_record_count"] = 1
+    dataset["mappings"] = [corrected_row]
+    return dataset
+
+
+def test_extension_adapter_accepts_exact_corrected_l_single_record() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    result = materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+        _corrected_l_single_record_extension_dataset()
+    )
+
+    assert len(result) == 1
+    record = result[0]
+    assert record.governed_knowledge_id == _CORRECTED_L_TEST_GOVERNED_ID
+    assert record.knowledge_id == _CORRECTED_L_TEST_KNOWLEDGE_ID
+    assert record.product_id == "ffs21"
+    assert record.variant_id is None
+    assert record.source_id == "pilot-rsv-ffs21-product-manual"
+    assert record.source_asset_id == (
+        "asset-67e7d5f723fd84180bcfcf091dfc16801b3498d95b5caefe8be351aebfc40a82"
+    )
+    assert record.knowledge_type == "product_specification"
+    assert record.subject == "ffs21"
+    assert record.property == "head_circumference_size_l"
+
+
+def test_extension_adapter_preserves_legacy_exact_five_path_after_generalization() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    result = materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+        _extension_dataset()
+    )
+
+    assert len(result) == 5
+    assert [item.governed_knowledge_id for item in result] == [
+        "gk-0",
+        "gk-1",
+        "gk-2",
+        "gk-3",
+        "gk-4",
+    ]
+
+
+def test_extension_adapter_rejects_mixed_scope_mode() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _corrected_l_single_record_extension_dataset()
+    dataset["scope"]["corrected_l_excluded"] = True
+
+    with pytest.raises(
+        ValueError,
+        match="extension scope mode must be legacy exact-five or exact corrected-L single-record",
+    ):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(dataset)
+
+
+def test_extension_adapter_rejects_corrected_l_single_record_count_other_than_one() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _corrected_l_single_record_extension_dataset()
+    dataset["mapping_record_count"] = 2
+
+    with pytest.raises(
+        ValueError,
+        match="corrected-L single-record extension mapping_record_count must equal 1",
+    ):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(dataset)
+
+
+def test_extension_adapter_rejects_nonexact_corrected_l_mapping_row() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    dataset = _corrected_l_single_record_extension_dataset()
+    dataset["mappings"][0]["property"] = "head_circumference_size_other"
+
+    with pytest.raises(
+        ValueError,
+        match="corrected-L single-record extension mapping must match exact corrected-L mapping row",
+    ):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(dataset)
+
+
+def test_extension_adapter_rejects_corrected_l_product_or_variant_scope_expansion() -> None:
+    from rie.rsv_knowledge.canonical_knowledge_taxonomy_mapping_materialization import (
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records,
+    )
+
+    wrong_product = _corrected_l_single_record_extension_dataset()
+    wrong_product["scope"]["product_id"] = "sv300"
+    wrong_product["canonical_binding"]["product_id"] = "sv300"
+    wrong_product["mappings"][0]["product_id"] = "sv300"
+    with pytest.raises(
+        ValueError,
+        match="corrected-L single-record extension product_id must be ffs21",
+    ):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            wrong_product
+        )
+
+    wrong_variant = _corrected_l_single_record_extension_dataset()
+    wrong_variant["scope"]["variant_id"] = "variant-x"
+    wrong_variant["canonical_binding"]["variant_id"] = "variant-x"
+    wrong_variant["mappings"][0]["variant_id"] = "variant-x"
+    with pytest.raises(
+        ValueError,
+        match="corrected-L single-record extension variant_id must be null",
+    ):
+        materialize_canonical_knowledge_taxonomy_mapping_extension_records(
+            wrong_variant
+        )

@@ -260,6 +260,22 @@ _EXTENSION_AUTHORIZATION_FIELDS = (
     "semantic_inference_authorized",
 )
 
+_CORRECTED_L_SINGLE_RECORD_PRODUCT_ID = "ffs21"
+_CORRECTED_L_SINGLE_RECORD_VARIANT_ID = None
+_CORRECTED_L_SINGLE_RECORD_GOVERNED_KNOWLEDGE_ID = (
+    "gk1_319de8156ac006f0536ed8f2ef43e424aa9f0a5113951063b3d4954a931e7b04"
+)
+_CORRECTED_L_SINGLE_RECORD_KNOWLEDGE_ID = (
+    "knowledge-ffs21-head-circumference-size-l"
+)
+_CORRECTED_L_SINGLE_RECORD_SOURCE_ID = "pilot-rsv-ffs21-product-manual"
+_CORRECTED_L_SINGLE_RECORD_SOURCE_ASSET_ID = (
+    "asset-67e7d5f723fd84180bcfcf091dfc16801b3498d95b5caefe8be351aebfc40a82"
+)
+_CORRECTED_L_SINGLE_RECORD_KNOWLEDGE_TYPE = "product_specification"
+_CORRECTED_L_SINGLE_RECORD_SUBJECT = "ffs21"
+_CORRECTED_L_SINGLE_RECORD_PROPERTY = "head_circumference_size_l"
+
 
 def _require_sha256_string(value: object, *, label: str) -> str:
     text = _require_nonempty_string(value, label=label)
@@ -412,14 +428,34 @@ def materialize_canonical_knowledge_taxonomy_mapping_extension_records(
         label="scope.product_id",
     )
     scope_variant_id = _require_variant_id(scope["variant_id"])
-    if scope["exact_five_facts_only"] is not True:
-        raise ValueError("scope.exact_five_facts_only must be true")
-    if scope["corrected_l_excluded"] is not True:
-        raise ValueError("scope.corrected_l_excluded must be true")
+    exact_five_scope_mode = (
+        scope["exact_five_facts_only"] is True
+        and scope["corrected_l_excluded"] is True
+    )
+    corrected_l_single_record_scope_mode = (
+        scope["exact_five_facts_only"] is False
+        and scope["corrected_l_excluded"] is False
+    )
+    if not (
+        exact_five_scope_mode
+        or corrected_l_single_record_scope_mode
+    ):
+        raise ValueError(
+            "extension scope mode must be legacy exact-five or exact corrected-L single-record"
+        )
     if scope["other_products_or_facts_authorized"] is not False:
         raise ValueError(
             "scope.other_products_or_facts_authorized must be false"
         )
+    if corrected_l_single_record_scope_mode:
+        if scope_product_id != _CORRECTED_L_SINGLE_RECORD_PRODUCT_ID:
+            raise ValueError(
+                "corrected-L single-record extension product_id must be ffs21"
+            )
+        if scope_variant_id is not _CORRECTED_L_SINGLE_RECORD_VARIANT_ID:
+            raise ValueError(
+                "corrected-L single-record extension variant_id must be null"
+            )
 
     canonical_binding = canonical_mapping_extension_dataset[
         "canonical_binding"
@@ -470,10 +506,16 @@ def materialize_canonical_knowledge_taxonomy_mapping_extension_records(
         canonical_mapping_extension_dataset["mapping_record_count"],
         label="mapping_record_count",
     )
-    if mapping_record_count != 5:
-        raise ValueError(
-            "exact-five extension mapping_record_count must equal 5"
-        )
+    if exact_five_scope_mode:
+        if mapping_record_count != 5:
+            raise ValueError(
+                "exact-five extension mapping_record_count must equal 5"
+            )
+    else:
+        if mapping_record_count != 1:
+            raise ValueError(
+                "corrected-L single-record extension mapping_record_count must equal 1"
+            )
 
     mappings_value = canonical_mapping_extension_dataset["mappings"]
     if (
@@ -528,6 +570,32 @@ def materialize_canonical_knowledge_taxonomy_mapping_extension_records(
         if row["variant_id"] != scope_variant_id:
             raise ValueError(
                 f"mappings[{index}].variant_id does not match extension scope"
+            )
+
+    if corrected_l_single_record_scope_mode:
+        if binding_knowledge_ids != (
+            _CORRECTED_L_SINGLE_RECORD_KNOWLEDGE_ID,
+        ):
+            raise ValueError(
+                "corrected-L single-record canonical binding must contain exact corrected-L knowledge_id"
+            )
+        corrected_row = mappings_value[0]
+        expected_corrected_row = {
+            "governed_knowledge_id": (
+                _CORRECTED_L_SINGLE_RECORD_GOVERNED_KNOWLEDGE_ID
+            ),
+            "knowledge_id": _CORRECTED_L_SINGLE_RECORD_KNOWLEDGE_ID,
+            "product_id": _CORRECTED_L_SINGLE_RECORD_PRODUCT_ID,
+            "variant_id": _CORRECTED_L_SINGLE_RECORD_VARIANT_ID,
+            "source_id": _CORRECTED_L_SINGLE_RECORD_SOURCE_ID,
+            "source_asset_id": _CORRECTED_L_SINGLE_RECORD_SOURCE_ASSET_ID,
+            "knowledge_type": _CORRECTED_L_SINGLE_RECORD_KNOWLEDGE_TYPE,
+            "subject": _CORRECTED_L_SINGLE_RECORD_SUBJECT,
+            "property": _CORRECTED_L_SINGLE_RECORD_PROPERTY,
+        }
+        if dict(corrected_row) != expected_corrected_row:
+            raise ValueError(
+                "corrected-L single-record extension mapping must match exact corrected-L mapping row"
             )
 
     explicit_governed_ids = tuple(
