@@ -410,3 +410,16 @@ def test_unsupported_statement_type_rejected_and_verbatim_preserved() -> None:
     with pytest.raises(ValueError, match="unsupported statement_type"):
         _candidate(identity_input=unsafe)
     assert _candidate().statement_type == VERBATIM_TEXT_STATEMENT_TYPE
+
+
+def test_product_variant_identity_statement_type_extension_is_exact() -> None:
+    import rie.domain.knowledge_candidate as module
+
+    assert (
+        module.PRODUCT_VARIANT_IDENTITY_STATEMENT_TYPE
+        == "product_variant_identity"
+    )
+    assert (
+        module.PRODUCT_VARIANT_IDENTITY_STATEMENT_TYPE
+        in module._SUPPORTED_STATEMENT_TYPES
+    )
