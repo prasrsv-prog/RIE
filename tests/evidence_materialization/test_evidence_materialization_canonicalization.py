@@ -317,3 +317,52 @@ def test_d34_v1_canonical_bytes_omit_ocr_and_v2_include_ocr() -> None:
     second = canonicalize_traceable_evidence_identity(evidence)
     assert first == second
     assert b'"ocr_remediation_provenance"' in first
+
+# PR-086EW structured-metadata v4 canonical identity coverage.
+def test_pr086ew_structured_metadata_v4_identity_has_no_page_provenance() -> None:
+    import hashlib
+
+    from rie.evidence_materialization.evidence_materialization_canonicalization import (
+        derive_traceable_evidence_id,
+    )
+    from rie.evidence_materialization.evidence_materialization_contract import (
+        TRACEABLE_EVIDENCE_ID_PREFIX,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_CONTRACT_VERSION,
+        TraceableEvidence,
+        TraceableEvidenceStructuredMetadataProvenance,
+    )
+
+    content = '{"atomic_knowledge_id":"atomic-1"}\n'
+    provenance = TraceableEvidenceStructuredMetadataProvenance(
+        contract_version=TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_CONTRACT_VERSION,
+        payload_type="product_variant_identity_structured_metadata",
+        payload_schema_version="1.0.0",
+        locator_type="atomic_knowledge_id",
+        locator_value="atomic-1",
+        locator_schema_version="1.0.0",
+        atomic_knowledge_id="atomic-1",
+        source_relative_paths=("official/a.jpg",),
+        manifest_sha256="a" * 64,
+        identity_capture_sha256="b" * 64,
+        atomic_construction_authority_decision_packet_sha256="c" * 64,
+        downstream_binding_policy_decision_packet_sha256="d" * 64,
+        admission_payload_digest=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+    )
+    value = object.__new__(TraceableEvidence)
+    object.__setattr__(value, "contract_version", TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION)
+    object.__setattr__(value, "evidence_id", TRACEABLE_EVIDENCE_ID_PREFIX + ("0" * 64))
+    object.__setattr__(value, "content_type", TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE)
+    object.__setattr__(value, "content", content)
+    object.__setattr__(value, "content_digest", hashlib.sha256(content.encode("utf-8")).hexdigest())
+    object.__setattr__(value, "warnings", ())
+    object.__setattr__(value, "provenance", provenance)
+    object.__setattr__(value, "eligibility_snapshot_digest", "f" * 64)
+    object.__setattr__(value, "ocr_remediation_provenance", None)
+    object.__setattr__(value, "atomic_text_derivation_provenance", None)
+
+    first = derive_traceable_evidence_id(value)
+    second = derive_traceable_evidence_id(value)
+    assert first == second
+    assert first.startswith(TRACEABLE_EVIDENCE_ID_PREFIX)

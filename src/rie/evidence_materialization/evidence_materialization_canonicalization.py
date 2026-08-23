@@ -156,20 +156,61 @@ def _atomic_text_derivation_provenance_dict(
 
 
 
+def _structured_metadata_provenance_dict(
+    value: object,
+) -> dict[str, Any]:
+    expected_type = _contract.TraceableEvidenceStructuredMetadataProvenance
+    if type(value) is not expected_type:
+        raise TypeError(
+            "provenance must be exact "
+            "TraceableEvidenceStructuredMetadataProvenance"
+        )
+    payload = {
+        "contract_version": value.contract_version,
+        "payload_type": value.payload_type,
+        "payload_schema_version": value.payload_schema_version,
+        "locator_type": value.locator_type,
+        "locator_value": value.locator_value,
+        "locator_schema_version": value.locator_schema_version,
+        "atomic_knowledge_id": value.atomic_knowledge_id,
+        "source_relative_paths": list(value.source_relative_paths),
+        "manifest_sha256": value.manifest_sha256,
+        "identity_capture_sha256": value.identity_capture_sha256,
+        "atomic_construction_authority_decision_packet_sha256":
+            value.atomic_construction_authority_decision_packet_sha256,
+        "downstream_binding_policy_decision_packet_sha256":
+            value.downstream_binding_policy_decision_packet_sha256,
+        "admission_payload_digest": value.admission_payload_digest,
+    }
+    if (
+        tuple(payload)
+        != _contract.TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_FIELD_ORDER
+    ):
+        raise RuntimeError("structured metadata provenance field order is invalid")
+    return payload
 def _evidence_identity_dict(
     evidence: TraceableEvidence,
 ) -> dict[str, Any]:
     if type(evidence) is not TraceableEvidence:
         raise TypeError("evidence must be exact TraceableEvidence.")
+    if (
+        evidence.contract_version
+        == _contract.TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+    ):
+        provenance_payload = _structured_metadata_provenance_dict(
+            evidence.provenance
+        )
+    else:
+        provenance_payload = _provenance_dict(evidence.provenance)
+
     payload = {
         "contract_version": evidence.contract_version,
         "content_type": evidence.content_type,
         "content": evidence.content,
         "content_digest": evidence.content_digest,
         "warnings": list(evidence.warnings),
-        "provenance": _provenance_dict(evidence.provenance),
-        "eligibility_snapshot_digest":
-            evidence.eligibility_snapshot_digest,
+        "provenance": provenance_payload,
+        "eligibility_snapshot_digest": evidence.eligibility_snapshot_digest,
     }
     if (
         evidence.contract_version
@@ -197,8 +238,13 @@ def _evidence_identity_dict(
                 evidence.ocr_remediation_provenance
             )
         )
+        expected_order = _contract.TRACEABLE_EVIDENCE_OCR_IDENTITY_FIELD_ORDER
+    elif (
+        evidence.contract_version
+        == _contract.TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+    ):
         expected_order = (
-            _contract.TRACEABLE_EVIDENCE_OCR_IDENTITY_FIELD_ORDER
+            _contract.TRACEABLE_EVIDENCE_STRUCTURED_METADATA_IDENTITY_FIELD_ORDER
         )
     else:
         expected_order = TRACEABLE_EVIDENCE_IDENTITY_FIELD_ORDER
@@ -210,6 +256,16 @@ def _evidence_identity_dict(
 
 
 def _evidence_dict(evidence: TraceableEvidence) -> dict[str, Any]:
+    if (
+        evidence.contract_version
+        == _contract.TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+    ):
+        provenance_payload = _structured_metadata_provenance_dict(
+            evidence.provenance
+        )
+    else:
+        provenance_payload = _provenance_dict(evidence.provenance)
+
     payload = {
         "contract_version": evidence.contract_version,
         "evidence_id": evidence.evidence_id,
@@ -217,7 +273,7 @@ def _evidence_dict(evidence: TraceableEvidence) -> dict[str, Any]:
         "content": evidence.content,
         "content_digest": evidence.content_digest,
         "warnings": list(evidence.warnings),
-        "provenance": _provenance_dict(evidence.provenance),
+        "provenance": provenance_payload,
         "eligibility_snapshot_digest":
             evidence.eligibility_snapshot_digest,
     }
@@ -248,6 +304,11 @@ def _evidence_dict(evidence: TraceableEvidence) -> dict[str, Any]:
             )
         )
         expected_order = _contract.TRACEABLE_EVIDENCE_OCR_FIELD_ORDER
+    elif (
+        evidence.contract_version
+        == _contract.TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+    ):
+        expected_order = _contract.TRACEABLE_EVIDENCE_STRUCTURED_METADATA_FIELD_ORDER
     else:
         expected_order = TRACEABLE_EVIDENCE_FIELD_ORDER
     if tuple(payload) != expected_order:

@@ -39,6 +39,14 @@ from .evidence_repository_contract import (
     EVIDENCE_REPOSITORY_REVISION_IDENTITY_CANONICALIZATION_VERSION,
     EVIDENCE_REPOSITORY_REVISION_ID_PREFIX,
 )
+from rie.evidence_materialization.evidence_materialization_contract import (
+    EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION as
+        _EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
+    TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION as
+        _TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION,
+    TraceableEvidenceStructuredMetadataProvenance as
+        _TraceableEvidenceStructuredMetadataProvenance,
+)
 
 _COLLECTION_PAYLOAD_FIELD_ORDER = EVIDENCE_COLLECTION_FIELD_ORDER
 _REVISION_IDENTITY_FIELD_ORDER = (
@@ -147,11 +155,213 @@ def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+_PR086EW_STRUCTURED_PROVENANCE_FIELD_ORDER = (
+    "contract_version",
+    "payload_type",
+    "payload_schema_version",
+    "locator_type",
+    "locator_value",
+    "locator_schema_version",
+    "atomic_knowledge_id",
+    "source_relative_paths",
+    "manifest_sha256",
+    "identity_capture_sha256",
+    "atomic_construction_authority_decision_packet_sha256",
+    "downstream_binding_policy_decision_packet_sha256",
+    "admission_payload_digest",
+)
+_PR086EW_EVIDENCE_FIELD_ORDER = (
+    "contract_version",
+    "evidence_id",
+    "content_type",
+    "content",
+    "content_digest",
+    "warnings",
+    "provenance",
+    "eligibility_snapshot_digest",
+)
+_PR086EW_COLLECTION_FIELD_ORDER = (
+    "contract_version",
+    "collection_id",
+    "artifact_contract_version",
+    "artifact_id",
+    "upstream_contract_version",
+    "job_id",
+    "source_id",
+    "source_path",
+    "source_checksum",
+    "eligibility_snapshot",
+    "evidence_items",
+)
+
+def _pr086ew_require_exact_keys(value, expected, label):
+    if type(value) is not dict or tuple(value) != expected:
+        raise ValueError(label + " field order is invalid")
+    return value
+
+def _pr086ew_structured_provenance_object(provenance):
+    if type(provenance) is not _TraceableEvidenceStructuredMetadataProvenance:
+        raise TypeError(
+            "structured metadata provenance must be exact "
+            "TraceableEvidenceStructuredMetadataProvenance"
+        )
+    payload = {
+        "contract_version": provenance.contract_version,
+        "payload_type": provenance.payload_type,
+        "payload_schema_version": provenance.payload_schema_version,
+        "locator_type": provenance.locator_type,
+        "locator_value": provenance.locator_value,
+        "locator_schema_version": provenance.locator_schema_version,
+        "atomic_knowledge_id": provenance.atomic_knowledge_id,
+        "source_relative_paths": list(provenance.source_relative_paths),
+        "manifest_sha256": provenance.manifest_sha256,
+        "identity_capture_sha256": provenance.identity_capture_sha256,
+        "atomic_construction_authority_decision_packet_sha256":
+            provenance.atomic_construction_authority_decision_packet_sha256,
+        "downstream_binding_policy_decision_packet_sha256":
+            provenance.downstream_binding_policy_decision_packet_sha256,
+        "admission_payload_digest": provenance.admission_payload_digest,
+    }
+    if tuple(payload) != _PR086EW_STRUCTURED_PROVENANCE_FIELD_ORDER:
+        raise RuntimeError("structured metadata provenance order is invalid")
+    return payload
+
+def _pr086ew_evidence_object_v4(evidence):
+    if type(evidence) is not TraceableEvidence:
+        raise TypeError("evidence must be exact TraceableEvidence")
+    if evidence.contract_version != _TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION:
+        raise ValueError("unsupported TraceableEvidence contract version")
+    payload = {
+        "contract_version": evidence.contract_version,
+        "evidence_id": evidence.evidence_id,
+        "content_type": evidence.content_type,
+        "content": evidence.content,
+        "content_digest": evidence.content_digest,
+        "warnings": list(evidence.warnings),
+        "provenance": _pr086ew_structured_provenance_object(
+            evidence.provenance
+        ),
+        "eligibility_snapshot_digest": evidence.eligibility_snapshot_digest,
+    }
+    if tuple(payload) != _PR086EW_EVIDENCE_FIELD_ORDER:
+        raise RuntimeError("structured metadata Evidence order is invalid")
+    return payload
+
+def _pr086ew_collection_object_v4(collection):
+    if type(collection) is not EvidenceCollection:
+        raise TypeError("collection must be exact EvidenceCollection")
+    if collection.contract_version != _EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION:
+        raise ValueError("unsupported EvidenceCollection contract version")
+    payload = {
+        "contract_version": collection.contract_version,
+        "collection_id": collection.collection_id,
+        "artifact_contract_version": collection.artifact_contract_version,
+        "artifact_id": collection.artifact_id,
+        "upstream_contract_version": collection.upstream_contract_version,
+        "job_id": collection.job_id,
+        "source_id": collection.source_id,
+        "source_path": collection.source_path,
+        "source_checksum": collection.source_checksum,
+        "eligibility_snapshot": _d39_eligibility_object(
+            collection.eligibility_snapshot
+        ),
+        "evidence_items": [
+            _pr086ew_evidence_object_v4(item)
+            for item in collection.evidence_items
+        ],
+    }
+    if tuple(payload) != _PR086EW_COLLECTION_FIELD_ORDER:
+        raise RuntimeError("structured metadata collection order is invalid")
+    return payload
+
+def _pr086ew_serialize_evidence_collection_repository_payload_v4(collection):
+    if derive_evidence_collection_id(collection) != collection.collection_id:
+        raise ValueError("EvidenceCollection identity mismatch")
+    expected_snapshot_digest = derive_evidence_eligibility_snapshot_digest(
+        collection.eligibility_snapshot
+    )
+    for evidence in collection.evidence_items:
+        if derive_traceable_evidence_id(evidence) != evidence.evidence_id:
+            raise ValueError("TraceableEvidence identity mismatch")
+        if _sha256(evidence.content.encode("utf-8")) != evidence.content_digest:
+            raise ValueError("TraceableEvidence content digest mismatch")
+        if evidence.eligibility_snapshot_digest != expected_snapshot_digest:
+            raise ValueError("Evidence eligibility snapshot digest mismatch")
+    return _canonical_json_bytes(_pr086ew_collection_object_v4(collection))
+
+def _pr086ew_deserialize_evidence_collection_repository_payload_v4(payload_bytes):
+    if type(payload_bytes) is not bytes:
+        raise TypeError("payload_bytes must be bytes")
+    try:
+        text = payload_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("payload is not valid UTF-8") from exc
+    try:
+        raw = json.loads(
+            text,
+            object_pairs_hook=_d39_pairs,
+            parse_constant=_d39_reject_constant,
+        )
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError("payload is not valid canonical JSON") from exc
+
+    collection_data = _pr086ew_require_exact_keys(
+        raw,
+        _PR086EW_COLLECTION_FIELD_ORDER,
+        "collection",
+    )
+    snapshot_data = _pr086ew_require_exact_keys(
+        collection_data["eligibility_snapshot"],
+        EVIDENCE_ELIGIBILITY_FIELD_ORDER,
+        "eligibility_snapshot",
+    )
+    snapshot = EvidenceEligibilitySnapshot(**snapshot_data)
+
+    items = collection_data["evidence_items"]
+    if type(items) is not list:
+        raise ValueError("evidence_items must be an array")
+    evidence_items = []
+    for index, item in enumerate(items):
+        evidence_data = _pr086ew_require_exact_keys(
+            item,
+            _PR086EW_EVIDENCE_FIELD_ORDER,
+            f"evidence_items[{index}]",
+        )
+        provenance_data = _pr086ew_require_exact_keys(
+            evidence_data["provenance"],
+            _PR086EW_STRUCTURED_PROVENANCE_FIELD_ORDER,
+            f"evidence_items[{index}].provenance",
+        )
+        provenance_values = dict(provenance_data)
+        paths = provenance_values.get("source_relative_paths")
+        if type(paths) is not list:
+            raise ValueError("source_relative_paths must be an array")
+        provenance_values["source_relative_paths"] = tuple(paths)
+        provenance = _TraceableEvidenceStructuredMetadataProvenance(
+            **provenance_values
+        )
+        evidence_values = dict(evidence_data)
+        evidence_values["warnings"] = tuple(evidence_values["warnings"])
+        evidence_values["provenance"] = provenance
+        evidence_items.append(TraceableEvidence(**evidence_values))
+
+    collection_values = dict(collection_data)
+    collection_values["eligibility_snapshot"] = snapshot
+    collection_values["evidence_items"] = tuple(evidence_items)
+    collection = EvidenceCollection(**collection_values)
+
+    if _pr086ew_serialize_evidence_collection_repository_payload_v4(collection) != payload_bytes:
+        raise ValueError("structured metadata payload is not canonical")
+    return collection
 def serialize_evidence_collection_repository_payload(
     collection: EvidenceCollection,
 ) -> bytes:
     if type(collection) is not EvidenceCollection:
         raise TypeError("collection must be EvidenceCollection")
+    if collection.contract_version == _EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION:
+        return _pr086ew_serialize_evidence_collection_repository_payload_v4(
+            collection
+        )
     if collection.contract_version == _EVIDENCE_COLLECTION_V3_CONTRACT_VERSION:
         return _pr086bl_serialize_evidence_collection_repository_payload_v3(
             collection
@@ -180,6 +390,12 @@ def deserialize_evidence_collection_repository_payload(
 ) -> EvidenceCollection:
     if type(payload_bytes) is not bytes:
         raise TypeError("payload_bytes must be bytes")
+    if payload_bytes.startswith(
+        b'{\"contract_version\":\"evidence_collection_contract_v4\",'
+    ):
+        return _pr086ew_deserialize_evidence_collection_repository_payload_v4(
+            payload_bytes
+        )
     if payload_bytes.startswith(
         b'{"contract_version":"evidence_collection_contract_v3",'
     ):

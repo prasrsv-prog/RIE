@@ -289,3 +289,41 @@ def test_d34_traceable_ocr_provenance_contract_is_exact_and_validated() -> None:
             producer_artifact_set_digest="b" * 64,
             extraction_method="other",
         )
+
+# PR-086EW structured-metadata v4 additive contract coverage.
+def test_pr086ew_structured_metadata_v4_contract_is_additive() -> None:
+    import dataclasses
+
+    from rie.evidence_materialization.evidence_materialization_contract import (
+        EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
+        TRACEABLE_EVIDENCE_FIELD_ORDER,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_CONTRACT_VERSION,
+        TraceableEvidence,
+        TraceableEvidenceStructuredMetadataProvenance,
+    )
+
+    assert TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION == "traceable_evidence_contract_v4"
+    assert EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION == "evidence_collection_contract_v4"
+    assert TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE == "product_variant_identity_structured_metadata"
+    assert tuple(field.name for field in dataclasses.fields(TraceableEvidence)) == TRACEABLE_EVIDENCE_FIELD_ORDER
+
+    provenance = TraceableEvidenceStructuredMetadataProvenance(
+        contract_version=TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_CONTRACT_VERSION,
+        payload_type="product_variant_identity_structured_metadata",
+        payload_schema_version="1.0.0",
+        locator_type="atomic_knowledge_id",
+        locator_value="atomic-1",
+        locator_schema_version="1.0.0",
+        atomic_knowledge_id="atomic-1",
+        source_relative_paths=("official/a.jpg",),
+        manifest_sha256="a" * 64,
+        identity_capture_sha256="b" * 64,
+        atomic_construction_authority_decision_packet_sha256="c" * 64,
+        downstream_binding_policy_decision_packet_sha256="d" * 64,
+        admission_payload_digest="e" * 64,
+    )
+    assert not hasattr(provenance, "page_index")
+    assert not hasattr(provenance, "page_number")
+    assert not hasattr(provenance, "extraction_index")

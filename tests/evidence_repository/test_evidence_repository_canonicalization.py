@@ -653,3 +653,16 @@ def test_pr086bl_v3_caller_item_order_changes_collection_identity_and_payload():
     second = _pr086bl_v3_collection(reverse=True)
     assert first.collection_id != second.collection_id
     assert _bl_serialize(first) != _bl_serialize(second)
+
+# PR-086EW repository v4 route publication coverage.
+def test_pr086ew_repository_v4_route_is_published_without_replacing_old_routes() -> None:
+    import inspect
+
+    import rie.evidence_repository.evidence_repository_canonicalization as module
+
+    serializer = inspect.getsource(module.serialize_evidence_collection_repository_payload)
+    deserializer = inspect.getsource(module.deserialize_evidence_collection_repository_payload)
+    assert "evidence_collection_contract_v4" in deserializer
+    assert "_EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION" in serializer
+    assert "evidence_collection_contract_v3" in deserializer
+    assert "evidence_collection_contract_v2" in deserializer

@@ -820,3 +820,13 @@ def test_pr086bl_write_request_v2_accepts_v3_and_v1_rejects_v3():
         match="unsupported EvidenceCollection contract version",
     ):
         _BL_Request(contract_version=_BL_REQUEST_V1, **kwargs)
+
+# PR-086EW write-request v3 additive contract coverage.
+def test_pr086ew_write_request_v3_contract_version_is_additive() -> None:
+    from rie.evidence_repository.evidence_repository_contract import (
+        EVIDENCE_REPOSITORY_WRITE_REQUEST_V2_CONTRACT_VERSION,
+        EVIDENCE_REPOSITORY_WRITE_REQUEST_V3_CONTRACT_VERSION,
+    )
+
+    assert EVIDENCE_REPOSITORY_WRITE_REQUEST_V2_CONTRACT_VERSION == "evidence_repository_write_request_contract_v2"
+    assert EVIDENCE_REPOSITORY_WRITE_REQUEST_V3_CONTRACT_VERSION == "evidence_repository_write_request_contract_v3"

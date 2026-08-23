@@ -163,6 +163,31 @@ TRACEABLE_EVIDENCE_ATOMIC_TEXT_DERIVATION_PROVENANCE_FIELD_ORDER = (
     "operator_decision_packet_sha256",
     "atomic_statement_sha256",
 )
+TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION = "traceable_evidence_contract_v4"
+TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE = "product_variant_identity_structured_metadata"
+TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_CONTRACT_VERSION = (
+    "traceable_evidence_structured_metadata_provenance_contract_v1"
+)
+TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_FIELD_ORDER = (
+    "contract_version",
+    "payload_type",
+    "payload_schema_version",
+    "locator_type",
+    "locator_value",
+    "locator_schema_version",
+    "atomic_knowledge_id",
+    "source_relative_paths",
+    "manifest_sha256",
+    "identity_capture_sha256",
+    "atomic_construction_authority_decision_packet_sha256",
+    "downstream_binding_policy_decision_packet_sha256",
+    "admission_payload_digest",
+)
+TRACEABLE_EVIDENCE_STRUCTURED_METADATA_FIELD_ORDER = TRACEABLE_EVIDENCE_FIELD_ORDER
+TRACEABLE_EVIDENCE_STRUCTURED_METADATA_IDENTITY_FIELD_ORDER = (
+    TRACEABLE_EVIDENCE_IDENTITY_FIELD_ORDER
+)
+EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION = "evidence_collection_contract_v4"
 
 _LOWER_HEX: Final = frozenset("0123456789abcdef")
 
@@ -557,6 +582,76 @@ class TraceableEvidenceAtomicTextDerivationProvenance:
                     EvidenceMaterializationIssueCode.INVALID_VALUE
                 )
 @dataclass(frozen=True)
+class TraceableEvidenceStructuredMetadataProvenance:
+    contract_version: str
+    payload_type: str
+    payload_schema_version: str
+    locator_type: str
+    locator_value: str
+    locator_schema_version: str
+    atomic_knowledge_id: str
+    source_relative_paths: tuple[str, ...]
+    manifest_sha256: str
+    identity_capture_sha256: str
+    atomic_construction_authority_decision_packet_sha256: str
+    downstream_binding_policy_decision_packet_sha256: str
+    admission_payload_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            self.contract_version
+            != TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_CONTRACT_VERSION
+        ):
+            raise_evidence_materialization_error(
+                EvidenceMaterializationIssueCode.UNSUPPORTED_VERSION
+            )
+        expected_literals = (
+            (self.payload_type, "product_variant_identity_structured_metadata"),
+            (self.payload_schema_version, "1.0.0"),
+            (self.locator_type, "atomic_knowledge_id"),
+            (self.locator_schema_version, "1.0.0"),
+        )
+        if any(actual != expected for actual, expected in expected_literals):
+            raise_evidence_materialization_error(
+                EvidenceMaterializationIssueCode.INVALID_VALUE
+            )
+        for value in (
+            self.locator_value,
+            self.atomic_knowledge_id,
+        ):
+            _require_string(
+                value,
+                EvidenceMaterializationIssueCode.INVALID_VALUE,
+            )
+        if self.locator_value != self.atomic_knowledge_id:
+            raise_evidence_materialization_error(
+                EvidenceMaterializationIssueCode.INVALID_VALUE
+            )
+        if (
+            type(self.source_relative_paths) is not tuple
+            or not self.source_relative_paths
+            or len(set(self.source_relative_paths)) != len(self.source_relative_paths)
+        ):
+            raise_evidence_materialization_error(
+                EvidenceMaterializationIssueCode.INVALID_VALUE
+            )
+        for value in self.source_relative_paths:
+            _require_string(
+                value,
+                EvidenceMaterializationIssueCode.INVALID_VALUE,
+            )
+        for value in (
+            self.manifest_sha256,
+            self.identity_capture_sha256,
+            self.atomic_construction_authority_decision_packet_sha256,
+            self.downstream_binding_policy_decision_packet_sha256,
+            self.admission_payload_digest,
+        ):
+            if not _is_sha256(value):
+                raise_evidence_materialization_error(
+                    EvidenceMaterializationIssueCode.INVALID_VALUE
+                )
+@dataclass(frozen=True)
 class TraceableEvidence:
     contract_version: str
     evidence_id: str
@@ -642,6 +737,20 @@ class TraceableEvidence:
                     EvidenceMaterializationIssueCode.INVALID_VALUE
                 )
             self.atomic_text_derivation_provenance.__post_init__()
+        elif (
+            self.contract_version
+            == TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+        ):
+            if (
+                self.ocr_remediation_provenance is not None
+                or self.atomic_text_derivation_provenance is not None
+                or type(self.provenance)
+                is not TraceableEvidenceStructuredMetadataProvenance
+            ):
+                raise_evidence_materialization_error(
+                    EvidenceMaterializationIssueCode.INVALID_VALUE
+                )
+            self.provenance.__post_init__()
         else:
             raise_evidence_materialization_error(
                 EvidenceMaterializationIssueCode.UNSUPPORTED_VERSION
@@ -654,7 +763,15 @@ class TraceableEvidence:
             raise_evidence_materialization_error(
                 EvidenceMaterializationIssueCode.INVALID_VALUE
             )
-        if self.content_type != TRACEABLE_EVIDENCE_CONTENT_TYPE:
+        if (
+            self.contract_version
+            == TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+        ):
+            if self.content_type != TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE:
+                raise_evidence_materialization_error(
+                    EvidenceMaterializationIssueCode.INVALID_VALUE
+                )
+        elif self.content_type != TRACEABLE_EVIDENCE_CONTENT_TYPE:
             raise_evidence_materialization_error(
                 EvidenceMaterializationIssueCode.INVALID_VALUE
             )
@@ -674,7 +791,15 @@ class TraceableEvidence:
             raise_evidence_materialization_error(
                 EvidenceMaterializationIssueCode.INVALID_VALUE
             )
-        if type(self.provenance) is not TraceableEvidenceProvenance:
+        if (
+            self.contract_version
+            == TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+        ):
+            if type(self.provenance) is not TraceableEvidenceStructuredMetadataProvenance:
+                raise_evidence_materialization_error(
+                    EvidenceMaterializationIssueCode.INVALID_VALUE
+                )
+        elif type(self.provenance) is not TraceableEvidenceProvenance:
             raise_evidence_materialization_error(
                 EvidenceMaterializationIssueCode.INVALID_VALUE
             )
@@ -723,6 +848,7 @@ class EvidenceCollection:
             EVIDENCE_COLLECTION_CONTRACT_VERSION,
             EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION,
             EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION,
+            EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
         ):
             raise_evidence_materialization_error(
                 EvidenceMaterializationIssueCode.UNSUPPORTED_VERSION
@@ -776,9 +902,9 @@ class EvidenceCollection:
                 EvidenceMaterializationIssueCode.INVALID_VALUE
             )
 
-        if (
-            self.contract_version
-            != EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION
+        if self.contract_version not in (
+            EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION,
+            EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
         ):
             expected_indexes = tuple(range(len(frozen_items)))
             actual_indexes = tuple(
@@ -789,20 +915,24 @@ class EvidenceCollection:
                     EvidenceMaterializationIssueCode.INVALID_VALUE
                 )
 
-        for item in frozen_items:
-            provenance = item.provenance
-            if (
-                provenance.artifact_contract_version != self.artifact_contract_version
-                or provenance.artifact_id != self.artifact_id
-                or provenance.upstream_contract_version != self.upstream_contract_version
-                or provenance.job_id != self.job_id
-                or provenance.source_id != self.source_id
-                or provenance.source_path != self.source_path
-                or provenance.source_checksum != self.source_checksum
-            ):
-                raise_evidence_materialization_error(
-                    EvidenceMaterializationIssueCode.INVALID_VALUE
-                )
+        if (
+            self.contract_version
+            != EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION
+        ):
+            for item in frozen_items:
+                provenance = item.provenance
+                if (
+                    provenance.artifact_contract_version != self.artifact_contract_version
+                    or provenance.artifact_id != self.artifact_id
+                    or provenance.upstream_contract_version != self.upstream_contract_version
+                    or provenance.job_id != self.job_id
+                    or provenance.source_id != self.source_id
+                    or provenance.source_path != self.source_path
+                    or provenance.source_checksum != self.source_checksum
+                ):
+                    raise_evidence_materialization_error(
+                        EvidenceMaterializationIssueCode.INVALID_VALUE
+                    )
 
         if self.contract_version == EVIDENCE_COLLECTION_OCR_CONTRACT_VERSION:
             for item in frozen_items:
@@ -826,6 +956,22 @@ class EvidenceCollection:
                     is not TraceableEvidenceOcrRemediationProvenance
                     or type(item.atomic_text_derivation_provenance)
                     is not TraceableEvidenceAtomicTextDerivationProvenance
+                ):
+                    raise_evidence_materialization_error(
+                        EvidenceMaterializationIssueCode.INVALID_VALUE
+                    )
+        elif (
+            self.contract_version
+            == EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION
+        ):
+            for item in frozen_items:
+                if (
+                    item.contract_version
+                    != TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+                    or type(item.provenance)
+                    is not TraceableEvidenceStructuredMetadataProvenance
+                    or item.ocr_remediation_provenance is not None
+                    or item.atomic_text_derivation_provenance is not None
                 ):
                     raise_evidence_materialization_error(
                         EvidenceMaterializationIssueCode.INVALID_VALUE

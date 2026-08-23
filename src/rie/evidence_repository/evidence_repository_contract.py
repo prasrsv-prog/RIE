@@ -14,12 +14,19 @@ from rie.evidence_materialization.evidence_materialization_contract import (
     EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION as _EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION,
     EvidenceCollection,
 )
+from rie.evidence_materialization.evidence_materialization_contract import (
+    EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION as
+        _EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
+)
 
 EVIDENCE_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION: Final = (
     "evidence_repository_write_request_contract_v1"
 )
 EVIDENCE_REPOSITORY_WRITE_REQUEST_V2_CONTRACT_VERSION: Final = (
     "evidence_repository_write_request_contract_v2"
+)
+EVIDENCE_REPOSITORY_WRITE_REQUEST_V3_CONTRACT_VERSION: Final = (
+    "evidence_repository_write_request_contract_v3"
 )
 EVIDENCE_REPOSITORY_WRITE_RESULT_CONTRACT_VERSION: Final = (
     "evidence_repository_write_result_contract_v1"
@@ -183,6 +190,13 @@ class EvidenceRepositoryWriteRequest:
         ):
             accepted_collection_versions = (
                 _EVIDENCE_COLLECTION_ATOMIC_TEXT_DERIVATION_CONTRACT_VERSION,
+            )
+        elif (
+            self.contract_version
+            == EVIDENCE_REPOSITORY_WRITE_REQUEST_V3_CONTRACT_VERSION
+        ):
+            accepted_collection_versions = (
+                _EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
             )
         else:
             raise ValueError("unsupported write request contract version")
