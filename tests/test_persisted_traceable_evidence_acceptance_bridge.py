@@ -514,3 +514,423 @@ def test_corrected_l_reason_does_not_expand_outside_approved_six_scope():
     assert result.reason_codes == (
         "target_traceable_evidence_outside_approved_five_fact_scope",
     )
+
+
+# PR-086FJ structured-v4 additive acceptance coverage.
+from dataclasses import replace as _pr086fj_replace
+from datetime import datetime as _pr086fj_datetime
+from datetime import timezone as _pr086fj_timezone
+from unittest.mock import patch as _pr086fj_patch
+
+from rie.evidence_materialization.evidence_materialization_contract import (
+    EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
+    EVIDENCE_ELIGIBILITY_SNAPSHOT_CONTRACT_VERSION,
+    TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION,
+    EvidenceEligibilitySnapshot,
+    TraceableEvidenceStructuredMetadataProvenance,
+)
+from rie.evidence_repository.evidence_repository_canonicalization import (
+    calculate_evidence_collection_repository_payload_digest as _pr086fj_payload_digest,
+    calculate_evidence_repository_audit_id as _pr086fj_audit_id,
+    calculate_evidence_repository_revision_id as _pr086fj_revision_id,
+)
+from rie.evidence_repository.evidence_repository_contract import (
+    EVIDENCE_REPOSITORY_AUDIT_RECORD_CONTRACT_VERSION,
+    EVIDENCE_REPOSITORY_LOOKUP_RESULT_CONTRACT_VERSION,
+    EVIDENCE_REPOSITORY_REVISION_CONTRACT_VERSION,
+    EvidenceRepositoryAuditRecord,
+    EvidenceRepositoryLookupResult,
+    EvidenceRepositoryRevision,
+)
+from rie.rsv_knowledge.product_variant_identity_bridge import (
+    BRIDGE_STATUS_CONSTRUCTED as _PR086FJ_PRODUCT_VARIANT_CONSTRUCTED,
+    PRODUCT_VARIANT_IDENTITY_CANDIDATE_CONSTRUCTION_REQUEST_CONTRACT_VERSION,
+    PRODUCT_VARIANT_IDENTITY_CONSTRUCTION_RULE_ID,
+    PRODUCT_VARIANT_IDENTITY_CONSTRUCTION_RULE_VERSION,
+    PRODUCT_VARIANT_IDENTITY_EVIDENCE_ADMISSION_REQUEST_CONTRACT_VERSION,
+    PRODUCT_VARIANT_IDENTITY_EVIDENCE_PAYLOAD_SCHEMA_VERSION,
+    PRODUCT_VARIANT_IDENTITY_EVIDENCE_PAYLOAD_TYPE,
+    ProductVariantIdentityCandidateConstructionRequest,
+    ProductVariantIdentityEvidenceAdmissionRequest,
+    ProductVariantIdentityEvidenceAdmissionUnit,
+    construct_product_variant_identity_candidate_from_real_accepted_evidence,
+)
+from rie.rsv_knowledge.product_variant_identity_evidence_binding import (
+    PILOT_PRODUCT_VARIANT_IDENTITY_ATOMIC_RESULT_SHA256,
+    PILOT_PRODUCT_VARIANT_IDENTITY_ATOMIC_RESULT_SOURCE_ID,
+    PILOT_PRODUCT_VARIANT_IDENTITY_AUTHORITY_STATUS,
+    PILOT_PRODUCT_VARIANT_IDENTITY_DOCUMENT_CLASSIFICATION,
+    PILOT_PRODUCT_VARIANT_IDENTITY_ELIGIBILITY_POLICY_ID,
+    PILOT_PRODUCT_VARIANT_IDENTITY_ELIGIBILITY_POLICY_VERSION,
+    PILOT_PRODUCT_VARIANT_IDENTITY_ELIGIBILITY_REASON,
+    PILOT_PRODUCT_VARIANT_IDENTITY_ELIGIBILITY_REGISTRY_VERSION,
+    PILOT_PRODUCT_VARIANT_IDENTITY_LIFECYCLE_STATUS,
+    PILOT_PRODUCT_VARIANT_IDENTITY_SOURCE_TYPE,
+    PRODUCT_VARIANT_IDENTITY_STRUCTURED_METADATA_EVIDENCE_BINDING_REQUEST_CONTRACT_VERSION,
+    ProductVariantIdentityStructuredMetadataEvidenceBindingRequest,
+    materialize_product_variant_identity_structured_metadata_evidence_binding,
+)
+
+
+_PR086FJ_EXACT18 = frozenset(('evm1_009c6c903d897e9bd67bef3852e947cb5d5f66ac21672c44ebb30227e3a4c202', 'evm1_0ad37b5cd8765d292143f98a31a0dcb7b31dced09b7c13e19f4eecd358f784de', 'evm1_24cd78892b74ca07a87a5e04b141ae056c7c7b287f04367d5fc5fd9afa9a7b26', 'evm1_2ada2177e9ad3b79e0dca72cc9e4e85fefed8dd713771d20fdf1fea747ad2eb2', 'evm1_2e10a2610d2e3d07dcfbebcd5baa28ccb7792981beb72643de50e52714ce484a', 'evm1_2e350a8d1b61ce11ad4d4b25218a0ae5ab8de8f524a9037611cafa0a8c988e6e', 'evm1_3353406b885d205d9fd0dce93022e93e37a8a805e10df089722f847f6259e8f7', 'evm1_54956c4f8205ae61a73c041cf75c7237ae593f2249351cfe0de1d2fa4ae50f2e', 'evm1_6daf9d7af75892b728a8c5fa57b6be68b45327aaccb3a1e0664dd96cd4732bf9', 'evm1_8088836878d452f73aff7c26ba36b66683144576c3ca804297f361a0449382c1', 'evm1_95c87a9869239eba36478468f77aa14e1c4f32a228992017b861bbbfe7f0c5a9', 'evm1_bdd92e5807c49621bde8390393dff1d84d8034dc36516cf8a35b1320c66189dd', 'evm1_c0275e89aa2619b80cb6a7a2489e8871e9e2199010d1eda8d705645fbfc9a2d4', 'evm1_cbe10029707a5ae58e0e2211c2c92de3f8f46dffcf1df98564412d50195b1b96', 'evm1_dd86d5b43d2d0d32e20e60a161f80a09a5f053e1d02e2de4a91b45361c7ae193', 'evm1_e20d39d207e4d133741c8ce091b43e27e1d3215d2cf6c00ed62049f42529505a', 'evm1_e5080797d36e0bfd898225ffcc7345a50c3ff092be0f741220ba1c0912e88069', 'evm1_ee617df3d287341953b5e40556122f0a648b64dacd52dfdf402de489b1003217'))
+_PR086FJ_FIXED = _pr086fj_datetime(
+    2026, 8, 23, 7, 30, 0, tzinfo=_pr086fj_timezone.utc
+)
+
+
+def _pr086fj_unit():
+    return ProductVariantIdentityEvidenceAdmissionUnit(
+        atomic_knowledge_id="knowledge-sv300-black-glossy-variant-identity",
+        knowledge_kind="product_variant_identity",
+        atomic_statement=(
+            "variant_id=sv300-black-glossy; product_id=sv300; "
+            "variant_name=Black Glossy"
+        ),
+        product_family="SV300",
+        product_id="sv300",
+        variant_id="sv300-black-glossy",
+        variant_name_verbatim="Black Glossy",
+        source_type="APPROVED_PRODUCT_PHOTO",
+        source_authority="RSV_INTERNAL_APPROVED_SOURCE",
+        source_status="APPROVED",
+        source_version="2026-08-09",
+        source_relative_paths=(
+            "SV300/Black Glossy/01.jpg",
+            "SV300/Black Glossy/02.jpg",
+        ),
+        manifest_sha256="a" * 64,
+        identity_capture_sha256="b" * 64,
+        atomic_construction_authority_decision_packet_sha256="c" * 64,
+        downstream_binding_policy_decision_packet_sha256="d" * 64,
+    )
+
+
+def _pr086fj_binding():
+    admissions = []
+    first_unit = None
+    for index in range(18):
+        path_count = 7 if index == 0 else 6
+        paths = tuple(
+            f"official/variant-{index:02d}/asset-{path_index:02d}.jpg"
+            for path_index in range(path_count)
+        )
+        unit = ProductVariantIdentityEvidenceAdmissionUnit(
+            atomic_knowledge_id=f"atomic-variant-{index:02d}",
+            knowledge_kind="product_variant_identity",
+            atomic_statement=(
+                f"Variant {index:02d} is an approved product variant."
+            ),
+            product_family="pilot-family",
+            product_id=f"pilot-product-{index:02d}",
+            variant_id=f"pilot-variant-{index:02d}",
+            variant_name_verbatim=f"Pilot Variant {index:02d}",
+            source_type="official_asset",
+            source_authority="official",
+            source_status="locked",
+            source_version="1",
+            source_relative_paths=paths,
+            manifest_sha256="a" * 64,
+            identity_capture_sha256="b" * 64,
+            atomic_construction_authority_decision_packet_sha256="c" * 64,
+            downstream_binding_policy_decision_packet_sha256="d" * 64,
+        )
+        if first_unit is None:
+            first_unit = unit
+        admissions.append(
+            ProductVariantIdentityEvidenceAdmissionRequest(
+                contract_version=(
+                    PRODUCT_VARIANT_IDENTITY_EVIDENCE_ADMISSION_REQUEST_CONTRACT_VERSION
+                ),
+                unit=unit,
+            )
+        )
+    assert first_unit is not None
+    assert len(admissions) == 18
+    assert sum(
+        len(value.unit.source_relative_paths) for value in admissions
+    ) == 109
+
+    snapshot = EvidenceEligibilitySnapshot(
+        contract_version=EVIDENCE_ELIGIBILITY_SNAPSHOT_CONTRACT_VERSION,
+        source_id=PILOT_PRODUCT_VARIANT_IDENTITY_ATOMIC_RESULT_SOURCE_ID,
+        source_path=(
+            "pilot-phase-a-product-variant-identity-atomic-knowledge-"
+            "construction-result.json"
+        ),
+        source_checksum=PILOT_PRODUCT_VARIANT_IDENTITY_ATOMIC_RESULT_SHA256,
+        source_type=PILOT_PRODUCT_VARIANT_IDENTITY_SOURCE_TYPE,
+        document_classification=(
+            PILOT_PRODUCT_VARIANT_IDENTITY_DOCUMENT_CLASSIFICATION
+        ),
+        authority_status=PILOT_PRODUCT_VARIANT_IDENTITY_AUTHORITY_STATUS,
+        lifecycle_status=PILOT_PRODUCT_VARIANT_IDENTITY_LIFECYCLE_STATUS,
+        evidence_eligibility="eligible",
+        evidence_collection_allowed=True,
+        requires_review=False,
+        reason=PILOT_PRODUCT_VARIANT_IDENTITY_ELIGIBILITY_REASON,
+        policy_id=PILOT_PRODUCT_VARIANT_IDENTITY_ELIGIBILITY_POLICY_ID,
+        policy_version=PILOT_PRODUCT_VARIANT_IDENTITY_ELIGIBILITY_POLICY_VERSION,
+        registry_version=PILOT_PRODUCT_VARIANT_IDENTITY_ELIGIBILITY_REGISTRY_VERSION,
+    )
+    request = ProductVariantIdentityStructuredMetadataEvidenceBindingRequest(
+        contract_version=(
+            PRODUCT_VARIANT_IDENTITY_STRUCTURED_METADATA_EVIDENCE_BINDING_REQUEST_CONTRACT_VERSION
+        ),
+        admission_requests=tuple(admissions),
+        eligibility_snapshot=snapshot,
+        artifact_contract_version="product_variant_identity_atomic_result_v1",
+        artifact_id=PILOT_PRODUCT_VARIANT_IDENTITY_ATOMIC_RESULT_SHA256,
+        upstream_contract_version="product_variant_identity_atomic_construction_v1",
+        job_id="pr086fj-c1-structured-v4-test",
+        actor_id=bridge_module.PILOT_FFS21_PRIMARY_OPERATOR,
+        recorded_at_utc=_PR086FJ_FIXED,
+    )
+    return (
+        first_unit,
+        materialize_product_variant_identity_structured_metadata_evidence_binding(
+            request
+        ),
+    )
+
+
+def _pr086fj_lookup(collection):
+    payload_digest = _pr086fj_payload_digest(collection)
+    revision_id = _pr086fj_revision_id(
+        source_id=collection.source_id,
+        revision_number=1,
+        collection_id=collection.collection_id,
+        collection_payload_digest=payload_digest,
+        previous_revision_id=None,
+    )
+    audit_id = _pr086fj_audit_id(
+        action="persisted_revision",
+        revision_id=revision_id,
+        source_id=collection.source_id,
+        revision_number=1,
+        collection_id=collection.collection_id,
+        actor_id="test-repository-writer",
+        recorded_at_utc=_PR086FJ_FIXED,
+    )
+    revision = EvidenceRepositoryRevision(
+        contract_version=EVIDENCE_REPOSITORY_REVISION_CONTRACT_VERSION,
+        revision_id=revision_id,
+        source_id=collection.source_id,
+        revision_number=1,
+        collection_id=collection.collection_id,
+        collection_payload_digest=payload_digest,
+        previous_revision_id=None,
+        actor_id="test-repository-writer",
+        recorded_at_utc=_PR086FJ_FIXED,
+        audit_id=audit_id,
+    )
+    audit = EvidenceRepositoryAuditRecord(
+        contract_version=EVIDENCE_REPOSITORY_AUDIT_RECORD_CONTRACT_VERSION,
+        audit_id=audit_id,
+        action="persisted_revision",
+        revision_id=revision_id,
+        source_id=collection.source_id,
+        revision_number=1,
+        collection_id=collection.collection_id,
+        actor_id="test-repository-writer",
+        recorded_at_utc=_PR086FJ_FIXED,
+    )
+    return EvidenceRepositoryLookupResult(
+        contract_version=EVIDENCE_REPOSITORY_LOOKUP_RESULT_CONTRACT_VERSION,
+        status="found",
+        revision=revision,
+        audit_record=audit,
+        collection=collection,
+        issue=None,
+    )
+
+
+def _pr086fj_request(lookup):
+    target = lookup.collection.evidence_items[0]
+    return PersistedTraceableEvidenceAcceptanceBridgeRequest(
+        contract_version=(
+            PERSISTED_TRACEABLE_EVIDENCE_ACCEPTANCE_BRIDGE_REQUEST_CONTRACT_VERSION
+        ),
+        repository_lookup_result=lookup,
+        target_traceable_evidence_id=target.evidence_id,
+        accepted_by=bridge_module.PILOT_FFS21_PRIMARY_OPERATOR,
+        acceptance_reason=(
+            bridge_module.PILOT_PRODUCT_VARIANT_STRUCTURED_ACCEPTANCE_REASON
+        ),
+        review_record_id=(
+            bridge_module.PILOT_PRODUCT_VARIANT_STRUCTURED_REVIEW_RECORD_ID
+        ),
+        accepted_at=_PR086FJ_FIXED,
+        acceptance_policy_id=bridge_module.PILOT_FFS21_ACCEPTANCE_POLICY_ID,
+        acceptance_policy_version=(
+            bridge_module.PILOT_FFS21_ACCEPTANCE_POLICY_VERSION
+        ),
+        materializer_id=bridge_module.PILOT_FFS21_MATERIALIZER_ID,
+        materializer_version=bridge_module.PILOT_FFS21_MATERIALIZER_VERSION,
+        eligibility_evaluated_by=bridge_module.PILOT_FFS21_PRIMARY_OPERATOR,
+        eligibility_evaluated_at=_PR086FJ_FIXED,
+        provenance_observed_at=_PR086FJ_FIXED,
+        compatibility_policy_id=(
+            PERSISTED_TRACEABLE_EVIDENCE_ACCEPTANCE_BRIDGE_POLICY_ID
+        ),
+        compatibility_policy_version=(
+            PERSISTED_TRACEABLE_EVIDENCE_ACCEPTANCE_BRIDGE_POLICY_VERSION
+        ),
+    )
+
+
+def _pr086fj_materialize():
+    unit, binding = _pr086fj_binding()
+    target = binding.collection.evidence_items[0]
+    lookup = _pr086fj_lookup(binding.collection)
+    with _pr086fj_patch.object(
+        bridge_module,
+        "PILOT_PRODUCT_VARIANT_STRUCTURED_EVIDENCE_IDS",
+        frozenset({target.evidence_id}),
+    ):
+        request = _pr086fj_request(lookup)
+        result = materialize_persisted_traceable_evidence_acceptance(request)
+    return unit, target, result
+
+
+def test_pr086fj_structured_scope_matches_exact18_operator_authority():
+    assert (
+        bridge_module.PILOT_PRODUCT_VARIANT_STRUCTURED_EVIDENCE_IDS
+        == _PR086FJ_EXACT18
+    )
+    assert len(bridge_module.PILOT_PRODUCT_VARIANT_STRUCTURED_EVIDENCE_IDS) == 18
+    assert bridge_module.PILOT_FFS21_APPROVED_ATOMIC_EVIDENCE_IDS.isdisjoint(
+        bridge_module.PILOT_PRODUCT_VARIANT_STRUCTURED_EVIDENCE_IDS
+    )
+
+
+def test_pr086fj_structured_request_requires_exact_reason_and_review():
+    _, binding = _pr086fj_binding()
+    target = binding.collection.evidence_items[0]
+    lookup = _pr086fj_lookup(binding.collection)
+    with _pr086fj_patch.object(
+        bridge_module,
+        "PILOT_PRODUCT_VARIANT_STRUCTURED_EVIDENCE_IDS",
+        frozenset({target.evidence_id}),
+    ):
+        request = _pr086fj_request(lookup)
+        with pytest.raises(ValueError, match="acceptance_reason"):
+            _pr086fj_replace(
+                request,
+                acceptance_reason=PILOT_FFS21_ACCEPTANCE_REASON,
+            )
+        with pytest.raises(ValueError, match="review_record_id"):
+            _pr086fj_replace(
+                request,
+                review_record_id="other-review",
+            )
+
+
+def test_pr086fj_structured_v4_materializes_without_page_provenance():
+    unit, target, result = _pr086fj_materialize()
+    assert result.status == BRIDGE_STATUS_MATERIALIZED
+    assert result.reason_codes == ()
+    assert (
+        type(target.provenance)
+        is TraceableEvidenceStructuredMetadataProvenance
+    )
+    assert (
+        target.contract_version
+        == TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION
+    )
+    assert not hasattr(target.provenance, "page_index")
+    assert result.accepted_evidence.factual_payload.payload_type == (
+        PRODUCT_VARIANT_IDENTITY_EVIDENCE_PAYLOAD_TYPE
+    )
+    assert result.accepted_evidence.factual_payload.payload_schema_version == (
+        PRODUCT_VARIANT_IDENTITY_EVIDENCE_PAYLOAD_SCHEMA_VERSION
+    )
+    assert dict(result.accepted_evidence.factual_payload.payload)[
+        "atomic_statement"
+    ] == unit.atomic_statement
+    assert dict(result.accepted_evidence.factual_payload.payload)[
+        "source_relative_paths"
+    ] == unit.source_relative_paths
+    assert result.accepted_evidence.factual_payload.locator.locator_value == (
+        unit.atomic_knowledge_id
+    )
+    assert result.accepted_evidence.evidence_id == calculate_evidence_identity(
+        identity_input_from_accepted_evidence(result.accepted_evidence)
+    ).evidence_id
+    assert result.acceptance_record.acceptance_record_id == (
+        calculate_acceptance_identity(
+            acceptance_identity_input_from_record(result.acceptance_record)
+        ).acceptance_record_id
+    )
+
+
+def test_pr086fj_structured_v4_exact_replay_is_deterministic():
+    _, binding = _pr086fj_binding()
+    target = binding.collection.evidence_items[0]
+    lookup = _pr086fj_lookup(binding.collection)
+    with _pr086fj_patch.object(
+        bridge_module,
+        "PILOT_PRODUCT_VARIANT_STRUCTURED_EVIDENCE_IDS",
+        frozenset({target.evidence_id}),
+    ):
+        request = _pr086fj_request(lookup)
+        first = materialize_persisted_traceable_evidence_acceptance(request)
+        second = materialize_persisted_traceable_evidence_acceptance(request)
+    assert first == second
+
+
+def test_pr086fj_structured_accepted_evidence_reaches_candidate_bridge():
+    unit, _, result = _pr086fj_materialize()
+    candidate_request = ProductVariantIdentityCandidateConstructionRequest(
+        contract_version=(
+            PRODUCT_VARIANT_IDENTITY_CANDIDATE_CONSTRUCTION_REQUEST_CONTRACT_VERSION
+        ),
+        unit=unit,
+        accepted_evidence=result.accepted_evidence,
+        acceptance_records=(result.acceptance_record,),
+        construction_rule_id=PRODUCT_VARIANT_IDENTITY_CONSTRUCTION_RULE_ID,
+        construction_rule_version=PRODUCT_VARIANT_IDENTITY_CONSTRUCTION_RULE_VERSION,
+    )
+    candidate_result = (
+        construct_product_variant_identity_candidate_from_real_accepted_evidence(
+            candidate_request
+        )
+    )
+    assert candidate_result.status == _PR086FJ_PRODUCT_VARIANT_CONSTRUCTED
+    assert candidate_result.reason_codes == ()
+    assert candidate_result.knowledge_candidate.statement == unit.atomic_statement
+
+
+def test_pr086fj_structured_v4_outside_exact_scope_still_rejects():
+    _, binding = _pr086fj_binding()
+    lookup = _pr086fj_lookup(binding.collection)
+    target = lookup.collection.evidence_items[0]
+    request = PersistedTraceableEvidenceAcceptanceBridgeRequest(
+        contract_version=(
+            PERSISTED_TRACEABLE_EVIDENCE_ACCEPTANCE_BRIDGE_REQUEST_CONTRACT_VERSION
+        ),
+        repository_lookup_result=lookup,
+        target_traceable_evidence_id=target.evidence_id,
+        accepted_by=bridge_module.PILOT_FFS21_PRIMARY_OPERATOR,
+        acceptance_reason=PILOT_FFS21_ACCEPTANCE_REASON,
+        review_record_id="legacy-compatible-review",
+        accepted_at=_PR086FJ_FIXED,
+        acceptance_policy_id=bridge_module.PILOT_FFS21_ACCEPTANCE_POLICY_ID,
+        acceptance_policy_version=(
+            bridge_module.PILOT_FFS21_ACCEPTANCE_POLICY_VERSION
+        ),
+        materializer_id=bridge_module.PILOT_FFS21_MATERIALIZER_ID,
+        materializer_version=bridge_module.PILOT_FFS21_MATERIALIZER_VERSION,
+        eligibility_evaluated_by=bridge_module.PILOT_FFS21_PRIMARY_OPERATOR,
+        eligibility_evaluated_at=_PR086FJ_FIXED,
+        provenance_observed_at=_PR086FJ_FIXED,
+        compatibility_policy_id=(
+            PERSISTED_TRACEABLE_EVIDENCE_ACCEPTANCE_BRIDGE_POLICY_ID
+        ),
+        compatibility_policy_version=(
+            PERSISTED_TRACEABLE_EVIDENCE_ACCEPTANCE_BRIDGE_POLICY_VERSION
+        ),
+    )
+    result = materialize_persisted_traceable_evidence_acceptance(request)
+    assert result.status == BRIDGE_STATUS_REJECTED
+    assert result.accepted_evidence is None
+    assert result.acceptance_record is None
