@@ -52,6 +52,20 @@ from rie.evidence_materialization.evidence_materialization_contract import (
     TraceableEvidenceStructuredMetadataProvenance as _TraceableEvidenceStructuredMetadataProvenance,
 )
 
+from rie.rsv_knowledge.product_variant_identity_bridge import (
+    PRODUCT_VARIANT_IDENTITY_CANDIDATE_CONSTRUCTION_REQUEST_CONTRACT_VERSION as _PVI_CANDIDATE_REQUEST_VERSION,
+    PRODUCT_VARIANT_IDENTITY_CONSTRUCTION_RULE_ID as _PVI_RULE_ID,
+    PRODUCT_VARIANT_IDENTITY_CONSTRUCTION_RULE_VERSION as _PVI_RULE_VERSION,
+    PRODUCT_VARIANT_IDENTITY_EVIDENCE_ADMISSION_REQUEST_CONTRACT_VERSION as _PVI_ADMISSION_REQUEST_VERSION,
+    PRODUCT_VARIANT_IDENTITY_EVIDENCE_PAYLOAD_SCHEMA_VERSION as _PVI_PAYLOAD_SCHEMA_VERSION,
+    PRODUCT_VARIANT_IDENTITY_EVIDENCE_PAYLOAD_TYPE as _PVI_PAYLOAD_TYPE,
+    ProductVariantIdentityCandidateConstructionRequest as _PVICandidateRequest,
+    ProductVariantIdentityEvidenceAdmissionRequest as _PVIAdmissionRequest,
+    ProductVariantIdentityEvidenceAdmissionUnit as _PVIAdmissionUnit,
+    construct_product_variant_identity_candidate_from_real_accepted_evidence as _pvi_construct_candidate,
+    materialize_product_variant_identity_evidence_admission as _pvi_materialize_admission,
+)
+
 from .persisted_evidence_knowledge_construction_canonicalization import (
     derive_persisted_evidence_knowledge_compatibility_record_id as _derive_compatibility_id,
 )
@@ -494,6 +508,168 @@ def _compatibility_record(
     )
 
 
+_PVI_PAYLOAD_KEYS = (
+    "atomic_construction_authority_decision_packet_sha256",
+    "atomic_knowledge_id",
+    "atomic_statement",
+    "downstream_binding_policy_decision_packet_sha256",
+    "identity_capture_sha256",
+    "knowledge_kind",
+    "manifest_sha256",
+    "product_family",
+    "product_id",
+    "source_authority",
+    "source_relative_paths",
+    "source_status",
+    "source_type",
+    "source_version",
+    "variant_id",
+    "variant_name_verbatim",
+)
+
+
+def _pvi_nested_rejected(*reason_codes: str) -> _KnowledgeConstructionResult:
+    normalized = tuple(reason_codes) or ("product_variant_construction_rejected",)
+    return _KnowledgeConstructionResult(
+        decision="rejected",
+        knowledge_candidate=None,
+        reason_codes=normalized,
+        diagnostics=(),
+    )
+
+
+def _construct_product_variant_candidate(
+    nested: _KnowledgeConstructionRequest,
+) -> _KnowledgeConstructionResult:
+    if nested.construction_rule_version != _PVI_RULE_VERSION:
+        return _pvi_nested_rejected("unsupported_construction_rule")
+
+    accepted = nested.accepted_evidence
+    factual_payload = accepted.factual_payload
+    if (
+        factual_payload.payload_type != _PVI_PAYLOAD_TYPE
+        or factual_payload.payload_schema_version != _PVI_PAYLOAD_SCHEMA_VERSION
+    ):
+        return _pvi_nested_rejected("unsupported_evidence_payload")
+
+    payload = factual_payload.payload
+    if (
+        type(payload) is not tuple
+        or len(payload) != len(_PVI_PAYLOAD_KEYS)
+        or any(
+            type(pair) is not tuple
+            or len(pair) != 2
+            or type(pair[0]) is not str
+            for pair in payload
+        )
+    ):
+        return _pvi_nested_rejected("invalid_product_variant_payload_shape")
+
+    keys = tuple(pair[0] for pair in payload)
+    if keys != _PVI_PAYLOAD_KEYS or len(set(keys)) != len(keys):
+        return _pvi_nested_rejected("invalid_product_variant_payload_shape")
+
+    values = dict(payload)
+    if (
+        type(values["source_relative_paths"]) is not tuple
+        or not values["source_relative_paths"]
+        or any(
+            type(value) is not str or not value
+            for value in values["source_relative_paths"]
+        )
+    ):
+        return _pvi_nested_rejected("invalid_product_variant_payload_shape")
+
+    try:
+        unit = _PVIAdmissionUnit(
+            atomic_knowledge_id=values["atomic_knowledge_id"],
+            knowledge_kind=values["knowledge_kind"],
+            atomic_statement=values["atomic_statement"],
+            product_family=values["product_family"],
+            product_id=values["product_id"],
+            variant_id=values["variant_id"],
+            variant_name_verbatim=values["variant_name_verbatim"],
+            source_type=values["source_type"],
+            source_authority=values["source_authority"],
+            source_status=values["source_status"],
+            source_version=values["source_version"],
+            source_relative_paths=values["source_relative_paths"],
+            manifest_sha256=values["manifest_sha256"],
+            identity_capture_sha256=values["identity_capture_sha256"],
+            atomic_construction_authority_decision_packet_sha256=(
+                values["atomic_construction_authority_decision_packet_sha256"]
+            ),
+            downstream_binding_policy_decision_packet_sha256=(
+                values["downstream_binding_policy_decision_packet_sha256"]
+            ),
+        )
+        admission = _pvi_materialize_admission(
+            _PVIAdmissionRequest(
+                contract_version=_PVI_ADMISSION_REQUEST_VERSION,
+                unit=unit,
+            )
+        )
+    except Exception:
+        return _pvi_nested_rejected(
+            "product_variant_admission_reconstruction_failed"
+        )
+
+    if admission.status != "materialized" or admission.reason_codes:
+        return _pvi_nested_rejected(
+            *(admission.reason_codes or ("product_variant_admission_rejected",))
+        )
+    if admission.payload != payload:
+        return _pvi_nested_rejected("product_variant_admission_payload_mismatch")
+
+    locator = factual_payload.locator
+    if (
+        admission.locator_type != locator.locator_type
+        or admission.locator_value != locator.locator_value
+        or admission.locator_schema_version != locator.locator_schema_version
+    ):
+        return _pvi_nested_rejected("product_variant_admission_locator_mismatch")
+
+    try:
+        specialized = _pvi_construct_candidate(
+            _PVICandidateRequest(
+                contract_version=_PVI_CANDIDATE_REQUEST_VERSION,
+                unit=unit,
+                accepted_evidence=accepted,
+                acceptance_records=nested.acceptance_records,
+                construction_rule_id=_PVI_RULE_ID,
+                construction_rule_version=_PVI_RULE_VERSION,
+            )
+        )
+    except Exception:
+        return _pvi_nested_rejected(
+            "product_variant_candidate_construction_failed"
+        )
+
+    if specialized.status == "constructed":
+        if specialized.knowledge_candidate is None or specialized.reason_codes:
+            return _pvi_nested_rejected(
+                "product_variant_candidate_contract_mismatch"
+            )
+        return _KnowledgeConstructionResult(
+            decision="constructed",
+            knowledge_candidate=specialized.knowledge_candidate,
+            reason_codes=(),
+            diagnostics=(),
+        )
+
+    return _pvi_nested_rejected(
+        *(specialized.reason_codes or ("product_variant_candidate_rejected",))
+    )
+
+
+def _construct_nested_candidate(
+    nested: _KnowledgeConstructionRequest,
+) -> _KnowledgeConstructionResult:
+    if nested.construction_rule_id == _PVI_RULE_ID:
+        return _construct_product_variant_candidate(nested)
+    return _construct_knowledge_candidate(nested)
+
+
 def construct_knowledge_from_persisted_evidence(request: object) -> _Result:
     if type(request) is not _Request:
         return _rejected("invalid_request")
@@ -580,7 +756,7 @@ def construct_knowledge_from_persisted_evidence(request: object) -> _Result:
         return _rejected("internal_contract_violation")
 
     try:
-        nested_result = _construct_knowledge_candidate(nested)
+        nested_result = _construct_nested_candidate(nested)
     except Exception:
         return _rejected("internal_contract_violation")
     if type(nested_result) is not _KnowledgeConstructionResult:

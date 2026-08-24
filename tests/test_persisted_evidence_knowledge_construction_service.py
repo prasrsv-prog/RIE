@@ -1027,7 +1027,7 @@ def test_pr086fx_exact18_structured_v4_route_passes_shared_semantic_compatibilit
         persisted_evidence_knowledge_construction_service.construct_knowledge_from_persisted_evidence
     )
     compatibility_index = source.index("_shared_semantic_anchors_match(")
-    constructor_index = source.index("_construct_knowledge_candidate(nested)")
+    constructor_index = source.index("_construct_nested_candidate(nested)")
     assert compatibility_index < constructor_index
 
 
@@ -1134,3 +1134,26 @@ def test_pr086fx_structured_route_rejects_shared_source_anchor_mismatch() -> Non
         )
         is False
     )
+
+# PR-086GF-R2-C2 narrow runtime-dispatch coverage.
+def test_pr086gf_r2_product_variant_dispatch_reaches_specialized_bridge_source() -> None:
+    import inspect
+
+    source = inspect.getsource(
+        persisted_evidence_knowledge_construction_service._construct_product_variant_candidate
+    )
+    assert "_pvi_materialize_admission(" in source
+    assert "_pvi_construct_candidate(" in source
+    assert "_KnowledgeConstructionResult(" in source
+
+
+def test_pr086gf_r2_dispatch_preserves_generic_constructor_fallback_source() -> None:
+    import inspect
+
+    source = inspect.getsource(
+        persisted_evidence_knowledge_construction_service._construct_nested_candidate
+    )
+    assert "nested.construction_rule_id == _PVI_RULE_ID" in source
+    assert "return _construct_product_variant_candidate(nested)" in source
+    assert "return _construct_knowledge_candidate(nested)" in source
+
