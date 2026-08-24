@@ -837,3 +837,300 @@ def test_internal_constructor_failure_is_closed(monkeypatch) -> None:
     assert _code(
         construct_knowledge_from_persisted_evidence(_request())
     ) == "internal_contract_violation"
+
+# PR-086FX-C3-C1-C4 exact18 structured-v4 compatibility extension coverage.
+import rie.persisted_evidence_knowledge_construction.persisted_evidence_knowledge_construction_service as persisted_evidence_knowledge_construction_service
+
+def _pr086fx_structured_anchor_fixture():
+    import hashlib
+    import json
+    from types import SimpleNamespace
+
+    from rie.evidence_materialization.evidence_materialization_contract import (
+        EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE,
+        TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_CONTRACT_VERSION,
+        TraceableEvidenceStructuredMetadataProvenance,
+    )
+
+    exact_ids = (
+    "evm1_009c6c903d897e9bd67bef3852e947cb5d5f66ac21672c44ebb30227e3a4c202",
+    "evm1_0ad37b5cd8765d292143f98a31a0dcb7b31dced09b7c13e19f4eecd358f784de",
+    "evm1_24cd78892b74ca07a87a5e04b141ae056c7c7b287f04367d5fc5fd9afa9a7b26",
+    "evm1_2ada2177e9ad3b79e0dca72cc9e4e85fefed8dd713771d20fdf1fea747ad2eb2",
+    "evm1_2e10a2610d2e3d07dcfbebcd5baa28ccb7792981beb72643de50e52714ce484a",
+    "evm1_2e350a8d1b61ce11ad4d4b25218a0ae5ab8de8f524a9037611cafa0a8c988e6e",
+    "evm1_3353406b885d205d9fd0dce93022e93e37a8a805e10df089722f847f6259e8f7",
+    "evm1_54956c4f8205ae61a73c041cf75c7237ae593f2249351cfe0de1d2fa4ae50f2e",
+    "evm1_6daf9d7af75892b728a8c5fa57b6be68b45327aaccb3a1e0664dd96cd4732bf9",
+    "evm1_8088836878d452f73aff7c26ba36b66683144576c3ca804297f361a0449382c1",
+    "evm1_95c87a9869239eba36478468f77aa14e1c4f32a228992017b861bbbfe7f0c5a9",
+    "evm1_bdd92e5807c49621bde8390393dff1d84d8034dc36516cf8a35b1320c66189dd",
+    "evm1_c0275e89aa2619b80cb6a7a2489e8871e9e2199010d1eda8d705645fbfc9a2d4",
+    "evm1_cbe10029707a5ae58e0e2211c2c92de3f8f46dffcf1df98564412d50195b1b96",
+    "evm1_dd86d5b43d2d0d32e20e60a161f80a09a5f053e1d02e2de4a91b45361c7ae193",
+    "evm1_e20d39d207e4d133741c8ce091b43e27e1d3215d2cf6c00ed62049f42529505a",
+    "evm1_e5080797d36e0bfd898225ffcc7345a50c3ff092be0f741220ba1c0912e88069",
+    "evm1_ee617df3d287341953b5e40556122f0a648b64dacd52dfdf402de489b1003217",
+)
+    source_paths = ("official/product-variant-1.jpg",)
+    payload_object = {
+        "atomic_construction_authority_decision_packet_sha256": "c" * 64,
+        "atomic_knowledge_id": "atomic-product-variant-1",
+        "downstream_binding_policy_decision_packet_sha256": "d" * 64,
+        "identity_capture_sha256": "b" * 64,
+        "manifest_sha256": "a" * 64,
+        "source_relative_paths": list(source_paths),
+    }
+    content = json.dumps(
+        payload_object,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ) + "\n"
+    content_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    provenance = TraceableEvidenceStructuredMetadataProvenance(
+        contract_version=(
+            TRACEABLE_EVIDENCE_STRUCTURED_METADATA_PROVENANCE_CONTRACT_VERSION
+        ),
+        payload_type=TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE,
+        payload_schema_version="1.0.0",
+        locator_type="atomic_knowledge_id",
+        locator_value="atomic-product-variant-1",
+        locator_schema_version="1.0.0",
+        atomic_knowledge_id="atomic-product-variant-1",
+        source_relative_paths=source_paths,
+        manifest_sha256="a" * 64,
+        identity_capture_sha256="b" * 64,
+        atomic_construction_authority_decision_packet_sha256="c" * 64,
+        downstream_binding_policy_decision_packet_sha256="d" * 64,
+        admission_payload_digest=content_digest,
+    )
+    target = SimpleNamespace(
+        contract_version=TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTRACT_VERSION,
+        evidence_id=exact_ids[0],
+        content_type=TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE,
+        content=content,
+        content_digest=content_digest,
+        provenance=provenance,
+    )
+    evidence_items = (target,) + tuple(
+        SimpleNamespace(evidence_id=value) for value in exact_ids[1:]
+    )
+    snapshot = SimpleNamespace(
+        source_id="pilot-rsv-product-variant-source",
+        source_path="official/product-variant.json",
+        source_checksum="e" * 64,
+        source_type="structured_metadata",
+        document_classification="official_product_metadata",
+        authority_status="authoritative",
+        lifecycle_status="active",
+        evidence_eligibility="eligible",
+        registry_version="registry-v1",
+        policy_id="eligibility-policy",
+        policy_version="1.0.0",
+    )
+    collection = SimpleNamespace(
+        contract_version=EVIDENCE_COLLECTION_STRUCTURED_METADATA_CONTRACT_VERSION,
+        collection_id=(
+            "evc1_06534223733730505e33f7225d3d0507da70157396b5f94944d1e646d1b24f4b"
+        ),
+        source_id=snapshot.source_id,
+        source_path=snapshot.source_path,
+        source_checksum=snapshot.source_checksum,
+        eligibility_snapshot=snapshot,
+        evidence_items=evidence_items,
+    )
+    factual_pairs = tuple(
+        (
+            key,
+            tuple(value) if key == "source_relative_paths" else value,
+        )
+        for key, value in sorted(payload_object.items())
+    )
+    accepted = SimpleNamespace(
+        source_snapshot=SimpleNamespace(
+            source_id=snapshot.source_id,
+            source_path=snapshot.source_path,
+            source_content_digest=snapshot.source_checksum,
+            source_type=snapshot.source_type,
+            document_classification=snapshot.document_classification,
+            authority_status=snapshot.authority_status,
+            lifecycle_status=snapshot.lifecycle_status,
+            evidence_eligibility=snapshot.evidence_eligibility,
+        ),
+        factual_payload=SimpleNamespace(
+            payload_type=TRACEABLE_EVIDENCE_STRUCTURED_METADATA_CONTENT_TYPE,
+            payload_schema_version="1.0.0",
+            payload=factual_pairs,
+            payload_digest=content_digest,
+            locator=SimpleNamespace(
+                locator_type=provenance.locator_type,
+                locator_value=provenance.locator_value,
+                locator_schema_version=provenance.locator_schema_version,
+            ),
+        ),
+        provenance=SimpleNamespace(
+            source_registry_version=snapshot.registry_version,
+            collection_id=collection.collection_id,
+            producer_output_digest=content_digest,
+            lineage=(
+                target.evidence_id,
+                provenance.atomic_knowledge_id,
+                provenance.admission_payload_digest,
+                provenance.manifest_sha256,
+                provenance.identity_capture_sha256,
+                provenance.atomic_construction_authority_decision_packet_sha256,
+                provenance.downstream_binding_policy_decision_packet_sha256,
+                *provenance.source_relative_paths,
+            ),
+        ),
+        candidate_reference=SimpleNamespace(
+            candidate_contract_version=target.contract_version,
+            candidate_snapshot_digest=content_digest,
+            candidate_source_id=collection.source_id,
+            candidate_producer_name=provenance.payload_type,
+            candidate_producer_version=provenance.payload_schema_version,
+            candidate_payload_digest=content_digest,
+        ),
+        producer_snapshot=SimpleNamespace(
+            producer_name=provenance.payload_type,
+            producer_version=provenance.payload_schema_version,
+            producer_kind=target.content_type,
+            producer_contract_version=provenance.contract_version,
+        ),
+        eligibility_result=SimpleNamespace(
+            decision=snapshot.evidence_eligibility,
+            policy_id=snapshot.policy_id,
+            policy_version=snapshot.policy_version,
+            candidate_snapshot_digest=content_digest,
+            source_id=collection.source_id,
+        ),
+    )
+    return collection, target, accepted
+
+
+def test_pr086fx_exact18_structured_v4_route_passes_shared_semantic_compatibility_and_reaches_existing_constructor() -> None:
+    import inspect
+
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is True
+    )
+    source = inspect.getsource(
+        persisted_evidence_knowledge_construction_service.construct_knowledge_from_persisted_evidence
+    )
+    compatibility_index = source.index("_shared_semantic_anchors_match(")
+    constructor_index = source.index("_construct_knowledge_candidate(nested)")
+    assert compatibility_index < constructor_index
+
+
+def test_pr086fx_legacy_page_text_route_behavior_is_unchanged() -> None:
+    result = construct_knowledge_from_persisted_evidence(_request())
+    assert result.status == "constructed"
+    assert result.mutation_performed is False
+    assert result.issue is None
+
+
+def test_pr086fx_structured_route_rejects_non_exact18_target() -> None:
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    collection.collection_id = "evc1_" + ("f" * 64)
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is False
+    )
+
+
+def test_pr086fx_structured_route_rejects_payload_type_or_schema_mismatch() -> None:
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    accepted.factual_payload.payload_type = "text"
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is False
+    )
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    accepted.factual_payload.payload_schema_version = "9.9.9"
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is False
+    )
+
+
+def test_pr086fx_structured_route_rejects_payload_digest_or_content_projection_mismatch() -> None:
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    accepted.factual_payload.payload_digest = "f" * 64
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is False
+    )
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    accepted.factual_payload.payload = (("atomic_knowledge_id", "different"),)
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is False
+    )
+
+
+def test_pr086fx_structured_route_rejects_locator_mismatch() -> None:
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    accepted.factual_payload.locator.locator_value = "different"
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is False
+    )
+
+
+def test_pr086fx_structured_route_rejects_lineage_or_payload_provenance_crosscheck_mismatch() -> None:
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    accepted.provenance.lineage = ("different",)
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is False
+    )
+
+
+def test_pr086fx_structured_route_rejects_shared_source_anchor_mismatch() -> None:
+    collection, target, accepted = _pr086fx_structured_anchor_fixture()
+    accepted.source_snapshot.source_path = "different"
+    assert (
+        persisted_evidence_knowledge_construction_service._shared_semantic_anchors_match(
+            collection,
+            target,
+            accepted,
+        )
+        is False
+    )
