@@ -261,3 +261,90 @@ def test_tkinter_module_does_not_import_frozen_runtime_database_or_construct_pha
     assert "grounded_prompt_application_service" not in source
     assert "grounded_prompt_application_composition_root" not in source
     assert "grounded_prompt_application_foundation_provider" not in source
+
+def _prime_success_for_invalidation(root):
+    app, controller, calls = _app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_var.set("alpha")
+    app.refresh_variants()
+    app.variant_var.set("alpha-a")
+    app.background_var.set("dark studio")
+    app.camera_angle_var.set("front")
+    app.requested_output_text.insert("1.0", "grounded product prompt")
+    app.submit()
+    root.update()
+    assert app.bridge_status_var.get() == "PASSED"
+    assert app.exact_six_status_var.get() == "PASSED"
+    assert app.binding_status_var.get() == "PASSED"
+    assert app.grounding_status_var.get() == "PASSED"
+    assert app.prompt_output.get("1.0", "end-1c") == "compiled grounded prompt"
+    return app, controller, calls
+
+
+def _assert_rendered_success_is_clear(app) -> None:
+    assert app.bridge_status_var.get() == ""
+    assert app.exact_six_status_var.get() == ""
+    assert app.binding_status_var.get() == ""
+    assert app.grounding_status_var.get() == ""
+    assert app.prompt_output.get("1.0", "end-1c") == ""
+
+
+def test_background_change_after_success_clears_rendered_success_without_submit(root) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    app.background_var.set("bright studio")
+    _assert_rendered_success_is_clear(app)
+    assert app.background_var.get() == "bright studio"
+    assert len(controller.submit_calls) == 1
+    assert calls == [r"C:\pilot\intake"]
+
+
+def test_camera_angle_change_after_success_clears_rendered_success_without_submit(root) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    app.camera_angle_var.set("three-quarter")
+    _assert_rendered_success_is_clear(app)
+    assert app.camera_angle_var.get() == "three-quarter"
+    assert len(controller.submit_calls) == 1
+    assert calls == [r"C:\pilot\intake"]
+
+
+def test_requested_output_change_after_success_clears_rendered_success_without_submit(root) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    app.requested_output_text.delete("1.0", "end")
+    app.requested_output_text.insert("1.0", "revised grounded product prompt")
+    root.update()
+    _assert_rendered_success_is_clear(app)
+    assert app.requested_output_text.get("1.0", "end-1c") == "revised grounded product prompt"
+    assert len(controller.submit_calls) == 1
+    assert calls == [r"C:\pilot\intake"]
+
+
+def test_product_change_after_success_clears_rendered_success_and_keeps_variant_clear_behavior(root) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    app.product_var.set("beta")
+    app.refresh_variants()
+    _assert_rendered_success_is_clear(app)
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == ""
+    assert tuple(app.variant_combo["values"]) == ("beta-a",)
+    assert len(controller.submit_calls) == 1
+    assert calls == [r"C:\pilot\intake"]
+
+
+def test_variant_change_after_success_clears_rendered_success_without_submit(root) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    app.variant_var.set("alpha-b")
+    _assert_rendered_success_is_clear(app)
+    assert app.variant_var.get() == "alpha-b"
+    assert len(controller.submit_calls) == 1
+    assert calls == [r"C:\pilot\intake"]
+
+
+def test_intake_root_change_after_success_clears_rendered_success_without_auto_load(root) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    app.intake_root_var.set(r"C:\pilot\other-intake")
+    _assert_rendered_success_is_clear(app)
+    assert app.intake_root_var.get() == r"C:\pilot\other-intake"
+    assert app._controller is controller
+    assert len(controller.submit_calls) == 1
+    assert calls == [r"C:\pilot\intake"]

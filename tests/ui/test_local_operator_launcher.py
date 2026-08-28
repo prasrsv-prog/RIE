@@ -42,3 +42,49 @@ def test_local_operator_launcher_contains_no_install_network_or_git_mutation_com
     )
     for value in prohibited_commands:
         assert value not in lower
+
+def test_daily_use_guide_references_published_launcher_browse_and_load_flow() -> None:
+    guide = (
+        REPOSITORY_ROOT / "docs" / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+    assert "run-rcis-grounded-prompt-ui.cmd" in guide
+    assert "browse..." in guide
+    assert "load foundation" in guide
+    assert "close the rcis window" in guide
+
+
+def test_daily_use_guide_requires_explicit_inputs_submit_and_standard_copy_path() -> None:
+    guide = (
+        REPOSITORY_ROOT / "docs" / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+    for value in (
+        "select the product id explicitly",
+        "select the variant id explicitly",
+        "background",
+        "camera angle",
+        "requested output",
+        "submit grounded prompt",
+        "four visible grounding statuses",
+        "ctrl+c",
+    ):
+        assert value in guide
+
+
+def test_daily_use_guide_documents_invalidation_and_protected_non_capabilities() -> None:
+    guide = (
+        REPOSITORY_ROOT / "docs" / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+    for value in (
+        "clears the rendered prompt and the four rendered success statuses",
+        "explicitly submit again",
+        "no hidden defaults",
+        "no automatic product or variant selection",
+        "no automatic prompt rewriting",
+        "does not persist request history",
+        "does not provide saved presets",
+        "does not start a network service",
+        "does not install dependencies",
+        "does not invoke an external ai model",
+        "local ai generator integration is not required",
+    ):
+        assert value in guide

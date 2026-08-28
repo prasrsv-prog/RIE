@@ -47,6 +47,35 @@ class GroundedPromptTkApplication:
         self.grounding_status_var = tk.StringVar(master=root, value="")
 
         self._build_widgets()
+        self._bind_result_invalidation()
+
+    def _bind_result_invalidation(self) -> None:
+        for variable in (
+            self.intake_root_var,
+            self.product_var,
+            self.variant_var,
+            self.background_var,
+            self.camera_angle_var,
+        ):
+            variable.trace_add(
+                "write",
+                self._on_result_defining_variable_changed,
+            )
+        self.requested_output_text.bind(
+            "<<Modified>>",
+            self._on_requested_output_modified,
+        )
+        self.requested_output_text.edit_modified(False)
+
+    def _on_result_defining_variable_changed(self, *_args: object) -> None:
+        self._clear_result_output()
+
+    def _on_requested_output_modified(self, _event: object = None) -> None:
+        if not self.requested_output_text.edit_modified():
+            return
+        self._clear_result_output()
+        self.requested_output_text.edit_modified(False)
+
 
     def _build_widgets(self) -> None:
         frame = ttk.Frame(self.root, padding=12)
@@ -244,6 +273,7 @@ class GroundedPromptTkApplication:
             return
 
         requested_output = self.requested_output_text.get("1.0", "end-1c")
+        self.requested_output_text.edit_modified(False)
         try:
             result = self._controller.submit(
                 product_id=self.product_var.get(),
