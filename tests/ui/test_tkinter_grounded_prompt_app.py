@@ -83,7 +83,7 @@ def root(_tk_session_root):
     value.destroy()
 
 
-def _app(root):
+def _app(root, *, directory_picker=lambda: ""):
     controller = _FakeController()
     calls = []
 
@@ -94,6 +94,7 @@ def _app(root):
     app = GroundedPromptTkApplication(
         root,
         controller_factory=factory,
+        directory_picker=directory_picker,
     )
     root.update_idletasks()
     return app, controller, calls
@@ -208,6 +209,41 @@ def test_failure_renders_error_without_clearing_operator_inputs(root) -> None:
     assert app.background_var.get() == "dark studio"
     assert app.camera_angle_var.get() == "front"
     assert app.requested_output_text.get("1.0", "end-1c") == "   "
+
+
+
+def test_browse_intake_root_sets_exact_selected_directory_without_loading_foundation(root) -> None:
+    selected_directory = "C:/Pilot Root/Selected Intake"
+    app, _, calls = _app(root, directory_picker=lambda: selected_directory)
+
+    app.browse_intake_root()
+
+    assert app.intake_root_var.get() == selected_directory
+    assert calls == []
+    assert tuple(app.product_combo["values"]) == ()
+    assert tuple(app.variant_combo["values"]) == ()
+
+
+def test_browse_intake_root_cancel_preserves_existing_visible_value(root) -> None:
+    app, _, calls = _app(root, directory_picker=lambda: "")
+    app.intake_root_var.set(r"C:\pilot\existing-intake")
+
+    app.browse_intake_root()
+
+    assert app.intake_root_var.get() == r"C:\pilot\existing-intake"
+    assert calls == []
+
+
+def test_browse_intake_root_does_not_auto_select_product_or_variant(root) -> None:
+    selected_directory = r"C:\pilot\browsed-intake"
+    app, _, calls = _app(root, directory_picker=lambda: selected_directory)
+
+    app.browse_intake_root()
+
+    assert app.intake_root_var.get() == selected_directory
+    assert app.product_var.get() == ""
+    assert app.variant_var.get() == ""
+    assert calls == []
 
 
 def test_tkinter_module_does_not_import_frozen_runtime_database_or_construct_phase_e_service_directly() -> None:

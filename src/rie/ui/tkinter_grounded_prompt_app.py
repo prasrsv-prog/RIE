@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, ttk
 from typing import Callable
 
 from rie.ui.grounded_prompt_ui_controller import (
@@ -25,9 +25,11 @@ class GroundedPromptTkApplication:
         controller_factory: Callable[..., GroundedPromptUiController] = (
             GroundedPromptUiController.from_intake_root
         ),
+        directory_picker: Callable[[], str] = filedialog.askdirectory,
     ) -> None:
         self.root = root
         self._controller_factory = controller_factory
+        self._directory_picker = directory_picker
         self._controller: GroundedPromptUiController | None = None
 
         self.root.winfo_toplevel().title(WINDOW_TITLE)
@@ -62,10 +64,16 @@ class GroundedPromptTkApplication:
         self.intake_root_entry.grid(
             row=0, column=1, sticky="ew", pady=3
         )
-        self.load_button = ttk.Button(
-            frame, text="Load Foundation", command=self.load_foundation
+        self.intake_action_frame = ttk.Frame(frame)
+        self.intake_action_frame.grid(row=0, column=2, padx=(8, 0), pady=3)
+        self.browse_button = ttk.Button(
+            self.intake_action_frame, text="Browse...", command=self.browse_intake_root
         )
-        self.load_button.grid(row=0, column=2, padx=(8, 0), pady=3)
+        self.browse_button.grid(row=0, column=0)
+        self.load_button = ttk.Button(
+            self.intake_action_frame, text="Load Foundation", command=self.load_foundation
+        )
+        self.load_button.grid(row=0, column=1, padx=(8, 0))
 
         ttk.Label(frame, text="Product ID").grid(
             row=1, column=0, sticky="w", padx=(0, 8), pady=3
@@ -180,6 +188,11 @@ class GroundedPromptTkApplication:
         self.binding_status_var.set(result.binding_status)
         self.grounding_status_var.set(result.grounding_status)
         self._set_prompt_output(result.prompt_text)
+
+    def browse_intake_root(self) -> None:
+        selected_directory = self._directory_picker()
+        if selected_directory:
+            self.intake_root_var.set(selected_directory)
 
     def load_foundation(self) -> None:
         self.error_var.set("")
