@@ -10,6 +10,10 @@ from rie.ui.grounded_prompt_ui_controller import (
     GroundedPromptUiController,
     GroundedPromptUiResult,
 )
+from rie.ui.local_operator_settings import (
+    load_remembered_intake_root,
+    save_remembered_intake_root,
+)
 
 
 WINDOW_TITLE = "RCIS Grounded Prompt MVP"
@@ -26,10 +30,18 @@ class GroundedPromptTkApplication:
             GroundedPromptUiController.from_intake_root
         ),
         directory_picker: Callable[[], str] = filedialog.askdirectory,
+        settings_loader: Callable[[], str | None] = (
+            load_remembered_intake_root
+        ),
+        settings_saver: Callable[[str], object] = (
+            save_remembered_intake_root
+        ),
     ) -> None:
         self.root = root
         self._controller_factory = controller_factory
         self._directory_picker = directory_picker
+        self._settings_loader = settings_loader
+        self._settings_saver = settings_saver
         self._controller: GroundedPromptUiController | None = None
 
         self.root.winfo_toplevel().title(WINDOW_TITLE)
@@ -48,6 +60,7 @@ class GroundedPromptTkApplication:
 
         self._build_widgets()
         self._bind_result_invalidation()
+        self._restore_remembered_foundation()
 
     def _bind_result_invalidation(self) -> None:
         for variable in (
@@ -218,24 +231,35 @@ class GroundedPromptTkApplication:
         self.grounding_status_var.set(result.grounding_status)
         self._set_prompt_output(result.prompt_text)
 
-    def browse_intake_root(self) -> None:
-        selected_directory = self._directory_picker()
-        if selected_directory:
-            self.intake_root_var.set(selected_directory)
 
-    def load_foundation(self) -> None:
+    def _restore_remembered_foundation(self) -> None:
+        try:
+            remembered = self._settings_loader()
+        except Exception:
+            return
+        if not isinstance(remembered, str) or not remembered.strip():
+            return
+        self.intake_root_var.set(remembered.strip())
+        self._load_foundation_from_visible_intake(
+            persist_on_success=False
+        )
+
+    def _load_foundation_from_visible_intake(
+        self,
+        *,
+        persist_on_success: bool,
+    ) -> bool:
         self.error_var.set("")
         self._clear_result_output()
         intake_root = self.intake_root_var.get().strip()
         if not intake_root:
             self.error_var.set("intake_root must not be empty")
-            return
-
+            return False
         try:
             controller = self._controller_factory(intake_root=intake_root)
         except Exception as exc:
             self.error_var.set(str(exc))
-            return
+            return False
 
         self._controller = controller
         self.product_var.set("")
@@ -245,6 +269,26 @@ class GroundedPromptTkApplication:
             state="readonly",
         )
         self.variant_combo.configure(values=(), state="disabled")
+
+        if persist_on_success:
+            try:
+                self._settings_saver(intake_root)
+            except Exception:
+                pass
+        return True
+
+    def browse_intake_root(self) -> None:
+        selected_directory = self._directory_picker()
+        if selected_directory:
+            self.intake_root_var.set(selected_directory)
+            self._load_foundation_from_visible_intake(
+                persist_on_success=True
+            )
+
+    def load_foundation(self) -> None:
+        self._load_foundation_from_visible_intake(
+            persist_on_success=True
+        )
 
     def refresh_variants(self) -> None:
         self.error_var.set("")

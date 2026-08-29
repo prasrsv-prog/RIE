@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -24,7 +25,14 @@ from rie.application.grounded_prompt_application_service import (
 
 
 INTAKE_ROOT = Path(
-    r"C:\Users\Kreatif Kris\Downloads\RCIS-RSV-Real-Asset-Pilot-01-Intake"
+    os.environ.get(
+        "RCIS_TEST_INTAKE_ROOT",
+        str(
+            Path.home()
+            / "Downloads"
+            / "RCIS-RSV-Real-Asset-Pilot-01-Intake"
+        ),
+    )
 )
 FOUNDATION_FIELDS = (
     "collection_id",

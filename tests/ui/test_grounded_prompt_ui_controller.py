@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,7 +19,14 @@ from rie.ui.grounded_prompt_ui_controller import (
 
 
 INTAKE_ROOT = Path(
-    r"C:\Users\Kreatif Kris\Downloads\RCIS-RSV-Real-Asset-Pilot-01-Intake"
+    os.environ.get(
+        "RCIS_TEST_INTAKE_ROOT",
+        str(
+            Path.home()
+            / "Downloads"
+            / "RCIS-RSV-Real-Asset-Pilot-01-Intake"
+        ),
+    )
 )
 
 

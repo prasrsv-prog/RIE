@@ -83,7 +83,13 @@ def root(_tk_session_root):
     value.destroy()
 
 
-def _app(root, *, directory_picker=lambda: ""):
+def _app(
+    root,
+    *,
+    directory_picker=lambda: "",
+    settings_loader=lambda: None,
+    settings_saver=lambda _intake_root: None,
+):
     controller = _FakeController()
     calls = []
 
@@ -95,6 +101,8 @@ def _app(root, *, directory_picker=lambda: ""):
         root,
         controller_factory=factory,
         directory_picker=directory_picker,
+        settings_loader=settings_loader,
+        settings_saver=settings_saver,
     )
     root.update_idletasks()
     return app, controller, calls
@@ -212,15 +220,15 @@ def test_failure_renders_error_without_clearing_operator_inputs(root) -> None:
 
 
 
-def test_browse_intake_root_sets_exact_selected_directory_without_loading_foundation(root) -> None:
+def test_browse_intake_root_sets_selected_directory_and_loads_foundation(root) -> None:
     selected_directory = "C:/Pilot Root/Selected Intake"
     app, _, calls = _app(root, directory_picker=lambda: selected_directory)
 
     app.browse_intake_root()
 
     assert app.intake_root_var.get() == selected_directory
-    assert calls == []
-    assert tuple(app.product_combo["values"]) == ()
+    assert calls == [selected_directory]
+    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
     assert tuple(app.variant_combo["values"]) == ()
 
 
@@ -243,7 +251,7 @@ def test_browse_intake_root_does_not_auto_select_product_or_variant(root) -> Non
     assert app.intake_root_var.get() == selected_directory
     assert app.product_var.get() == ""
     assert app.variant_var.get() == ""
-    assert calls == []
+    assert calls == [selected_directory]
 
 
 def test_tkinter_module_does_not_import_frozen_runtime_database_or_construct_phase_e_service_directly() -> None:
@@ -348,3 +356,128 @@ def test_intake_root_change_after_success_clears_rendered_success_without_auto_l
     assert app._controller is controller
     assert len(controller.submit_calls) == 1
     assert calls == [r"C:\pilot\intake"]
+
+def test_phase_h_no_remembered_setting_leaves_manual_first_run_mode(root) -> None:
+    app, _, calls = _app(root, settings_loader=lambda: None)
+    assert calls == []
+    assert app.intake_root_var.get() == ""
+    assert app._controller is None
+    assert tuple(app.product_combo["values"]) == ()
+
+
+def test_phase_h_valid_remembered_setting_auto_loads_foundation_at_startup(root) -> None:
+    remembered = r"C:\pilot\remembered-intake"
+    app, _, calls = _app(
+        root,
+        settings_loader=lambda: remembered,
+    )
+    assert calls == [remembered]
+    assert app.intake_root_var.get() == remembered
+    assert app._controller is not None
+    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
+    assert app.product_var.get() == ""
+    assert app.variant_var.get() == ""
+
+
+def test_phase_h_rejected_remembered_setting_falls_back_without_crashing(root) -> None:
+    remembered = r"C:\pilot\rejected-intake"
+    calls = []
+
+    def factory(*, intake_root):
+        calls.append(intake_root)
+        raise GroundedPromptUiContractError("remembered intake rejected")
+
+    app = GroundedPromptTkApplication(
+        root,
+        controller_factory=factory,
+        directory_picker=lambda: "",
+        settings_loader=lambda: remembered,
+        settings_saver=lambda _value: None,
+    )
+    root.update_idletasks()
+
+    assert calls == [remembered]
+    assert app.intake_root_var.get() == remembered
+    assert app._controller is None
+    assert tuple(app.product_combo["values"]) == ()
+    assert "remembered intake rejected" in app.error_var.get()
+
+
+def test_phase_h_browse_attempts_load_and_persists_only_on_success(root) -> None:
+    selected = r"C:\pilot\browsed-and-remembered"
+    saved = []
+    app, _, calls = _app(
+        root,
+        directory_picker=lambda: selected,
+        settings_saver=saved.append,
+    )
+
+    app.browse_intake_root()
+
+    assert calls == [selected]
+    assert saved == [selected]
+    assert app.intake_root_var.get() == selected
+    assert app._controller is not None
+    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
+
+
+def test_phase_h_failed_manual_load_does_not_replace_last_known_good_setting(root) -> None:
+    good = r"C:\pilot\good-intake"
+    bad = r"C:\pilot\bad-intake"
+    controller = _FakeController()
+    saved = []
+    calls = []
+
+    def factory(*, intake_root):
+        calls.append(intake_root)
+        if intake_root == bad:
+            raise GroundedPromptUiContractError("bad intake")
+        return controller
+
+    app = GroundedPromptTkApplication(
+        root,
+        controller_factory=factory,
+        directory_picker=lambda: "",
+        settings_loader=lambda: None,
+        settings_saver=saved.append,
+    )
+    root.update_idletasks()
+
+    app.intake_root_var.set(good)
+    app.load_foundation()
+    app.intake_root_var.set(bad)
+    app.load_foundation()
+
+    assert calls == [good, bad]
+    assert saved == [good]
+    assert "bad intake" in app.error_var.get()
+
+
+def test_phase_h_repeat_launch_uses_remembered_intake_without_browse_or_load(root) -> None:
+    selected = r"C:\pilot\repeat-intake"
+    saved = []
+
+    first, _, first_calls = _app(
+        root,
+        directory_picker=lambda: selected,
+        settings_saver=saved.append,
+    )
+    first.browse_intake_root()
+    assert first_calls == [selected]
+    assert saved == [selected]
+
+    def forbidden_picker():
+        raise AssertionError("repeat launch must not require Browse")
+
+    second, _, second_calls = _app(
+        root,
+        directory_picker=forbidden_picker,
+        settings_loader=lambda: saved[-1],
+    )
+
+    assert second_calls == [selected]
+    assert second.intake_root_var.get() == selected
+    assert second._controller is not None
+    assert tuple(second.product_combo["values"]) == ("alpha", "beta")
+    assert second.product_var.get() == ""
+    assert second.variant_var.get() == ""
