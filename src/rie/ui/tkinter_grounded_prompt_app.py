@@ -1,4 +1,4 @@
-"""Tkinter presentation adapter for the Phase F grounded prompt UI MVP."""
+"""Tkinter presentation adapter for the RCIS grounded prompt UI."""
 
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ from rie.ui.local_operator_settings import (
 )
 
 
-WINDOW_TITLE = "RCIS Grounded Prompt MVP"
+WINDOW_TITLE = "RCIS Grounded Prompt"
 
 
 class GroundedPromptTkApplication:
-    """Minimum local single-operator Tkinter UI."""
+    """Local product-facing Tkinter UI for grounded prompt generation."""
 
     def __init__(
         self,
@@ -43,7 +43,8 @@ class GroundedPromptTkApplication:
         self._settings_loader = settings_loader
         self._settings_saver = settings_saver
         self._controller: GroundedPromptUiController | None = None
-
+        self._data_source_visible = True
+        self._details_visible = False
         self.root.winfo_toplevel().title(WINDOW_TITLE)
 
         self.intake_root_var = tk.StringVar(master=root, value="")
@@ -52,7 +53,7 @@ class GroundedPromptTkApplication:
         self.background_var = tk.StringVar(master=root, value="")
         self.camera_angle_var = tk.StringVar(master=root, value="")
         self.error_var = tk.StringVar(master=root, value="")
-
+        self.result_state_var = tk.StringVar(master=root, value="")
         self.bridge_status_var = tk.StringVar(master=root, value="")
         self.exact_six_status_var = tk.StringVar(master=root, value="")
         self.binding_status_var = tk.StringVar(master=root, value="")
@@ -60,7 +61,10 @@ class GroundedPromptTkApplication:
 
         self._build_widgets()
         self._bind_result_invalidation()
-        self._restore_remembered_foundation()
+        if self._restore_remembered_foundation():
+            self._set_data_source_visible(False)
+        else:
+            self._set_data_source_visible(True)
 
     def _bind_result_invalidation(self) -> None:
         for variable in (
@@ -89,7 +93,6 @@ class GroundedPromptTkApplication:
         self._clear_result_output()
         self.requested_output_text.edit_modified(False)
 
-
     def _build_widgets(self) -> None:
         frame = ttk.Frame(self.root, padding=12)
         frame.grid(row=0, column=0, sticky="nsew")
@@ -97,28 +100,85 @@ class GroundedPromptTkApplication:
         self.root.rowconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
 
-        ttk.Label(frame, text="Intake Root").grid(
-            row=0, column=0, sticky="w", padx=(0, 8), pady=3
+        self.primary_heading = ttk.Label(
+            frame,
+            text="Create a Grounded Product Prompt",
+        )
+        self.primary_heading.grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(0, 8),
+        )
+        self.data_source_toggle_button = ttk.Button(
+            frame,
+            text="Data Source",
+            command=self.toggle_data_source,
+        )
+        self.data_source_toggle_button.grid(
+            row=0,
+            column=2,
+            sticky="e",
+            pady=(0, 8),
+        )
+
+        self.data_source_frame = ttk.LabelFrame(
+            frame,
+            text="Data Source",
+            padding=8,
+        )
+        self.data_source_frame.grid(
+            row=1,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            pady=(0, 8),
+        )
+        self.data_source_frame.columnconfigure(1, weight=1)
+        ttk.Label(self.data_source_frame, text="Intake Root").grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=3,
         )
         self.intake_root_entry = ttk.Entry(
-            frame, textvariable=self.intake_root_var
+            self.data_source_frame,
+            textvariable=self.intake_root_var,
         )
         self.intake_root_entry.grid(
-            row=0, column=1, sticky="ew", pady=3
+            row=0,
+            column=1,
+            sticky="ew",
+            pady=3,
         )
-        self.intake_action_frame = ttk.Frame(frame)
-        self.intake_action_frame.grid(row=0, column=2, padx=(8, 0), pady=3)
+        self.intake_action_frame = ttk.Frame(self.data_source_frame)
+        self.intake_action_frame.grid(
+            row=0,
+            column=2,
+            padx=(8, 0),
+            pady=3,
+        )
         self.browse_button = ttk.Button(
-            self.intake_action_frame, text="Browse...", command=self.browse_intake_root
+            self.intake_action_frame,
+            text="Browse...",
+            command=self.browse_intake_root,
         )
         self.browse_button.grid(row=0, column=0)
         self.load_button = ttk.Button(
-            self.intake_action_frame, text="Load Foundation", command=self.load_foundation
+            self.intake_action_frame,
+            text="Load Foundation",
+            command=self.load_foundation,
         )
         self.load_button.grid(row=0, column=1, padx=(8, 0))
 
-        ttk.Label(frame, text="Product ID").grid(
-            row=1, column=0, sticky="w", padx=(0, 8), pady=3
+        ttk.Label(frame, text="Product").grid(
+            row=2,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=3,
         )
         self.product_combo = ttk.Combobox(
             frame,
@@ -126,14 +186,24 @@ class GroundedPromptTkApplication:
             values=(),
             state="disabled",
         )
-        self.product_combo.grid(row=1, column=1, columnspan=2, sticky="ew", pady=3)
+        self.product_combo.grid(
+            row=2,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+            pady=3,
+        )
         self.product_combo.bind(
             "<<ComboboxSelected>>",
             lambda event: self.refresh_variants(),
         )
 
-        ttk.Label(frame, text="Variant ID").grid(
-            row=2, column=0, sticky="w", padx=(0, 8), pady=3
+        ttk.Label(frame, text="Variant").grid(
+            row=3,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=3,
         )
         self.variant_combo = ttk.Combobox(
             frame,
@@ -141,48 +211,122 @@ class GroundedPromptTkApplication:
             values=(),
             state="disabled",
         )
-        self.variant_combo.grid(row=2, column=1, columnspan=2, sticky="ew", pady=3)
+        self.variant_combo.grid(
+            row=3,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+            pady=3,
+        )
 
         ttk.Label(frame, text="Background").grid(
-            row=3, column=0, sticky="w", padx=(0, 8), pady=3
+            row=4,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=3,
         )
         self.background_entry = ttk.Entry(
-            frame, textvariable=self.background_var
+            frame,
+            textvariable=self.background_var,
         )
         self.background_entry.grid(
-            row=3, column=1, columnspan=2, sticky="ew", pady=3
+            row=4,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+            pady=3,
         )
 
         ttk.Label(frame, text="Camera Angle").grid(
-            row=4, column=0, sticky="w", padx=(0, 8), pady=3
+            row=5,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=3,
         )
         self.camera_angle_entry = ttk.Entry(
-            frame, textvariable=self.camera_angle_var
+            frame,
+            textvariable=self.camera_angle_var,
         )
         self.camera_angle_entry.grid(
-            row=4, column=1, columnspan=2, sticky="ew", pady=3
+            row=5,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+            pady=3,
         )
 
         ttk.Label(frame, text="Requested Output").grid(
-            row=5, column=0, sticky="nw", padx=(0, 8), pady=3
+            row=6,
+            column=0,
+            sticky="nw",
+            padx=(0, 8),
+            pady=3,
         )
-        self.requested_output_text = tk.Text(frame, height=3, width=50)
+        self.requested_output_text = tk.Text(
+            frame,
+            height=3,
+            width=50,
+        )
         self.requested_output_text.grid(
-            row=5, column=1, columnspan=2, sticky="ew", pady=3
+            row=6,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+            pady=3,
         )
 
-        self.submit_button = ttk.Button(
-            frame, text="Submit Grounded Prompt", command=self.submit
+        self.generate_button = ttk.Button(
+            frame,
+            text="Generate Prompt",
+            command=self.submit,
         )
-        self.submit_button.grid(
-            row=6, column=1, columnspan=2, sticky="e", pady=(8, 4)
+        self.generate_button.grid(
+            row=7,
+            column=1,
+            columnspan=2,
+            sticky="e",
+            pady=(8, 4),
+        )
+        self.submit_button = self.generate_button
+
+        self.result_state_label = ttk.Label(
+            frame,
+            textvariable=self.result_state_var,
+        )
+        self.result_state_label.grid(
+            row=8,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(6, 4),
+        )
+        self.details_toggle_button = ttk.Button(
+            frame,
+            text="View Details",
+            command=self.toggle_details,
+        )
+        self.details_toggle_button.grid(
+            row=8,
+            column=2,
+            sticky="e",
+            pady=(6, 4),
         )
 
-        status_frame = ttk.LabelFrame(frame, text="Grounding Status", padding=8)
-        status_frame.grid(
-            row=7, column=0, columnspan=3, sticky="ew", pady=(8, 4)
+        self.details_frame = ttk.LabelFrame(
+            frame,
+            text="Verification Details",
+            padding=8,
         )
-        status_frame.columnconfigure(1, weight=1)
+        self.details_frame.grid(
+            row=9,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            pady=(0, 6),
+        )
+        self.details_frame.columnconfigure(1, weight=1)
         status_rows = (
             ("Bridge materialization", self.bridge_status_var),
             ("Exact-six materialization", self.exact_six_status_var),
@@ -190,25 +334,110 @@ class GroundedPromptTkApplication:
             ("Grounding", self.grounding_status_var),
         )
         for row, (label, variable) in enumerate(status_rows):
-            ttk.Label(status_frame, text=label).grid(
-                row=row, column=0, sticky="w", padx=(0, 8)
+            ttk.Label(self.details_frame, text=label).grid(
+                row=row,
+                column=0,
+                sticky="w",
+                padx=(0, 8),
             )
-            ttk.Label(status_frame, textvariable=variable).grid(
-                row=row, column=1, sticky="w"
+            ttk.Label(
+                self.details_frame,
+                textvariable=variable,
+            ).grid(
+                row=row,
+                column=1,
+                sticky="w",
             )
 
-        ttk.Label(frame, text="Grounded Prompt").grid(
-            row=8, column=0, sticky="nw", padx=(0, 8), pady=3
+        ttk.Label(frame, text="Generated Prompt").grid(
+            row=10,
+            column=0,
+            sticky="nw",
+            padx=(0, 8),
+            pady=3,
         )
-        self.prompt_output = tk.Text(frame, height=12, width=70, state="disabled")
+        self.prompt_output = tk.Text(
+            frame,
+            height=12,
+            width=70,
+            state="disabled",
+        )
         self.prompt_output.grid(
-            row=8, column=1, columnspan=2, sticky="nsew", pady=3
+            row=10,
+            column=1,
+            columnspan=2,
+            sticky="nsew",
+            pady=3,
         )
-        frame.rowconfigure(8, weight=1)
+        frame.rowconfigure(10, weight=1)
 
-        self.error_label = ttk.Label(frame, textvariable=self.error_var)
+        self.result_actions_frame = ttk.Frame(frame)
+        self.result_actions_frame.grid(
+            row=11,
+            column=1,
+            columnspan=2,
+            sticky="e",
+            pady=(4, 0),
+        )
+        self.copy_prompt_button = ttk.Button(
+            self.result_actions_frame,
+            text="Copy Prompt",
+            command=self.copy_prompt,
+        )
+        self.copy_prompt_button.grid(row=0, column=0)
+        self.new_request_button = ttk.Button(
+            self.result_actions_frame,
+            text="New Request",
+            command=self.new_request,
+        )
+        self.new_request_button.grid(
+            row=0,
+            column=1,
+            padx=(8, 0),
+        )
+
+        self.error_label = ttk.Label(
+            frame,
+            textvariable=self.error_var,
+        )
         self.error_label.grid(
-            row=9, column=0, columnspan=3, sticky="w", pady=(6, 0)
+            row=12,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(6, 0),
+        )
+
+        self._set_details_visible(False)
+
+    def _set_data_source_visible(self, visible: bool) -> None:
+        self._data_source_visible = bool(visible)
+        if self._data_source_visible:
+            self.data_source_frame.grid()
+        else:
+            self.data_source_frame.grid_remove()
+
+    def toggle_data_source(self) -> None:
+        self._set_data_source_visible(
+            not self._data_source_visible
+        )
+
+    def _set_details_visible(self, visible: bool) -> None:
+        self._details_visible = bool(visible)
+        if self._details_visible:
+            self.details_frame.grid()
+            self.details_toggle_button.configure(
+                text="Hide Details"
+            )
+        else:
+            self.details_frame.grid_remove()
+            self.details_toggle_button.configure(
+                text="View Details"
+            )
+
+    def toggle_details(self) -> None:
+        self._set_details_visible(
+            not self._details_visible
         )
 
     def _set_prompt_output(self, value: str) -> None:
@@ -218,6 +447,7 @@ class GroundedPromptTkApplication:
         self.prompt_output.configure(state="disabled")
 
     def _clear_result_output(self) -> None:
+        self.result_state_var.set("")
         self.bridge_status_var.set("")
         self.exact_six_status_var.set("")
         self.binding_status_var.set("")
@@ -225,22 +455,48 @@ class GroundedPromptTkApplication:
         self._set_prompt_output("")
 
     def _render_result(self, result: GroundedPromptUiResult) -> None:
-        self.bridge_status_var.set(result.bridge_materialization_status)
-        self.exact_six_status_var.set(result.exact_six_materialization_status)
+        self.bridge_status_var.set(
+            result.bridge_materialization_status
+        )
+        self.exact_six_status_var.set(
+            result.exact_six_materialization_status
+        )
         self.binding_status_var.set(result.binding_status)
         self.grounding_status_var.set(result.grounding_status)
         self._set_prompt_output(result.prompt_text)
+        self.result_state_var.set("Prompt ready")
 
+    def copy_prompt(self) -> None:
+        prompt = self.prompt_output.get("1.0", "end-1c")
+        if not prompt:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(prompt)
 
-    def _restore_remembered_foundation(self) -> None:
+    def new_request(self) -> None:
+        self.error_var.set("")
+        self.product_var.set("")
+        self.variant_var.set("")
+        self.background_var.set("")
+        self.camera_angle_var.set("")
+        self.requested_output_text.delete("1.0", "end")
+        self.requested_output_text.edit_modified(False)
+        self.variant_combo.configure(
+            values=(),
+            state="disabled",
+        )
+        self._clear_result_output()
+        self.product_combo.focus_set()
+
+    def _restore_remembered_foundation(self) -> bool:
         try:
             remembered = self._settings_loader()
         except Exception:
-            return
+            return False
         if not isinstance(remembered, str) or not remembered.strip():
-            return
+            return False
         self.intake_root_var.set(remembered.strip())
-        self._load_foundation_from_visible_intake(
+        return self._load_foundation_from_visible_intake(
             persist_on_success=False
         )
 
@@ -254,11 +510,15 @@ class GroundedPromptTkApplication:
         intake_root = self.intake_root_var.get().strip()
         if not intake_root:
             self.error_var.set("intake_root must not be empty")
+            self._set_data_source_visible(True)
             return False
         try:
-            controller = self._controller_factory(intake_root=intake_root)
+            controller = self._controller_factory(
+                intake_root=intake_root
+            )
         except Exception as exc:
             self.error_var.set(str(exc))
+            self._set_data_source_visible(True)
             return False
 
         self._controller = controller
@@ -268,13 +528,18 @@ class GroundedPromptTkApplication:
             values=controller.product_ids,
             state="readonly",
         )
-        self.variant_combo.configure(values=(), state="disabled")
+        self.variant_combo.configure(
+            values=(),
+            state="disabled",
+        )
 
         if persist_on_success:
             try:
                 self._settings_saver(intake_root)
             except Exception:
                 pass
+
+        self._set_data_source_visible(False)
         return True
 
     def browse_intake_root(self) -> None:
@@ -293,7 +558,10 @@ class GroundedPromptTkApplication:
     def refresh_variants(self) -> None:
         self.error_var.set("")
         self.variant_var.set("")
-        self.variant_combo.configure(values=(), state="disabled")
+        self.variant_combo.configure(
+            values=(),
+            state="disabled",
+        )
         if self._controller is None:
             return
 
@@ -302,21 +570,33 @@ class GroundedPromptTkApplication:
             return
 
         try:
-            variants = self._controller.variant_ids_for_product(product_id)
+            variants = self._controller.variant_ids_for_product(
+                product_id
+            )
         except Exception as exc:
             self.error_var.set(str(exc))
             return
-
-        self.variant_combo.configure(values=variants, state="readonly")
+        self.variant_combo.configure(
+            values=variants,
+            state="readonly",
+        )
 
     def submit(self) -> None:
         self.error_var.set("")
         self._clear_result_output()
         if self._controller is None:
-            self.error_var.set("foundation must be loaded before submit")
+            self.error_var.set(
+                "foundation must be loaded before submit"
+            )
+            self.result_state_var.set(
+                "Could not generate prompt"
+            )
+            self._set_data_source_visible(True)
             return
-
-        requested_output = self.requested_output_text.get("1.0", "end-1c")
+        requested_output = self.requested_output_text.get(
+            "1.0",
+            "end-1c",
+        )
         self.requested_output_text.edit_modified(False)
         try:
             result = self._controller.submit(
@@ -328,8 +608,10 @@ class GroundedPromptTkApplication:
             )
         except Exception as exc:
             self.error_var.set(str(exc))
+            self.result_state_var.set(
+                "Could not generate prompt"
+            )
             return
-
         self._render_result(result)
 
 

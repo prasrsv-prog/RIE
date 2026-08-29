@@ -481,3 +481,133 @@ def test_phase_h_repeat_launch_uses_remembered_intake_without_browse_or_load(roo
     assert tuple(second.product_combo["values"]) == ("alpha", "beta")
     assert second.product_var.get() == ""
     assert second.variant_var.get() == ""
+
+def test_phase_i_product_facing_title_and_heading_have_no_mvp(root) -> None:
+    app, _, _ = _app(root)
+    assert app.root.winfo_toplevel().title() == "RCIS Grounded Prompt"
+    assert app.primary_heading.cget("text") == "Create a Grounded Product Prompt"
+    assert "MVP" not in app.root.winfo_toplevel().title()
+    assert "MVP" not in app.primary_heading.cget("text")
+
+
+def test_phase_i_remembered_foundation_collapses_data_source(root) -> None:
+    app, _, calls = _app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+    )
+    assert calls == [r"C:\pilot\remembered-intake"]
+    assert app._controller is not None
+    assert app._data_source_visible is False
+
+
+def test_phase_i_first_run_without_foundation_shows_data_source(root) -> None:
+    app, _, calls = _app(root, settings_loader=lambda: None)
+    assert calls == []
+    assert app._controller is None
+    assert app._data_source_visible is True
+
+
+def test_phase_i_data_source_toggle_reveals_and_hides_recovery_controls(root) -> None:
+    app, _, _ = _app(root)
+    assert app._data_source_visible is True
+    app.toggle_data_source()
+    assert app._data_source_visible is False
+    app.toggle_data_source()
+    assert app._data_source_visible is True
+    assert app.browse_button.cget("text") == "Browse..."
+    assert app.load_button.cget("text") == "Load Foundation"
+
+
+def test_phase_i_generate_prompt_is_primary_alias_of_submit(root) -> None:
+    app, controller, _ = _app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_var.set("alpha")
+    app.refresh_variants()
+    app.variant_var.set("alpha-a")
+    app.background_var.set("dark studio")
+    app.camera_angle_var.set("front")
+    app.requested_output_text.insert("1.0", "grounded product prompt")
+
+    assert app.generate_button.cget("text") == "Generate Prompt"
+    assert app.submit_button is app.generate_button
+
+    app.generate_button.invoke()
+
+    assert len(controller.submit_calls) == 1
+    assert app.result_state_var.get() == "Prompt ready"
+
+
+def test_phase_i_success_uses_prompt_ready_and_details_are_collapsed(root) -> None:
+    app, _, _ = _prime_success_for_invalidation(root)
+    assert app.result_state_var.get() == "Prompt ready"
+    assert app._details_visible is False
+    assert app.details_toggle_button.cget("text") == "View Details"
+
+    app.toggle_details()
+
+    assert app._details_visible is True
+    assert app.details_toggle_button.cget("text") == "Hide Details"
+    assert app.bridge_status_var.get() == "PASSED"
+    assert app.exact_six_status_var.get() == "PASSED"
+    assert app.binding_status_var.get() == "PASSED"
+    assert app.grounding_status_var.get() == "PASSED"
+
+
+def test_phase_i_copy_prompt_copies_exact_prompt_without_mutating_request(root, monkeypatch) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    clipboard = []
+
+    monkeypatch.setattr(root, "clipboard_clear", lambda: clipboard.clear())
+    monkeypatch.setattr(root, "clipboard_append", clipboard.append)
+
+    before = {
+        "product": app.product_var.get(),
+        "variant": app.variant_var.get(),
+        "background": app.background_var.get(),
+        "camera": app.camera_angle_var.get(),
+        "requested": app.requested_output_text.get("1.0", "end-1c"),
+        "submit_count": len(controller.submit_calls),
+        "load_calls": list(calls),
+    }
+
+    app.copy_prompt()
+
+    assert clipboard == ["compiled grounded prompt"]
+    assert app.product_var.get() == before["product"]
+    assert app.variant_var.get() == before["variant"]
+    assert app.background_var.get() == before["background"]
+    assert app.camera_angle_var.get() == before["camera"]
+    assert app.requested_output_text.get("1.0", "end-1c") == before["requested"]
+    assert len(controller.submit_calls) == before["submit_count"]
+    assert calls == before["load_calls"]
+
+
+def test_phase_i_new_request_clears_request_and_result_but_keeps_foundation(root, monkeypatch) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    focus_calls = []
+    monkeypatch.setattr(
+        app.product_combo,
+        "focus_set",
+        lambda: focus_calls.append("product"),
+    )
+
+    app.new_request()
+
+    assert app._controller is controller
+    assert calls == [r"C:\pilot\intake"]
+    assert len(controller.submit_calls) == 1
+    assert app.product_var.get() == ""
+    assert app.variant_var.get() == ""
+    assert app.background_var.get() == ""
+    assert app.camera_angle_var.get() == ""
+    assert app.requested_output_text.get("1.0", "end-1c") == ""
+    assert app.prompt_output.get("1.0", "end-1c") == ""
+    assert app.result_state_var.get() == ""
+    assert app.bridge_status_var.get() == ""
+    assert app.exact_six_status_var.get() == ""
+    assert app.binding_status_var.get() == ""
+    assert app.grounding_status_var.get() == ""
+    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
+    assert tuple(app.variant_combo["values"]) == ()
+    assert focus_calls == ["product"]
