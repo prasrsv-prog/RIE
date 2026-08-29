@@ -14,6 +14,20 @@ from rie.ui.local_operator_settings import (
     load_remembered_intake_root,
     save_remembered_intake_root,
 )
+from rie.ui.local_operator_workspace import (
+    clear_default_product_variant,
+    clone_workspace,
+    delete_preset,
+    empty_workspace,
+    load_workspace,
+    record_recent_prompt,
+    save_preset,
+    save_workspace,
+    set_default_product_variant,
+    set_last_request,
+    toggle_product_favorite,
+    toggle_recent_favorite,
+)
 
 
 WINDOW_TITLE = "RCIS Grounded Prompt"
@@ -36,15 +50,22 @@ class GroundedPromptTkApplication:
         settings_saver: Callable[[str], object] = (
             save_remembered_intake_root
         ),
+        workspace_loader: Callable[[], dict] = load_workspace,
+        workspace_saver: Callable[[dict], object] = save_workspace,
     ) -> None:
         self.root = root
         self._controller_factory = controller_factory
         self._directory_picker = directory_picker
         self._settings_loader = settings_loader
         self._settings_saver = settings_saver
+        self._workspace_loader = workspace_loader
+        self._workspace_saver = workspace_saver
         self._controller: GroundedPromptUiController | None = None
         self._data_source_visible = True
         self._details_visible = False
+        self._workspace_view = "New Prompt"
+        self._workspace_restore_attempted = False
+        self._suspend_workspace_persistence = True
         self.root.winfo_toplevel().title(WINDOW_TITLE)
 
         self.intake_root_var = tk.StringVar(master=root, value="")
@@ -58,13 +79,27 @@ class GroundedPromptTkApplication:
         self.exact_six_status_var = tk.StringVar(master=root, value="")
         self.binding_status_var = tk.StringVar(master=root, value="")
         self.grounding_status_var = tk.StringVar(master=root, value="")
+        self.workspace_feedback_var = tk.StringVar(master=root, value="")
+        self.workspace_view_var = tk.StringVar(master=root, value="New Prompt")
+        self.preset_name_var = tk.StringVar(master=root, value="")
+        self.default_status_var = tk.StringVar(master=root, value="No default")
+
+        try:
+            self._workspace = clone_workspace(self._workspace_loader())
+        except Exception as exc:
+            self._workspace = empty_workspace()
+            self.workspace_feedback_var.set(
+                "Local workspace could not be loaded: " + str(exc)
+            )
 
         self._build_widgets()
         self._bind_result_invalidation()
+        self._suspend_workspace_persistence = False
         if self._restore_remembered_foundation():
             self._set_data_source_visible(False)
         else:
             self._set_data_source_visible(True)
+        self._refresh_workspace_views()
 
     def _bind_result_invalidation(self) -> None:
         for variable in (
@@ -86,18 +121,45 @@ class GroundedPromptTkApplication:
 
     def _on_result_defining_variable_changed(self, *_args: object) -> None:
         self._clear_result_output()
+        self._persist_visible_request()
 
     def _on_requested_output_modified(self, _event: object = None) -> None:
         if not self.requested_output_text.edit_modified():
             return
         self._clear_result_output()
         self.requested_output_text.edit_modified(False)
+        self._persist_visible_request()
 
     def _build_widgets(self) -> None:
+        self.navigation_frame = ttk.Frame(
+            self.root,
+            padding=(12, 12, 12, 0),
+        )
+        self.navigation_frame.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+        )
+        self.navigation_buttons = {}
+        for column, label in enumerate(
+            ("New Prompt", "Recent", "Presets", "Products", "Settings")
+        ):
+            button = ttk.Button(
+                self.navigation_frame,
+                text=label,
+                command=lambda value=label: self.show_workspace_view(value),
+            )
+            button.grid(
+                row=0,
+                column=column,
+                padx=(0, 6),
+            )
+            self.navigation_buttons[label] = button
+
         frame = ttk.Frame(self.root, padding=12)
-        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid(row=1, column=0, sticky="nsew")
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=1)
         frame.columnconfigure(1, weight=1)
 
         self.primary_heading = ttk.Label(
@@ -407,8 +469,586 @@ class GroundedPromptTkApplication:
             sticky="w",
             pady=(6, 0),
         )
+        self.workspace_feedback_label = ttk.Label(
+            frame,
+            textvariable=self.workspace_feedback_var,
+        )
+        self.workspace_feedback_label.grid(
+            row=13,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(4, 0),
+        )
+
+        self.workspace_panel = ttk.LabelFrame(
+            self.root,
+            text=self.workspace_view_var.get(),
+            padding=10,
+        )
+        self.workspace_panel.grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            padx=12,
+            pady=(0, 12),
+        )
+        self.workspace_panel.columnconfigure(0, weight=1)
+
+        self.recent_section = ttk.Frame(self.workspace_panel)
+        self.recent_section.grid(row=0, column=0, sticky="ew")
+        self.recent_section.columnconfigure(0, weight=1)
+        self.recent_listbox = tk.Listbox(
+            self.recent_section,
+            height=6,
+            exportselection=False,
+        )
+        self.recent_listbox.grid(
+            row=0,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+        )
+        ttk.Button(
+            self.recent_section,
+            text="Open",
+            command=self.open_recent,
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.recent_section,
+            text="Duplicate",
+            command=self.duplicate_recent,
+        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.recent_section,
+            text="Copy Prompt",
+            command=self.copy_recent_prompt,
+        ).grid(row=1, column=2, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.recent_section,
+            text="Favorite / Unfavorite",
+            command=self.toggle_recent_selected_favorite,
+        ).grid(row=1, column=3, sticky="w", pady=(6, 0))
+
+        self.presets_section = ttk.Frame(self.workspace_panel)
+        self.presets_section.grid(row=0, column=0, sticky="ew")
+        self.presets_section.columnconfigure(1, weight=1)
+        ttk.Label(
+            self.presets_section,
+            text="Preset Name",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.preset_name_entry = ttk.Entry(
+            self.presets_section,
+            textvariable=self.preset_name_var,
+        )
+        self.preset_name_entry.grid(
+            row=0,
+            column=1,
+            sticky="ew",
+        )
+        self.preset_listbox = tk.Listbox(
+            self.presets_section,
+            height=6,
+            exportselection=False,
+        )
+        self.preset_listbox.grid(
+            row=1,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+            pady=(6, 0),
+        )
+        ttk.Button(
+            self.presets_section,
+            text="Save Current",
+            command=self.save_current_preset,
+        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.presets_section,
+            text="Load",
+            command=self.load_selected_preset,
+        ).grid(row=2, column=1, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.presets_section,
+            text="Delete",
+            command=self.delete_selected_preset,
+        ).grid(row=2, column=2, sticky="w", pady=(6, 0))
+
+        self.products_section = ttk.Frame(self.workspace_panel)
+        self.products_section.grid(row=0, column=0, sticky="ew")
+        self.products_section.columnconfigure(0, weight=1)
+        self.product_variant_listbox = tk.Listbox(
+            self.products_section,
+            height=6,
+            exportselection=False,
+        )
+        self.product_variant_listbox.grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+        )
+        ttk.Button(
+            self.products_section,
+            text="Use Product",
+            command=self.use_selected_product_variant,
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.products_section,
+            text="Set as Default",
+            command=self.set_selected_product_variant_default,
+        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.products_section,
+            text="Favorite / Unfavorite",
+            command=self.toggle_selected_product_variant_favorite,
+        ).grid(row=1, column=2, sticky="w", pady=(6, 0))
+
+        self.settings_section = ttk.Frame(self.workspace_panel)
+        self.settings_section.grid(row=0, column=0, sticky="ew")
+        ttk.Label(
+            self.settings_section,
+            text="Default Product / Variant",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(
+            self.settings_section,
+            textvariable=self.default_status_var,
+        ).grid(row=0, column=1, sticky="w")
+        self.settings_data_source_button = ttk.Button(
+            self.settings_section,
+            text="Data Source",
+            command=self.toggle_data_source,
+        )
+        self.settings_data_source_button.grid(
+            row=1,
+            column=0,
+            sticky="w",
+            pady=(6, 0),
+        )
+        self.clear_default_button = ttk.Button(
+            self.settings_section,
+            text="Clear Default",
+            command=self.clear_default_product_variant,
+        )
+        self.clear_default_button.grid(
+            row=1,
+            column=1,
+            sticky="w",
+            pady=(6, 0),
+        )
 
         self._set_details_visible(False)
+        self._set_workspace_view("New Prompt")
+
+    def _visible_request(self) -> dict:
+        return {
+            "product_id": self.product_var.get(),
+            "variant_id": self.variant_var.get(),
+            "background": self.background_var.get(),
+            "camera_angle": self.camera_angle_var.get(),
+            "requested_output": self.requested_output_text.get(
+                "1.0",
+                "end-1c",
+            ),
+        }
+
+    def _save_workspace_state(self) -> bool:
+        try:
+            self._workspace_saver(clone_workspace(self._workspace))
+        except Exception as exc:
+            self.workspace_feedback_var.set(
+                "Local workspace could not be saved: " + str(exc)
+            )
+            return False
+        self.workspace_feedback_var.set("")
+        return True
+
+    def _persist_visible_request(self) -> None:
+        if self._suspend_workspace_persistence:
+            return
+        if self._controller is None:
+            return
+        self._workspace = set_last_request(
+            self._workspace,
+            self._visible_request(),
+        )
+        self._save_workspace_state()
+
+    def _valid_product_variant(
+        self,
+        product_id: str,
+        variant_id: str,
+    ) -> bool:
+        if self._controller is None:
+            return False
+        if product_id not in self._controller.product_ids:
+            return False
+        try:
+            variants = self._controller.variant_ids_for_product(
+                product_id
+            )
+        except Exception:
+            return False
+        return variant_id in variants
+
+    def _hydrate_request(
+        self,
+        request: dict,
+        *,
+        show_prompt: str = "",
+    ) -> bool:
+        product_id = str(request.get("product_id", ""))
+        variant_id = str(request.get("variant_id", ""))
+        if product_id or variant_id:
+            if not self._valid_product_variant(
+                product_id,
+                variant_id,
+            ):
+                return False
+        self._suspend_workspace_persistence = True
+        try:
+            self.product_var.set(product_id)
+            if product_id and self._controller is not None:
+                variants = self._controller.variant_ids_for_product(
+                    product_id
+                )
+                self.variant_combo.configure(
+                    values=variants,
+                    state="readonly",
+                )
+            else:
+                self.variant_combo.configure(
+                    values=(),
+                    state="disabled",
+                )
+            self.variant_var.set(variant_id)
+            self.background_var.set(
+                str(request.get("background", ""))
+            )
+            self.camera_angle_var.set(
+                str(request.get("camera_angle", ""))
+            )
+            self.requested_output_text.delete("1.0", "end")
+            self.requested_output_text.insert(
+                "1.0",
+                str(request.get("requested_output", "")),
+            )
+            self.requested_output_text.edit_modified(False)
+        finally:
+            self._suspend_workspace_persistence = False
+        self._clear_result_output()
+        if show_prompt:
+            self._set_prompt_output(show_prompt)
+            self.result_state_var.set("Saved prompt")
+        return True
+
+    def _restore_workspace_request_once(self) -> None:
+        if self._workspace_restore_attempted:
+            return
+        self._workspace_restore_attempted = True
+        request = self._workspace.get("last_request")
+        if not isinstance(request, dict):
+            return
+        self._hydrate_request(request)
+
+    def _apply_valid_default(self) -> bool:
+        value = self._workspace.get("default_product_variant")
+        if not isinstance(value, dict):
+            return False
+        product_id = str(value.get("product_id", ""))
+        variant_id = str(value.get("variant_id", ""))
+        if not self._valid_product_variant(
+            product_id,
+            variant_id,
+        ):
+            return False
+        self.product_var.set(product_id)
+        variants = self._controller.variant_ids_for_product(
+            product_id
+        )
+        self.variant_combo.configure(
+            values=variants,
+            state="readonly",
+        )
+        self.variant_var.set(variant_id)
+        return True
+
+    def _record_successful_prompt(
+        self,
+        result: GroundedPromptUiResult,
+    ) -> None:
+        request = self._visible_request()
+        self._workspace = set_last_request(
+            self._workspace,
+            request,
+        )
+        self._workspace = record_recent_prompt(
+            self._workspace,
+            request,
+            result.prompt_text,
+        )
+        self._save_workspace_state()
+        self._refresh_workspace_views()
+
+    def _selected_index(self, listbox: tk.Listbox) -> int | None:
+        selected = listbox.curselection()
+        if not selected:
+            return None
+        return int(selected[0])
+
+    def _refresh_recent_workspace(self) -> None:
+        self.recent_listbox.delete(0, "end")
+        for item in self._workspace["recent_prompts"]:
+            favorite = "* " if item.get("favorite") else ""
+            self.recent_listbox.insert(
+                "end",
+                favorite
+                + item["product_id"]
+                + " / "
+                + item["variant_id"],
+            )
+
+    def _refresh_presets_workspace(self) -> None:
+        self.preset_listbox.delete(0, "end")
+        for item in self._workspace["presets"]:
+            self.preset_listbox.insert("end", item["name"])
+
+    def _refresh_products_workspace(self) -> None:
+        if not hasattr(self, "product_variant_listbox"):
+            return
+        self.product_variant_listbox.delete(0, "end")
+        if self._controller is None:
+            return
+        favorites = {
+            (item["product_id"], item["variant_id"])
+            for item in self._workspace["product_favorites"]
+        }
+        for product_id in self._controller.product_ids:
+            try:
+                variants = self._controller.variant_ids_for_product(
+                    product_id
+                )
+            except Exception:
+                continue
+            for variant_id in variants:
+                marker = "* " if (
+                    product_id,
+                    variant_id,
+                ) in favorites else ""
+                self.product_variant_listbox.insert(
+                    "end",
+                    marker + product_id + " / " + variant_id,
+                )
+
+    def _refresh_default_status(self) -> None:
+        value = self._workspace.get("default_product_variant")
+        if isinstance(value, dict):
+            self.default_status_var.set(
+                value["product_id"] + " / " + value["variant_id"]
+            )
+        else:
+            self.default_status_var.set("No default")
+
+    def _refresh_workspace_views(self) -> None:
+        self._refresh_recent_workspace()
+        self._refresh_presets_workspace()
+        self._refresh_products_workspace()
+        self._refresh_default_status()
+
+    def _set_workspace_view(self, name: str) -> None:
+        self._workspace_view = name
+        self.workspace_view_var.set(name)
+        self.workspace_panel.configure(text=name)
+        for section in (
+            self.recent_section,
+            self.presets_section,
+            self.products_section,
+            self.settings_section,
+        ):
+            section.grid_remove()
+        if name == "New Prompt":
+            self.workspace_panel.grid_remove()
+            return
+        self.workspace_panel.grid()
+        section = {
+            "Recent": self.recent_section,
+            "Presets": self.presets_section,
+            "Products": self.products_section,
+            "Settings": self.settings_section,
+        }.get(name)
+        if section is not None:
+            section.grid()
+        if name == "Settings":
+            self._set_data_source_visible(True)
+
+    def show_workspace_view(self, name: str) -> None:
+        if name == "New Prompt":
+            self.new_request()
+            return
+        self._refresh_workspace_views()
+        self._set_workspace_view(name)
+
+    def _selected_recent(self) -> tuple[int, dict] | None:
+        index = self._selected_index(self.recent_listbox)
+        if index is None:
+            return None
+        recent = self._workspace["recent_prompts"]
+        if index >= len(recent):
+            return None
+        return index, recent[index]
+
+    def open_recent(self) -> None:
+        selected = self._selected_recent()
+        if selected is None:
+            return
+        _index, item = selected
+        if self._hydrate_request(
+            item,
+            show_prompt=item["prompt_text"],
+        ):
+            self._set_workspace_view("New Prompt")
+
+    def duplicate_recent(self) -> None:
+        selected = self._selected_recent()
+        if selected is None:
+            return
+        _index, item = selected
+        if self._hydrate_request(item):
+            self._set_workspace_view("New Prompt")
+
+    def copy_recent_prompt(self) -> None:
+        selected = self._selected_recent()
+        if selected is None:
+            return
+        _index, item = selected
+        prompt = str(item.get("prompt_text", ""))
+        if not prompt:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(prompt)
+
+    def toggle_recent_selected_favorite(self) -> None:
+        selected = self._selected_recent()
+        if selected is None:
+            return
+        index, _item = selected
+        self._workspace = toggle_recent_favorite(
+            self._workspace,
+            index,
+        )
+        self._save_workspace_state()
+        self._refresh_recent_workspace()
+
+    def save_current_preset(self) -> None:
+        try:
+            self._workspace = save_preset(
+                self._workspace,
+                self.preset_name_var.get(),
+                self._visible_request(),
+            )
+        except ValueError as exc:
+            self.workspace_feedback_var.set(str(exc))
+            return
+        self._save_workspace_state()
+        self._refresh_presets_workspace()
+
+    def _selected_preset(self) -> dict | None:
+        index = self._selected_index(self.preset_listbox)
+        if index is None:
+            return None
+        presets = self._workspace["presets"]
+        if index >= len(presets):
+            return None
+        return presets[index]
+
+    def load_selected_preset(self) -> None:
+        item = self._selected_preset()
+        if item is None:
+            return
+        if self._hydrate_request(item):
+            self._set_workspace_view("New Prompt")
+
+    def delete_selected_preset(self) -> None:
+        item = self._selected_preset()
+        if item is None:
+            return
+        self._workspace = delete_preset(
+            self._workspace,
+            item["name"],
+        )
+        self._save_workspace_state()
+        self._refresh_presets_workspace()
+
+    def _selected_product_variant(
+        self,
+    ) -> tuple[str, str] | None:
+        index = self._selected_index(
+            self.product_variant_listbox
+        )
+        if index is None or self._controller is None:
+            return None
+        values = []
+        for product_id in self._controller.product_ids:
+            try:
+                variants = self._controller.variant_ids_for_product(
+                    product_id
+                )
+            except Exception:
+                continue
+            for variant_id in variants:
+                values.append((product_id, variant_id))
+        if index >= len(values):
+            return None
+        return values[index]
+
+    def use_selected_product_variant(self) -> None:
+        selected = self._selected_product_variant()
+        if selected is None:
+            return
+        product_id, variant_id = selected
+        self._hydrate_request(
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "background": "",
+                "camera_angle": "",
+                "requested_output": "",
+            }
+        )
+        self._set_workspace_view("New Prompt")
+
+    def set_selected_product_variant_default(self) -> None:
+        selected = self._selected_product_variant()
+        if selected is None:
+            return
+        product_id, variant_id = selected
+        self._workspace = set_default_product_variant(
+            self._workspace,
+            product_id,
+            variant_id,
+        )
+        self._save_workspace_state()
+        self._refresh_default_status()
+
+    def toggle_selected_product_variant_favorite(self) -> None:
+        selected = self._selected_product_variant()
+        if selected is None:
+            return
+        product_id, variant_id = selected
+        self._workspace = toggle_product_favorite(
+            self._workspace,
+            product_id,
+            variant_id,
+        )
+        self._save_workspace_state()
+        self._refresh_products_workspace()
+
+    def clear_default_product_variant(self) -> None:
+        self._workspace = clear_default_product_variant(
+            self._workspace
+        )
+        self._save_workspace_state()
+        self._refresh_default_status()
 
     def _set_data_source_visible(self, visible: bool) -> None:
         self._data_source_visible = bool(visible)
@@ -475,17 +1115,24 @@ class GroundedPromptTkApplication:
 
     def new_request(self) -> None:
         self.error_var.set("")
-        self.product_var.set("")
-        self.variant_var.set("")
-        self.background_var.set("")
-        self.camera_angle_var.set("")
-        self.requested_output_text.delete("1.0", "end")
-        self.requested_output_text.edit_modified(False)
-        self.variant_combo.configure(
-            values=(),
-            state="disabled",
-        )
+        self.workspace_feedback_var.set("")
+        self._suspend_workspace_persistence = True
+        try:
+            self.product_var.set("")
+            self.variant_var.set("")
+            self.background_var.set("")
+            self.camera_angle_var.set("")
+            self.requested_output_text.delete("1.0", "end")
+            self.requested_output_text.edit_modified(False)
+            self.variant_combo.configure(
+                values=(),
+                state="disabled",
+            )
+            self._apply_valid_default()
+        finally:
+            self._suspend_workspace_persistence = False
         self._clear_result_output()
+        self._set_workspace_view("New Prompt")
         self.product_combo.focus_set()
 
     def _restore_remembered_foundation(self) -> bool:
@@ -521,17 +1168,25 @@ class GroundedPromptTkApplication:
             self._set_data_source_visible(True)
             return False
 
-        self._controller = controller
-        self.product_var.set("")
-        self.variant_var.set("")
-        self.product_combo.configure(
-            values=controller.product_ids,
-            state="readonly",
-        )
-        self.variant_combo.configure(
-            values=(),
-            state="disabled",
-        )
+        previous_suspend = self._suspend_workspace_persistence
+        self._suspend_workspace_persistence = True
+        try:
+            self._controller = controller
+            self.product_var.set("")
+            self.variant_var.set("")
+            self.product_combo.configure(
+                values=controller.product_ids,
+                state="readonly",
+            )
+            self.variant_combo.configure(
+                values=(),
+                state="disabled",
+            )
+            self._restore_workspace_request_once()
+        finally:
+            self._suspend_workspace_persistence = previous_suspend
+        self._refresh_products_workspace()
+        self._refresh_workspace_views()
 
         if persist_on_success:
             try:
@@ -613,6 +1268,7 @@ class GroundedPromptTkApplication:
             )
             return
         self._render_result(result)
+        self._record_successful_prompt(result)
 
 
 def main() -> None:

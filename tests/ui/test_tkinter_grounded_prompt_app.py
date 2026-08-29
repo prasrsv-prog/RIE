@@ -10,6 +10,15 @@ from rie.ui.grounded_prompt_ui_controller import (
     GroundedPromptUiResult,
 )
 from rie.ui.tkinter_grounded_prompt_app import GroundedPromptTkApplication
+from rie.ui.local_operator_workspace import (
+    clone_workspace,
+    empty_workspace,
+    record_recent_prompt,
+    save_preset,
+    set_default_product_variant,
+    set_last_request,
+    toggle_product_favorite,
+)
 
 
 class _FakeController:
@@ -611,3 +620,403 @@ def test_phase_i_new_request_clears_request_and_result_but_keeps_foundation(root
     assert tuple(app.product_combo["values"]) == ("alpha", "beta")
     assert tuple(app.variant_combo["values"]) == ()
     assert focus_calls == ["product"]
+
+@pytest.fixture(autouse=True)
+def _phase_j_isolate_local_workspace(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+
+def _phase_j_app(
+    root,
+    *,
+    directory_picker=lambda: "",
+    settings_loader=lambda: None,
+    settings_saver=lambda _intake_root: None,
+    workspace_loader=lambda: empty_workspace(),
+    workspace_saver=lambda _workspace: None,
+):
+    controller = _FakeController()
+    calls = []
+
+    def factory(*, intake_root):
+        calls.append(intake_root)
+        return controller
+
+    app = GroundedPromptTkApplication(
+        root,
+        controller_factory=factory,
+        directory_picker=directory_picker,
+        settings_loader=settings_loader,
+        settings_saver=settings_saver,
+        workspace_loader=workspace_loader,
+        workspace_saver=workspace_saver,
+    )
+    root.update_idletasks()
+    return app, controller, calls
+
+def test_phase_j_navigation_exposes_new_prompt_recent_presets_products_settings(root) -> None:
+    app, _, _ = _phase_j_app(root)
+    assert tuple(app.navigation_buttons) == (
+        "New Prompt",
+        "Recent",
+        "Presets",
+        "Products",
+        "Settings",
+    )
+    assert [
+        app.navigation_buttons[name].cget("text")
+        for name in app.navigation_buttons
+    ] == [
+        "New Prompt",
+        "Recent",
+        "Presets",
+        "Products",
+        "Settings",
+    ]
+
+
+def test_phase_j_valid_last_request_restores_after_foundation_without_submit_and_edits_persist(root) -> None:
+    workspace = set_last_request(
+        empty_workspace(),
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-b",
+            "background": "remembered background",
+            "camera_angle": "three-quarter",
+            "requested_output": "remembered output",
+        },
+    )
+    app, controller, calls = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+
+    assert calls == [r"C:\pilot\remembered-intake"]
+    assert controller.submit_calls == []
+    assert app.product_var.get() == "alpha"
+    assert app.variant_var.get() == "alpha-b"
+    assert app.background_var.get() == "remembered background"
+    assert app.camera_angle_var.get() == "three-quarter"
+    assert app.requested_output_text.get("1.0", "end-1c") == "remembered output"
+
+    app.background_var.set("edited background")
+    assert app._workspace["last_request"]["background"] == "edited background"
+    assert controller.submit_calls == []
+
+
+def test_phase_j_stale_invalid_last_request_is_ignored_without_submit(root) -> None:
+    workspace = set_last_request(
+        empty_workspace(),
+        {
+            "product_id": "missing-product",
+            "variant_id": "missing-variant",
+            "background": "should not restore",
+            "camera_angle": "front",
+            "requested_output": "should not restore",
+        },
+    )
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+
+    assert controller.submit_calls == []
+    assert app.product_var.get() == ""
+    assert app.variant_var.get() == ""
+    assert app.background_var.get() == ""
+    assert app.camera_angle_var.get() == ""
+    assert app.requested_output_text.get("1.0", "end-1c") == ""
+
+
+def test_phase_j_success_records_recent_and_last_request_once(root) -> None:
+    saved = []
+    app, controller, _ = _phase_j_app(
+        root,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_var.set("alpha")
+    app.refresh_variants()
+    app.variant_var.set("alpha-a")
+    app.background_var.set("dark studio")
+    app.camera_angle_var.set("front")
+    app.requested_output_text.insert("1.0", "grounded product prompt")
+
+    before_recent = len(app._workspace["recent_prompts"])
+    app.submit()
+
+    assert len(controller.submit_calls) == 1
+    assert len(app._workspace["recent_prompts"]) == before_recent + 1
+    assert app._workspace["recent_prompts"][0]["prompt_text"] == "compiled grounded prompt"
+    assert app._workspace["last_request"]["product_id"] == "alpha"
+    assert app._workspace["last_request"]["variant_id"] == "alpha-a"
+    assert saved
+
+
+def test_phase_j_recent_duplicate_hydrates_request_without_submit(root) -> None:
+    workspace = record_recent_prompt(
+        empty_workspace(),
+        {
+            "product_id": "beta",
+            "variant_id": "beta-a",
+            "background": "recent background",
+            "camera_angle": "side",
+            "requested_output": "recent output",
+        },
+        "stored prompt",
+    )
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+    app.recent_listbox.selection_set(0)
+
+    app.duplicate_recent()
+
+    assert controller.submit_calls == []
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == "beta-a"
+    assert app.background_var.get() == "recent background"
+    assert app.camera_angle_var.get() == "side"
+    assert app.requested_output_text.get("1.0", "end-1c") == "recent output"
+    assert app.prompt_output.get("1.0", "end-1c") == ""
+
+
+def test_phase_j_recent_copy_uses_exact_stored_prompt_without_request_mutation(root, monkeypatch) -> None:
+    workspace = record_recent_prompt(
+        empty_workspace(),
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "history background",
+            "camera_angle": "front",
+            "requested_output": "history output",
+        },
+        "exact stored history prompt",
+    )
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+    clipboard = []
+    monkeypatch.setattr(root, "clipboard_clear", lambda: clipboard.clear())
+    monkeypatch.setattr(root, "clipboard_append", clipboard.append)
+    before = (
+        app.product_var.get(),
+        app.variant_var.get(),
+        app.background_var.get(),
+        app.camera_angle_var.get(),
+        app.requested_output_text.get("1.0", "end-1c"),
+    )
+    app.recent_listbox.selection_set(0)
+
+    app.copy_recent_prompt()
+
+    assert clipboard == ["exact stored history prompt"]
+    assert (
+        app.product_var.get(),
+        app.variant_var.get(),
+        app.background_var.get(),
+        app.camera_angle_var.get(),
+        app.requested_output_text.get("1.0", "end-1c"),
+    ) == before
+    assert controller.submit_calls == []
+
+
+def test_phase_j_recent_favorite_toggle_persists_local_workspace_only(root) -> None:
+    workspace = record_recent_prompt(
+        empty_workspace(),
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "",
+            "camera_angle": "",
+            "requested_output": "",
+        },
+        "stored prompt",
+    )
+    saved = []
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    app.recent_listbox.selection_set(0)
+
+    app.toggle_recent_selected_favorite()
+
+    assert app._workspace["recent_prompts"][0]["favorite"] is True
+    assert saved[-1]["recent_prompts"][0]["favorite"] is True
+    assert controller.submit_calls == []
+
+
+def test_phase_j_preset_save_load_delete_is_local_and_never_submits(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+    )
+    app.product_var.set("alpha")
+    app.refresh_variants()
+    app.variant_var.set("alpha-b")
+    app.background_var.set("preset background")
+    app.camera_angle_var.set("top")
+    app.requested_output_text.insert("1.0", "preset output")
+    app.preset_name_var.set("My Preset")
+
+    app.save_current_preset()
+    assert app._workspace["presets"][0]["name"] == "My Preset"
+    assert controller.submit_calls == []
+
+    app.new_request()
+    app.show_workspace_view("Presets")
+    app.preset_listbox.selection_set(0)
+    app.load_selected_preset()
+    assert app.product_var.get() == "alpha"
+    assert app.variant_var.get() == "alpha-b"
+    assert app.background_var.get() == "preset background"
+    assert app.camera_angle_var.get() == "top"
+    assert app.requested_output_text.get("1.0", "end-1c") == "preset output"
+    assert controller.submit_calls == []
+
+    app.show_workspace_view("Presets")
+    app.preset_listbox.selection_set(0)
+    app.delete_selected_preset()
+    assert app._workspace["presets"] == []
+    assert controller.submit_calls == []
+
+
+def test_phase_j_products_lists_canonical_ids_and_sets_explicit_default_without_catalog_change(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+    )
+    before_products = controller.product_ids
+    app.show_workspace_view("Products")
+
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "alpha / alpha-a",
+        "alpha / alpha-b",
+        "beta / beta-a",
+    )
+    app.product_variant_listbox.selection_set(1)
+    app.set_selected_product_variant_default()
+
+    assert app._workspace["default_product_variant"] == {
+        "product_id": "alpha",
+        "variant_id": "alpha-b",
+    }
+    assert controller.product_ids == before_products
+    assert controller.submit_calls == []
+
+
+def test_phase_j_settings_retains_data_source_recovery_and_can_clear_default(root) -> None:
+    workspace = set_default_product_variant(
+        empty_workspace(),
+        "alpha",
+        "alpha-a",
+    )
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+    assert app._data_source_visible is False
+
+    app.show_workspace_view("Settings")
+
+    assert app._data_source_visible is True
+    assert app.settings_data_source_button.cget("text") == "Data Source"
+    assert app.default_status_var.get() == "alpha / alpha-a"
+
+    app.clear_default_product_variant()
+
+    assert app._workspace["default_product_variant"] is None
+    assert app.default_status_var.get() == "No default"
+    assert controller.submit_calls == []
+
+
+def test_phase_j_new_request_preserves_workspace_and_applies_only_explicit_valid_default(root) -> None:
+    workspace = record_recent_prompt(
+        empty_workspace(),
+        {
+            "product_id": "beta",
+            "variant_id": "beta-a",
+            "background": "history",
+            "camera_angle": "front",
+            "requested_output": "history",
+        },
+        "history prompt",
+    )
+    workspace = save_preset(
+        workspace,
+        "Keep Me",
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "preset",
+            "camera_angle": "front",
+            "requested_output": "preset",
+        },
+    )
+    workspace = toggle_product_favorite(
+        workspace,
+        "beta",
+        "beta-a",
+    )
+    workspace = set_default_product_variant(
+        workspace,
+        "alpha",
+        "alpha-b",
+    )
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+
+    app.new_request()
+
+    assert app._controller is controller
+    assert len(app._workspace["recent_prompts"]) == 1
+    assert len(app._workspace["presets"]) == 1
+    assert app._workspace["product_favorites"] == [
+        {"product_id": "beta", "variant_id": "beta-a"}
+    ]
+    assert app.product_var.get() == "alpha"
+    assert app.variant_var.get() == "alpha-b"
+    assert app.background_var.get() == ""
+    assert app.camera_angle_var.get() == ""
+    assert app.requested_output_text.get("1.0", "end-1c") == ""
+    assert controller.submit_calls == []
+
+
+def test_phase_j_workspace_save_failure_does_not_invalidate_successful_prompt(root) -> None:
+    def fail_save(_state):
+        raise OSError("workspace disk unavailable")
+
+    app, controller, _ = _phase_j_app(
+        root,
+        workspace_saver=fail_save,
+    )
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_var.set("alpha")
+    app.refresh_variants()
+    app.variant_var.set("alpha-a")
+    app.background_var.set("dark studio")
+    app.camera_angle_var.set("front")
+    app.requested_output_text.insert("1.0", "grounded product prompt")
+
+    app.submit()
+
+    assert len(controller.submit_calls) == 1
+    assert app.result_state_var.get() == "Prompt ready"
+    assert app.prompt_output.get("1.0", "end-1c") == "compiled grounded prompt"
+    assert "workspace disk unavailable" in app.workspace_feedback_var.get()
