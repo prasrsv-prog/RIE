@@ -74,6 +74,10 @@ class GroundedPromptTkApplication:
         self.background_var = tk.StringVar(master=root, value="")
         self.camera_angle_var = tk.StringVar(master=root, value="")
         self.error_var = tk.StringVar(master=root, value="")
+        self.technical_error_var = tk.StringVar(master=root, value="")
+        self.copy_feedback_var = tk.StringVar(master=root, value="")
+        self._retry_action: str | None = None
+        self._retry_copy_text = ""
         self.result_state_var = tk.StringVar(master=root, value="")
         self.bridge_status_var = tk.StringVar(master=root, value="")
         self.exact_six_status_var = tk.StringVar(master=root, value="")
@@ -89,10 +93,31 @@ class GroundedPromptTkApplication:
         except Exception as exc:
             self._workspace = empty_workspace()
             self.workspace_feedback_var.set(
-                "Local workspace could not be loaded: " + str(exc)
+                "Local workspace could not be loaded. Starting with an empty workspace."
             )
+            self.technical_error_var.set(str(exc))
 
         self._build_widgets()
+        self.retry_button = ttk.Button(
+            root,
+            text="Try Again",
+            command=self.retry_last_action,
+        )
+        self.retry_button.place(relx=0.02, rely=0.98, anchor="sw")
+        self.retry_button.place_forget()
+        self.open_settings_button = ttk.Button(
+            root,
+            text="Open Settings",
+            command=self.open_recovery_settings,
+        )
+        self.open_settings_button.place(relx=0.18, rely=0.98, anchor="sw")
+        self.open_settings_button.place_forget()
+        self.copy_feedback_label = ttk.Label(
+            root,
+            textvariable=self.copy_feedback_var,
+        )
+        self.copy_feedback_label.place(relx=0.98, rely=0.98, anchor="se")
+
         self._bind_result_invalidation()
         self._suspend_workspace_persistence = False
         if self._restore_remembered_foundation():
@@ -394,6 +419,7 @@ class GroundedPromptTkApplication:
             ("Exact-six materialization", self.exact_six_status_var),
             ("Binding", self.binding_status_var),
             ("Grounding", self.grounding_status_var),
+            ("Technical error", self.technical_error_var),
         )
         for row, (label, variable) in enumerate(status_rows):
             ttk.Label(self.details_frame, text=label).grid(
@@ -657,8 +683,9 @@ class GroundedPromptTkApplication:
             self._workspace_saver(clone_workspace(self._workspace))
         except Exception as exc:
             self.workspace_feedback_var.set(
-                "Local workspace could not be saved: " + str(exc)
+                "Local workspace could not be saved. Your current prompt is still available."
             )
+            self.technical_error_var.set(str(exc))
             return False
         self.workspace_feedback_var.set("")
         return True
@@ -924,8 +951,7 @@ class GroundedPromptTkApplication:
         prompt = str(item.get("prompt_text", ""))
         if not prompt:
             return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(prompt)
+        self._copy_text_to_clipboard(prompt)
 
     def toggle_recent_selected_favorite(self) -> None:
         selected = self._selected_recent()
@@ -1050,6 +1076,88 @@ class GroundedPromptTkApplication:
         self._save_workspace_state()
         self._refresh_default_status()
 
+    def _clear_error_state(self) -> None:
+        self.error_var.set("")
+        self.technical_error_var.set("")
+        self._retry_action = None
+        self._retry_copy_text = ""
+        if hasattr(self, "retry_button"):
+            self.retry_button.place_forget()
+        if hasattr(self, "open_settings_button"):
+            self.open_settings_button.place_forget()
+
+    def _show_friendly_error(
+        self,
+        message: str,
+        *,
+        technical: str = "",
+        retry_action: str | None = None,
+        retry_copy_text: str = "",
+        open_settings: bool = False,
+    ) -> None:
+        self.error_var.set(message)
+        self.technical_error_var.set(technical)
+        self._retry_action = retry_action
+        self._retry_copy_text = retry_copy_text
+        if retry_action is not None:
+            self.retry_button.place(relx=0.02, rely=0.98, anchor="sw")
+        else:
+            self.retry_button.place_forget()
+        if open_settings:
+            self.open_settings_button.place(relx=0.18, rely=0.98, anchor="sw")
+        else:
+            self.open_settings_button.place_forget()
+
+    def retry_last_action(self) -> None:
+        action = self._retry_action
+        copy_text = self._retry_copy_text
+        self._clear_error_state()
+        if action == "load":
+            self._load_foundation_from_visible_intake(
+                persist_on_success=True
+            )
+        elif action == "submit":
+            self.submit()
+        elif action == "copy":
+            self._copy_text_to_clipboard(copy_text)
+
+    def open_recovery_settings(self) -> None:
+        self._set_workspace_view("Settings")
+        self._set_data_source_visible(True)
+
+    def _copy_text_to_clipboard(self, value: str) -> bool:
+        if not value:
+            return False
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(value)
+        except Exception as exc:
+            self.copy_feedback_var.set("")
+            self._show_friendly_error(
+                "RCIS couldn't copy to the clipboard. Try again.",
+                technical=str(exc),
+                retry_action="copy",
+                retry_copy_text=value,
+            )
+            return False
+        self._clear_error_state()
+        self.copy_feedback_var.set("Copied to clipboard.")
+        return True
+
+    def _friendly_submit_error(self, exc: Exception) -> str:
+        technical = str(exc)
+        messages = (
+            ("product_id", "Choose a Product before generating the prompt."),
+            ("variant_id", "Choose a Variant before generating the prompt."),
+            ("background", "Add a Background before generating the prompt."),
+            ("camera_angle", "Add a Camera Angle before generating the prompt."),
+            ("requested_output", "Describe the Requested Output before generating the prompt."),
+        )
+        for token, message in messages:
+            if token in technical:
+                return message
+        return "RCIS couldn't generate the prompt. Review the request and try again."
+
     def _set_data_source_visible(self, visible: bool) -> None:
         self._data_source_visible = bool(visible)
         if self._data_source_visible:
@@ -1110,11 +1218,11 @@ class GroundedPromptTkApplication:
         prompt = self.prompt_output.get("1.0", "end-1c")
         if not prompt:
             return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(prompt)
+        self._copy_text_to_clipboard(prompt)
 
     def new_request(self) -> None:
-        self.error_var.set("")
+        self._clear_error_state()
+        self.copy_feedback_var.set("")
         self.workspace_feedback_var.set("")
         self._suspend_workspace_persistence = True
         try:
@@ -1138,7 +1246,12 @@ class GroundedPromptTkApplication:
     def _restore_remembered_foundation(self) -> bool:
         try:
             remembered = self._settings_loader()
-        except Exception:
+        except Exception as exc:
+            self._show_friendly_error(
+                "Saved data source could not be restored. Open Settings to choose it again.",
+                technical=str(exc),
+                open_settings=True,
+            )
             return False
         if not isinstance(remembered, str) or not remembered.strip():
             return False
@@ -1152,11 +1265,15 @@ class GroundedPromptTkApplication:
         *,
         persist_on_success: bool,
     ) -> bool:
-        self.error_var.set("")
+        self._clear_error_state()
         self._clear_result_output()
         intake_root = self.intake_root_var.get().strip()
         if not intake_root:
-            self.error_var.set("intake_root must not be empty")
+            self._show_friendly_error(
+                "Choose a data source before loading RCIS.",
+                technical="intake_root must not be empty",
+                open_settings=True,
+            )
             self._set_data_source_visible(True)
             return False
         try:
@@ -1164,7 +1281,12 @@ class GroundedPromptTkApplication:
                 intake_root=intake_root
             )
         except Exception as exc:
-            self.error_var.set(str(exc))
+            self._show_friendly_error(
+                "RCIS couldn't load this data source. Check the folder and try again.",
+                technical=str(exc),
+                retry_action="load",
+                open_settings=True,
+            )
             self._set_data_source_visible(True)
             return False
 
@@ -1191,8 +1313,11 @@ class GroundedPromptTkApplication:
         if persist_on_success:
             try:
                 self._settings_saver(intake_root)
-            except Exception:
-                pass
+            except Exception as exc:
+                self.workspace_feedback_var.set(
+                    "Foundation loaded, but RCIS couldn't remember this data source for next time."
+                )
+                self.technical_error_var.set(str(exc))
 
         self._set_data_source_visible(False)
         return True
@@ -1211,7 +1336,7 @@ class GroundedPromptTkApplication:
         )
 
     def refresh_variants(self) -> None:
-        self.error_var.set("")
+        self._clear_error_state()
         self.variant_var.set("")
         self.variant_combo.configure(
             values=(),
@@ -1229,7 +1354,10 @@ class GroundedPromptTkApplication:
                 product_id
             )
         except Exception as exc:
-            self.error_var.set(str(exc))
+            self._show_friendly_error(
+                "RCIS couldn't load variants for this product. Choose another product or try again.",
+                technical=str(exc),
+            )
             return
         self.variant_combo.configure(
             values=variants,
@@ -1237,11 +1365,14 @@ class GroundedPromptTkApplication:
         )
 
     def submit(self) -> None:
-        self.error_var.set("")
+        self._clear_error_state()
+        self.copy_feedback_var.set("")
         self._clear_result_output()
         if self._controller is None:
-            self.error_var.set(
-                "foundation must be loaded before submit"
+            self._show_friendly_error(
+                "RCIS needs a data source before it can generate a prompt.",
+                technical="foundation must be loaded before submit",
+                open_settings=True,
             )
             self.result_state_var.set(
                 "Could not generate prompt"
@@ -1262,11 +1393,16 @@ class GroundedPromptTkApplication:
                 requested_output=requested_output,
             )
         except Exception as exc:
-            self.error_var.set(str(exc))
+            self._show_friendly_error(
+                self._friendly_submit_error(exc),
+                technical=str(exc),
+                retry_action="submit",
+            )
             self.result_state_var.set(
                 "Could not generate prompt"
             )
             return
+        self._clear_error_state()
         self._render_result(result)
         self._record_successful_prompt(result)
 

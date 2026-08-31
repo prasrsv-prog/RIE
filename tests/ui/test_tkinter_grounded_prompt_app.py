@@ -158,7 +158,8 @@ def test_submit_validation_requires_explicit_product_variant_and_text_inputs(roo
 
     app.submit()
 
-    assert "product_id" in app.error_var.get()
+    assert app.error_var.get() == "Choose a Product before generating the prompt."
+    assert "product_id must not be empty" in app.technical_error_var.get()
     assert controller.submit_calls == []
 
 
@@ -220,7 +221,8 @@ def test_failure_renders_error_without_clearing_operator_inputs(root) -> None:
 
     app.submit()
 
-    assert "requested_output" in app.error_var.get()
+    assert app.error_var.get() == "Describe the Requested Output before generating the prompt."
+    assert "requested_output must not be empty" in app.technical_error_var.get()
     assert app.product_var.get() == "alpha"
     assert app.variant_var.get() == "alpha-a"
     assert app.background_var.get() == "dark studio"
@@ -409,7 +411,8 @@ def test_phase_h_rejected_remembered_setting_falls_back_without_crashing(root) -
     assert app.intake_root_var.get() == remembered
     assert app._controller is None
     assert tuple(app.product_combo["values"]) == ()
-    assert "remembered intake rejected" in app.error_var.get()
+    assert app.error_var.get() == "RCIS couldn\'t load this data source. Check the folder and try again."
+    assert "remembered intake rejected" in app.technical_error_var.get()
 
 
 def test_phase_h_browse_attempts_load_and_persists_only_on_success(root) -> None:
@@ -459,7 +462,8 @@ def test_phase_h_failed_manual_load_does_not_replace_last_known_good_setting(roo
 
     assert calls == [good, bad]
     assert saved == [good]
-    assert "bad intake" in app.error_var.get()
+    assert app.error_var.get() == "RCIS couldn\'t load this data source. Check the folder and try again."
+    assert "bad intake" in app.technical_error_var.get()
 
 
 def test_phase_h_repeat_launch_uses_remembered_intake_without_browse_or_load(root) -> None:
@@ -1019,4 +1023,208 @@ def test_phase_j_workspace_save_failure_does_not_invalidate_successful_prompt(ro
     assert len(controller.submit_calls) == 1
     assert app.result_state_var.get() == "Prompt ready"
     assert app.prompt_output.get("1.0", "end-1c") == "compiled grounded prompt"
-    assert "workspace disk unavailable" in app.workspace_feedback_var.get()
+    assert app.workspace_feedback_var.get() == (
+        "Local workspace could not be saved. Your current prompt is still available."
+    )
+    assert "workspace disk unavailable" in app.technical_error_var.get()
+
+def test_phase_k_empty_data_source_uses_friendly_primary_error_and_technical_detail(root) -> None:
+    app, controller, calls = _phase_j_app(root)
+    app.load_foundation()
+    assert app.error_var.get() == "Choose a data source before loading RCIS."
+    assert app.technical_error_var.get() == "intake_root must not be empty"
+    assert controller.submit_calls == []
+    assert calls == []
+
+def test_phase_k_settings_loader_failure_is_visible_without_crash(root) -> None:
+    def fail_load():
+        raise OSError("settings file unavailable")
+    app = GroundedPromptTkApplication(
+        root,
+        controller_factory=lambda **_kwargs: _FakeController(),
+        directory_picker=lambda: "",
+        settings_loader=fail_load,
+        settings_saver=lambda _value: None,
+        workspace_loader=lambda: empty_workspace(),
+        workspace_saver=lambda _workspace: None,
+    )
+    assert app.error_var.get() == "Saved data source could not be restored. Open Settings to choose it again."
+    assert "settings file unavailable" in app.technical_error_var.get()
+    assert app._data_source_visible is True
+
+def test_phase_k_manual_load_failure_exposes_try_again_and_one_retry_only(root) -> None:
+    controller = _FakeController()
+    calls = []
+    def factory(*, intake_root):
+        calls.append(intake_root)
+        if len(calls) == 1:
+            raise OSError("temporary intake read failure")
+        return controller
+    app = GroundedPromptTkApplication(
+        root,
+        controller_factory=factory,
+        directory_picker=lambda: "",
+        settings_loader=lambda: None,
+        settings_saver=lambda _value: None,
+        workspace_loader=lambda: empty_workspace(),
+        workspace_saver=lambda _workspace: None,
+    )
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    assert calls == [r"C:\pilot\intake"]
+    assert app.error_var.get() == "RCIS couldn't load this data source. Check the folder and try again."
+    assert "temporary intake read failure" in app.technical_error_var.get()
+    app.retry_button.invoke()
+    assert calls == [r"C:\pilot\intake", r"C:\pilot\intake"]
+    assert app._controller is controller
+    assert controller.submit_calls == []
+
+def test_phase_k_settings_save_failure_is_nonfatal_and_visible(root) -> None:
+    def fail_save(_value):
+        raise OSError("settings write blocked")
+    controller = _FakeController()
+    app = GroundedPromptTkApplication(
+        root,
+        controller_factory=lambda **_kwargs: controller,
+        directory_picker=lambda: "",
+        settings_loader=lambda: None,
+        settings_saver=fail_save,
+        workspace_loader=lambda: empty_workspace(),
+        workspace_saver=lambda _workspace: None,
+    )
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    assert app._controller is controller
+    assert app.workspace_feedback_var.get() == (
+        "Foundation loaded, but RCIS couldn't remember this data source for next time."
+    )
+    assert "settings write blocked" in app.technical_error_var.get()
+    assert app.error_var.get() == ""
+
+def test_phase_k_submit_without_foundation_is_friendly_and_open_settings_never_submits(root) -> None:
+    app, controller, calls = _phase_j_app(root)
+    app.submit()
+    assert app.error_var.get() == "RCIS needs a data source before it can generate a prompt."
+    assert app.technical_error_var.get() == "foundation must be loaded before submit"
+    app.open_settings_button.invoke()
+    assert app._workspace_view == "Settings"
+    assert app._data_source_visible is True
+    assert controller.submit_calls == []
+    assert calls == []
+
+def test_phase_k_validation_failure_try_again_submits_once_after_fix(root) -> None:
+    app, controller, _ = _phase_j_app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_var.set("alpha")
+    app.refresh_variants()
+    app.variant_var.set("alpha-a")
+    app.background_var.set("dark studio")
+    app.camera_angle_var.set("front")
+    app.requested_output_text.insert("1.0", "   ")
+    app.submit()
+    assert controller.submit_calls == []
+    assert app.error_var.get() == "Describe the Requested Output before generating the prompt."
+    assert "requested_output must not be empty" in app.technical_error_var.get()
+    app.requested_output_text.delete("1.0", "end")
+    app.requested_output_text.insert("1.0", "grounded product prompt")
+    app.retry_button.invoke()
+    assert len(controller.submit_calls) == 1
+    assert app.result_state_var.get() == "Prompt ready"
+
+def test_phase_k_success_after_retry_clears_error_and_technical_detail(root) -> None:
+    app, controller, _ = _phase_j_app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_var.set("alpha")
+    app.refresh_variants()
+    app.variant_var.set("alpha-a")
+    app.background_var.set("dark studio")
+    app.camera_angle_var.set("front")
+    app.submit()
+    assert app.error_var.get() == "Describe the Requested Output before generating the prompt."
+    app.requested_output_text.insert("1.0", "grounded product prompt")
+    app.retry_button.invoke()
+    assert len(controller.submit_calls) == 1
+    assert app.error_var.get() == ""
+    assert app.technical_error_var.get() == ""
+
+def test_phase_k_copy_prompt_success_has_feedback_without_request_mutation(root, monkeypatch) -> None:
+    app, controller, calls = _prime_success_for_invalidation(root)
+    copied = []
+    monkeypatch.setattr(root, "clipboard_clear", lambda: copied.clear())
+    monkeypatch.setattr(root, "clipboard_append", copied.append)
+    before = app._visible_request()
+    app.copy_prompt()
+    assert copied == ["compiled grounded prompt"]
+    assert app.copy_feedback_var.get() == "Copied to clipboard."
+    assert app._visible_request() == before
+    assert len(controller.submit_calls) == 1
+    assert calls == [r"C:\pilot\intake"]
+
+def test_phase_k_copy_prompt_failure_is_caught_and_retry_uses_same_text(root, monkeypatch) -> None:
+    app, controller, _ = _prime_success_for_invalidation(root)
+    failures = []
+    def fail_append(value):
+        failures.append(value)
+        raise OSError("clipboard unavailable")
+    monkeypatch.setattr(root, "clipboard_clear", lambda: None)
+    monkeypatch.setattr(root, "clipboard_append", fail_append)
+    app.copy_prompt()
+    assert failures == ["compiled grounded prompt"]
+    assert app.error_var.get() == "RCIS couldn't copy to the clipboard. Try again."
+    assert "clipboard unavailable" in app.technical_error_var.get()
+    copied = []
+    monkeypatch.setattr(root, "clipboard_append", copied.append)
+    app.retry_button.invoke()
+    assert copied == ["compiled grounded prompt"]
+    assert app.copy_feedback_var.get() == "Copied to clipboard."
+    assert len(controller.submit_calls) == 1
+
+def test_phase_k_recent_copy_failure_is_caught_without_request_or_submit_mutation(root, monkeypatch) -> None:
+    workspace = record_recent_prompt(
+        empty_workspace(),
+        {"product_id":"alpha","variant_id":"alpha-a","background":"bg","camera_angle":"front","requested_output":"out"},
+        "stored history prompt",
+    )
+    app, controller, _ = _phase_j_app(root, workspace_loader=lambda: workspace)
+    before = app._visible_request()
+    app.recent_listbox.selection_set(0)
+    monkeypatch.setattr(root, "clipboard_clear", lambda: None)
+    def fail_append(_value):
+        raise OSError("recent clipboard blocked")
+    monkeypatch.setattr(root, "clipboard_append", fail_append)
+    app.copy_recent_prompt()
+    assert app.error_var.get() == "RCIS couldn't copy to the clipboard. Try again."
+    assert "recent clipboard blocked" in app.technical_error_var.get()
+    assert app._visible_request() == before
+    assert controller.submit_calls == []
+
+def test_phase_k_workspace_save_failure_stays_nonfatal_and_friendly(root) -> None:
+    def fail_save(_state):
+        raise OSError("workspace persistence denied")
+    app = GroundedPromptTkApplication(
+        root,
+        controller_factory=lambda **_kwargs: _FakeController(),
+        directory_picker=lambda: "",
+        settings_loader=lambda: None,
+        settings_saver=lambda _value: None,
+        workspace_loader=lambda: empty_workspace(),
+        workspace_saver=fail_save,
+    )
+    app.intake_root_var.set(r"C:\\pilot\\intake")
+    app.load_foundation()
+    app.background_var.set("changed")
+    assert app.workspace_feedback_var.get() == (
+        "Local workspace could not be saved. Your current prompt is still available."
+    )
+    assert "workspace persistence denied" in app.technical_error_var.get()
+
+def test_phase_k_recovery_controls_and_technical_detail_are_available(root) -> None:
+    app, _, _ = _phase_j_app(root)
+    assert app.retry_button.cget("text") == "Try Again"
+    assert app.open_settings_button.cget("text") == "Open Settings"
+    assert app.technical_error_var.get() == ""
+    app.load_foundation()
+    assert app.error_var.get() == "Choose a data source before loading RCIS."
+    assert app.technical_error_var.get() == "intake_root must not be empty"
