@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import tkinter as tk
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,11 +27,42 @@ class _FakeController:
         self.product_ids = ("alpha", "beta")
         self.submit_calls = []
 
+    @property
+    def product_options(self):
+        return (
+            SimpleNamespace(product_id="alpha", label="Alpha"),
+            SimpleNamespace(product_id="beta", label="Beta"),
+        )
+
     def variant_ids_for_product(self, product_id):
         if product_id == "alpha":
             return ("alpha-a", "alpha-b")
         if product_id == "beta":
             return ("beta-a",)
+        raise GroundedPromptUiContractError("unknown active product_id")
+
+    def variant_options_for_product(self, product_id):
+        if product_id == "alpha":
+            return (
+                SimpleNamespace(
+                    variant_id="alpha-a",
+                    product_id="alpha",
+                    label="Alpha A",
+                ),
+                SimpleNamespace(
+                    variant_id="alpha-b",
+                    product_id="alpha",
+                    label="Alpha B",
+                ),
+            )
+        if product_id == "beta":
+            return (
+                SimpleNamespace(
+                    variant_id="beta-a",
+                    product_id="beta",
+                    label="Beta A",
+                ),
+            )
         raise GroundedPromptUiContractError("unknown active product_id")
 
     def submit(
@@ -134,7 +166,7 @@ def test_load_foundation_uses_exact_visible_intake_root_and_populates_products_w
     app.load_foundation()
 
     assert calls == [r"C:\pilot\intake"]
-    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
+    assert tuple(app.product_combo["values"]) == ("Alpha", "Beta")
     assert app.product_var.get() == ""
     assert app.variant_var.get() == ""
 
@@ -147,7 +179,7 @@ def test_product_selection_populates_variants_and_keeps_variant_unselected(root)
 
     app.refresh_variants()
 
-    assert tuple(app.variant_combo["values"]) == ("alpha-a", "alpha-b")
+    assert tuple(app.variant_combo["values"]) == ("Alpha A", "Alpha B")
     assert app.variant_var.get() == ""
 
 
@@ -239,7 +271,7 @@ def test_browse_intake_root_sets_selected_directory_and_loads_foundation(root) -
 
     assert app.intake_root_var.get() == selected_directory
     assert calls == [selected_directory]
-    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
+    assert tuple(app.product_combo["values"]) == ("Alpha", "Beta")
     assert tuple(app.variant_combo["values"]) == ()
 
 
@@ -345,7 +377,7 @@ def test_product_change_after_success_clears_rendered_success_and_keeps_variant_
     _assert_rendered_success_is_clear(app)
     assert app.product_var.get() == "beta"
     assert app.variant_var.get() == ""
-    assert tuple(app.variant_combo["values"]) == ("beta-a",)
+    assert tuple(app.variant_combo["values"]) == ("Beta A",)
     assert len(controller.submit_calls) == 1
     assert calls == [r"C:\pilot\intake"]
 
@@ -385,7 +417,7 @@ def test_phase_h_valid_remembered_setting_auto_loads_foundation_at_startup(root)
     assert calls == [remembered]
     assert app.intake_root_var.get() == remembered
     assert app._controller is not None
-    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
+    assert tuple(app.product_combo["values"]) == ("Alpha", "Beta")
     assert app.product_var.get() == ""
     assert app.variant_var.get() == ""
 
@@ -430,7 +462,7 @@ def test_phase_h_browse_attempts_load_and_persists_only_on_success(root) -> None
     assert saved == [selected]
     assert app.intake_root_var.get() == selected
     assert app._controller is not None
-    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
+    assert tuple(app.product_combo["values"]) == ("Alpha", "Beta")
 
 
 def test_phase_h_failed_manual_load_does_not_replace_last_known_good_setting(root) -> None:
@@ -491,7 +523,7 @@ def test_phase_h_repeat_launch_uses_remembered_intake_without_browse_or_load(roo
     assert second_calls == [selected]
     assert second.intake_root_var.get() == selected
     assert second._controller is not None
-    assert tuple(second.product_combo["values"]) == ("alpha", "beta")
+    assert tuple(second.product_combo["values"]) == ("Alpha", "Beta")
     assert second.product_var.get() == ""
     assert second.variant_var.get() == ""
 
@@ -621,7 +653,7 @@ def test_phase_i_new_request_clears_request_and_result_but_keeps_foundation(root
     assert app.exact_six_status_var.get() == ""
     assert app.binding_status_var.get() == ""
     assert app.grounding_status_var.get() == ""
-    assert tuple(app.product_combo["values"]) == ("alpha", "beta")
+    assert tuple(app.product_combo["values"]) == ("Alpha", "Beta")
     assert tuple(app.variant_combo["values"]) == ()
     assert focus_calls == ["product"]
 
@@ -896,7 +928,7 @@ def test_phase_j_preset_save_load_delete_is_local_and_never_submits(root) -> Non
     assert controller.submit_calls == []
 
 
-def test_phase_j_products_lists_canonical_ids_and_sets_explicit_default_without_catalog_change(root) -> None:
+def test_phase_j_products_render_labels_and_set_explicit_id_default_without_catalog_change(root) -> None:
     app, controller, _ = _phase_j_app(
         root,
         settings_loader=lambda: r"C:\pilot\remembered-intake",
@@ -905,9 +937,9 @@ def test_phase_j_products_lists_canonical_ids_and_sets_explicit_default_without_
     app.show_workspace_view("Products")
 
     assert tuple(app.product_variant_listbox.get(0, "end")) == (
-        "alpha / alpha-a",
-        "alpha / alpha-b",
-        "beta / beta-a",
+        "Alpha / Alpha A",
+        "Alpha / Alpha B",
+        "Beta / Beta A",
     )
     app.product_variant_listbox.selection_set(1)
     app.set_selected_product_variant_default()
@@ -937,7 +969,7 @@ def test_phase_j_settings_retains_data_source_recovery_and_can_clear_default(roo
 
     assert app._data_source_visible is True
     assert app.settings_data_source_button.cget("text") == "Data Source"
-    assert app.default_status_var.get() == "alpha / alpha-a"
+    assert app.default_status_var.get() == "Alpha / Alpha A"
 
     app.clear_default_product_variant()
 
@@ -1228,3 +1260,124 @@ def test_phase_k_recovery_controls_and_technical_detail_are_available(root) -> N
     app.load_foundation()
     assert app.error_var.get() == "Choose a data source before loading RCIS."
     assert app.technical_error_var.get() == "intake_root must not be empty"
+
+
+def test_phase_m_product_combobox_displays_labels_but_keeps_internal_id_empty_until_selection(root) -> None:
+    app, _, _ = _app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    assert tuple(app.product_combo["values"]) == ("Alpha", "Beta")
+    assert app.product_label_var.get() == ""
+    assert app.product_var.get() == ""
+
+
+def test_phase_m_exact_product_label_selection_resolves_loaded_id_without_inference(root) -> None:
+    app, _, _ = _app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_label_var.set("Alpha")
+    app._on_product_label_selected()
+    assert app.product_var.get() == "alpha"
+    assert tuple(app.variant_combo["values"]) == ("Alpha A", "Alpha B")
+    assert app.variant_var.get() == ""
+
+
+def test_phase_m_variant_combobox_displays_labels_and_exact_selection_resolves_id(root) -> None:
+    app, _, _ = _app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_label_var.set("Alpha")
+    app._on_product_label_selected()
+    app.variant_label_var.set("Alpha B")
+    app._on_variant_label_selected()
+    assert app.product_var.get() == "alpha"
+    assert app.variant_var.get() == "alpha-b"
+
+
+def test_phase_m_submit_from_visible_labels_forwards_exact_original_ids(root) -> None:
+    app, controller, _ = _app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_label_var.set("Alpha")
+    app._on_product_label_selected()
+    app.variant_label_var.set("Alpha A")
+    app._on_variant_label_selected()
+    app.background_var.set("dark studio")
+    app.camera_angle_var.set("front")
+    app.requested_output_text.insert("1.0", "grounded product prompt")
+    app.submit()
+    assert controller.submit_calls[-1]["product_id"] == "alpha"
+    assert controller.submit_calls[-1]["variant_id"] == "alpha-a"
+
+
+def test_phase_m_workspace_persistence_remains_id_based_while_hydration_renders_labels(root) -> None:
+    workspace = set_last_request(
+        empty_workspace(),
+        {
+            "product_id": "beta",
+            "variant_id": "beta-a",
+            "background": "workspace background",
+            "camera_angle": "side",
+            "requested_output": "workspace output",
+        },
+    )
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == "beta-a"
+    assert app.product_label_var.get() == "Beta"
+    assert app.variant_label_var.get() == "Beta A"
+    assert app._visible_request()["product_id"] == "beta"
+    assert app._visible_request()["variant_id"] == "beta-a"
+
+
+def test_phase_m_products_and_default_views_render_labels_but_store_ids(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+    )
+    app.show_workspace_view("Products")
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "Alpha / Alpha A",
+        "Alpha / Alpha B",
+        "Beta / Beta A",
+    )
+    app.product_variant_listbox.selection_set(1)
+    app.set_selected_product_variant_default()
+    assert app._workspace["default_product_variant"] == {
+        "product_id": "alpha",
+        "variant_id": "alpha-b",
+    }
+    assert app.default_status_var.get() == "Alpha / Alpha B"
+
+
+def test_phase_m_unknown_visible_product_label_fails_closed_without_id_derivation(root) -> None:
+    app, _, _ = _app(root)
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_label_var.set("alpha")
+    app._on_product_label_selected()
+    assert app.product_var.get() == ""
+    assert app.variant_var.get() == ""
+    assert "couldn't resolve the selected product" in app.error_var.get()
+
+
+def test_phase_m_source_has_no_label_slugification_or_direct_governed_data_access() -> None:
+    source = inspect.getsource(
+        __import__(
+            "rie.ui.tkinter_grounded_prompt_app",
+            fromlist=["GroundedPromptTkApplication"],
+        )
+    )
+    lowered = source.lower()
+    assert "slugify" not in lowered
+    assert "label.lower(" not in lowered
+    assert "label.casefold(" not in lowered
+    assert "label.replace(" not in lowered
+    assert "label.split(" not in lowered
+    assert "sqlite" not in lowered
+    assert "pilot-product-variant-exact18" not in lowered
+    assert "pilot-source-intake-manifest" not in lowered

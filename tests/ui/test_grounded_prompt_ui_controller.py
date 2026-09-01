@@ -215,3 +215,74 @@ def test_controller_has_no_tkinter_or_direct_frozen_database_dependency() -> Non
     assert "rie.rsv_knowledge" not in source
     assert "evidence_repository" not in source
     assert "knowledge_repository" not in source
+
+
+def test_phase_m_product_options_use_exact_catalog_names_and_preserve_id_api() -> None:
+    controller = GroundedPromptUiController(
+        catalog=_catalog(),
+        service=_FakeService(),
+    )
+    assert tuple(
+        (option.product_id, option.label)
+        for option in controller.product_options
+    ) == (
+        ("alpha", "Alpha"),
+        ("beta", "Beta"),
+    )
+    assert controller.product_ids == ("alpha", "beta")
+
+
+def test_phase_m_variant_options_are_scoped_and_preserve_exact_ids() -> None:
+    controller = GroundedPromptUiController(
+        catalog=_catalog(),
+        service=_FakeService(),
+    )
+    assert tuple(
+        (option.variant_id, option.product_id, option.label)
+        for option in controller.variant_options_for_product("alpha")
+    ) == (
+        ("alpha-a", "alpha", "Alpha A"),
+        ("alpha-b", "alpha", "Alpha B"),
+    )
+    assert controller.variant_ids_for_product("alpha") == (
+        "alpha-a",
+        "alpha-b",
+    )
+
+
+def test_phase_m_duplicate_active_product_labels_fail_closed() -> None:
+    catalog = ProductCatalog(
+        products=(
+            ProductRecord("alpha", "Shared", "RSV", "active"),
+            ProductRecord("beta", "Shared", "RSV", "active"),
+        ),
+        variants=(),
+    )
+    controller = GroundedPromptUiController(
+        catalog=catalog,
+        service=_FakeService(),
+    )
+    with pytest.raises(
+        GroundedPromptUiContractError,
+        match="product presentation labels must be unique",
+    ):
+        _ = controller.product_options
+
+
+def test_phase_m_duplicate_same_product_variant_labels_fail_closed() -> None:
+    catalog = ProductCatalog(
+        products=(ProductRecord("alpha", "Alpha", "RSV", "active"),),
+        variants=(
+            VariantRecord("alpha-a", "alpha", "Shared", "active"),
+            VariantRecord("alpha-b", "alpha", "Shared", "active"),
+        ),
+    )
+    controller = GroundedPromptUiController(
+        catalog=catalog,
+        service=_FakeService(),
+    )
+    with pytest.raises(
+        GroundedPromptUiContractError,
+        match="variant presentation labels must be unique within product",
+    ):
+        controller.variant_options_for_product("alpha")

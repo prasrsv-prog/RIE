@@ -41,6 +41,27 @@ class GroundedPromptUiResult:
     grounding_status: str
 
 
+@dataclass(frozen=True)
+class GroundedPromptUiProductOption:
+    product_id: str
+    label: str
+
+
+@dataclass(frozen=True)
+class GroundedPromptUiVariantOption:
+    variant_id: str
+    product_id: str
+    label: str
+
+
+def _presentation_label(value: str, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise GroundedPromptUiContractError(f"{field_name} must be a string")
+    if not value.strip():
+        raise GroundedPromptUiContractError(f"{field_name} must not be empty")
+    return value
+
+
 class GroundedPromptUiController:
     """Thin UI-independent adapter over the published Phase E application surface."""
 
@@ -83,6 +104,26 @@ class GroundedPromptUiController:
             if product.status == "active"
         )
 
+    @property
+    def product_options(self) -> tuple[GroundedPromptUiProductOption, ...]:
+        options = tuple(
+            GroundedPromptUiProductOption(
+                product_id=product.product_id,
+                label=_presentation_label(
+                    product.canonical_name,
+                    f"product label for {product.product_id}",
+                ),
+            )
+            for product in self._catalog.products
+            if product.status == "active"
+        )
+        labels = tuple(option.label for option in options)
+        if len(set(labels)) != len(labels):
+            raise GroundedPromptUiContractError(
+                "active product presentation labels must be unique"
+            )
+        return options
+
     def variant_ids_for_product(self, product_id: str) -> tuple[str, ...]:
         product_id = _required_text(product_id, "product_id")
         if product_id not in self.product_ids:
@@ -94,6 +135,34 @@ class GroundedPromptUiController:
             for variant in self._catalog.variants
             if variant.status == "active" and variant.product_id == product_id
         )
+
+    def variant_options_for_product(
+        self,
+        product_id: str,
+    ) -> tuple[GroundedPromptUiVariantOption, ...]:
+        product_id = _required_text(product_id, "product_id")
+        if product_id not in self.product_ids:
+            raise GroundedPromptUiContractError(
+                f"unknown active product_id: {product_id}"
+            )
+        options = tuple(
+            GroundedPromptUiVariantOption(
+                variant_id=variant.variant_id,
+                product_id=variant.product_id,
+                label=_presentation_label(
+                    variant.canonical_name,
+                    f"variant label for {variant.variant_id}",
+                ),
+            )
+            for variant in self._catalog.variants
+            if variant.status == "active" and variant.product_id == product_id
+        )
+        labels = tuple(option.label for option in options)
+        if len(set(labels)) != len(labels):
+            raise GroundedPromptUiContractError(
+                "active variant presentation labels must be unique within product"
+            )
+        return options
 
     def submit(
         self,

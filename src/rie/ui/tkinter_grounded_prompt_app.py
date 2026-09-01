@@ -71,6 +71,12 @@ class GroundedPromptTkApplication:
         self.intake_root_var = tk.StringVar(master=root, value="")
         self.product_var = tk.StringVar(master=root, value="")
         self.variant_var = tk.StringVar(master=root, value="")
+        self.product_label_var = tk.StringVar(master=root, value="")
+        self.variant_label_var = tk.StringVar(master=root, value="")
+        self._product_label_to_id: dict[str, str] = {}
+        self._product_id_to_label: dict[str, str] = {}
+        self._variant_label_to_id: dict[str, str] = {}
+        self._variant_id_to_label: dict[str, str] = {}
         self.background_var = tk.StringVar(master=root, value="")
         self.camera_angle_var = tk.StringVar(master=root, value="")
         self.error_var = tk.StringVar(master=root, value="")
@@ -269,7 +275,7 @@ class GroundedPromptTkApplication:
         )
         self.product_combo = ttk.Combobox(
             frame,
-            textvariable=self.product_var,
+            textvariable=self.product_label_var,
             values=(),
             state="disabled",
         )
@@ -282,7 +288,7 @@ class GroundedPromptTkApplication:
         )
         self.product_combo.bind(
             "<<ComboboxSelected>>",
-            lambda event: self.refresh_variants(),
+            self._on_product_label_selected,
         )
 
         ttk.Label(frame, text="Variant").grid(
@@ -294,7 +300,7 @@ class GroundedPromptTkApplication:
         )
         self.variant_combo = ttk.Combobox(
             frame,
-            textvariable=self.variant_var,
+            textvariable=self.variant_label_var,
             values=(),
             state="disabled",
         )
@@ -306,6 +312,10 @@ class GroundedPromptTkApplication:
             pady=3,
         )
 
+        self.variant_combo.bind(
+            "<<ComboboxSelected>>",
+            self._on_variant_label_selected,
+        )
         ttk.Label(frame, text="Background").grid(
             row=4,
             column=0,
@@ -666,6 +676,102 @@ class GroundedPromptTkApplication:
         self._set_details_visible(False)
         self._set_workspace_view("New Prompt")
 
+    def _set_product_options(self, options: tuple) -> None:
+        self._product_label_to_id = {
+            option.label: option.product_id
+            for option in options
+        }
+        self._product_id_to_label = {
+            option.product_id: option.label
+            for option in options
+        }
+        self.product_combo.configure(
+            values=tuple(option.label for option in options),
+        )
+
+    def _set_variant_options(self, options: tuple) -> None:
+        self._variant_label_to_id = {
+            option.label: option.variant_id
+            for option in options
+        }
+        self._variant_id_to_label = {
+            option.variant_id: option.label
+            for option in options
+        }
+        self.variant_combo.configure(
+            values=tuple(option.label for option in options),
+        )
+
+    def _label_for_product_id(self, product_id: str) -> str | None:
+        return self._product_id_to_label.get(product_id)
+
+    def _label_for_variant_id(
+        self,
+        product_id: str,
+        variant_id: str,
+    ) -> str | None:
+        if self._controller is None:
+            return None
+        try:
+            options = self._controller.variant_options_for_product(
+                product_id
+            )
+        except Exception:
+            return None
+        for option in options:
+            if option.variant_id == variant_id:
+                return option.label
+        return None
+
+    def _display_product_variant(
+        self,
+        product_id: str,
+        variant_id: str,
+    ) -> str:
+        product_label = self._label_for_product_id(product_id)
+        variant_label = self._label_for_variant_id(
+            product_id,
+            variant_id,
+        )
+        if product_label is None or variant_label is None:
+            return "Unavailable saved selection"
+        return product_label + " / " + variant_label
+
+    def _on_product_label_selected(self, _event: object = None) -> None:
+        label = self.product_label_var.get()
+        product_id = self._product_label_to_id.get(label)
+        if product_id is None:
+            self.product_var.set("")
+            self.variant_var.set("")
+            self.variant_label_var.set("")
+            self._set_variant_options(())
+            self.variant_combo.configure(state="disabled")
+            self._show_friendly_error(
+                "RCIS couldn't resolve the selected product. Reload the data source and try again.",
+                technical=(
+                    "selected product label is not present in the loaded "
+                    "catalog adapter"
+                ),
+            )
+            return
+        self.product_var.set(product_id)
+        self.refresh_variants()
+
+    def _on_variant_label_selected(self, _event: object = None) -> None:
+        label = self.variant_label_var.get()
+        variant_id = self._variant_label_to_id.get(label)
+        if variant_id is None:
+            self.variant_var.set("")
+            self._show_friendly_error(
+                "RCIS couldn't resolve the selected variant. Choose it again.",
+                technical=(
+                    "selected variant label is not present in the loaded "
+                    "catalog adapter"
+                ),
+            )
+            return
+        self.variant_var.set(variant_id)
+
     def _visible_request(self) -> dict:
         return {
             "product_id": self.product_var.get(),
@@ -735,20 +841,28 @@ class GroundedPromptTkApplication:
         self._suspend_workspace_persistence = True
         try:
             self.product_var.set(product_id)
+            self.product_label_var.set(
+                self._product_id_to_label.get(product_id, "")
+                if product_id
+                else ""
+            )
             if product_id and self._controller is not None:
-                variants = self._controller.variant_ids_for_product(
-                    product_id
+                variant_options = (
+                    self._controller.variant_options_for_product(
+                        product_id
+                    )
                 )
-                self.variant_combo.configure(
-                    values=variants,
-                    state="readonly",
-                )
+                self._set_variant_options(variant_options)
+                self.variant_combo.configure(state="readonly")
             else:
-                self.variant_combo.configure(
-                    values=(),
-                    state="disabled",
-                )
+                self._set_variant_options(())
+                self.variant_combo.configure(state="disabled")
             self.variant_var.set(variant_id)
+            self.variant_label_var.set(
+                self._variant_id_to_label.get(variant_id, "")
+                if variant_id
+                else ""
+            )
             self.background_var.set(
                 str(request.get("background", ""))
             )
@@ -790,14 +904,18 @@ class GroundedPromptTkApplication:
         ):
             return False
         self.product_var.set(product_id)
-        variants = self._controller.variant_ids_for_product(
+        self.product_label_var.set(
+            self._product_id_to_label.get(product_id, "")
+        )
+        variant_options = self._controller.variant_options_for_product(
             product_id
         )
-        self.variant_combo.configure(
-            values=variants,
-            state="readonly",
-        )
+        self._set_variant_options(variant_options)
+        self.variant_combo.configure(state="readonly")
         self.variant_var.set(variant_id)
+        self.variant_label_var.set(
+            self._variant_id_to_label.get(variant_id, "")
+        )
         return True
 
     def _record_successful_prompt(
@@ -830,9 +948,10 @@ class GroundedPromptTkApplication:
             self.recent_listbox.insert(
                 "end",
                 favorite
-                + item["product_id"]
-                + " / "
-                + item["variant_id"],
+                + self._display_product_variant(
+                    item["product_id"],
+                    item["variant_id"],
+                ),
             )
 
     def _refresh_presets_workspace(self) -> None:
@@ -850,28 +969,36 @@ class GroundedPromptTkApplication:
             (item["product_id"], item["variant_id"])
             for item in self._workspace["product_favorites"]
         }
-        for product_id in self._controller.product_ids:
+        for product_option in self._controller.product_options:
+            product_id = product_option.product_id
             try:
-                variants = self._controller.variant_ids_for_product(
+                variants = self._controller.variant_options_for_product(
                     product_id
                 )
             except Exception:
                 continue
-            for variant_id in variants:
+            for variant_option in variants:
+                variant_id = variant_option.variant_id
                 marker = "* " if (
                     product_id,
                     variant_id,
                 ) in favorites else ""
                 self.product_variant_listbox.insert(
                     "end",
-                    marker + product_id + " / " + variant_id,
+                    marker
+                    + product_option.label
+                    + " / "
+                    + variant_option.label,
                 )
 
     def _refresh_default_status(self) -> None:
         value = self._workspace.get("default_product_variant")
         if isinstance(value, dict):
             self.default_status_var.set(
-                value["product_id"] + " / " + value["variant_id"]
+                self._display_product_variant(
+                    value["product_id"],
+                    value["variant_id"],
+                )
             )
         else:
             self.default_status_var.set("No default")
@@ -1014,15 +1141,18 @@ class GroundedPromptTkApplication:
         if index is None or self._controller is None:
             return None
         values = []
-        for product_id in self._controller.product_ids:
+        for product_option in self._controller.product_options:
+            product_id = product_option.product_id
             try:
-                variants = self._controller.variant_ids_for_product(
+                variants = self._controller.variant_options_for_product(
                     product_id
                 )
             except Exception:
                 continue
-            for variant_id in variants:
-                values.append((product_id, variant_id))
+            for variant_option in variants:
+                values.append(
+                    (product_id, variant_option.variant_id)
+                )
         if index >= len(values):
             return None
         return values[index]
@@ -1228,14 +1358,14 @@ class GroundedPromptTkApplication:
         try:
             self.product_var.set("")
             self.variant_var.set("")
+            self.product_label_var.set("")
+            self.variant_label_var.set("")
             self.background_var.set("")
             self.camera_angle_var.set("")
             self.requested_output_text.delete("1.0", "end")
             self.requested_output_text.edit_modified(False)
-            self.variant_combo.configure(
-                values=(),
-                state="disabled",
-            )
+            self._set_variant_options(())
+            self.variant_combo.configure(state="disabled")
             self._apply_valid_default()
         finally:
             self._suspend_workspace_persistence = False
@@ -1280,6 +1410,7 @@ class GroundedPromptTkApplication:
             controller = self._controller_factory(
                 intake_root=intake_root
             )
+            product_options = controller.product_options
         except Exception as exc:
             self._show_friendly_error(
                 "RCIS couldn't load this data source. Check the folder and try again.",
@@ -1289,27 +1420,23 @@ class GroundedPromptTkApplication:
             )
             self._set_data_source_visible(True)
             return False
-
         previous_suspend = self._suspend_workspace_persistence
         self._suspend_workspace_persistence = True
         try:
             self._controller = controller
             self.product_var.set("")
             self.variant_var.set("")
-            self.product_combo.configure(
-                values=controller.product_ids,
-                state="readonly",
-            )
-            self.variant_combo.configure(
-                values=(),
-                state="disabled",
-            )
+            self.product_label_var.set("")
+            self.variant_label_var.set("")
+            self._set_product_options(product_options)
+            self.product_combo.configure(state="readonly")
+            self._set_variant_options(())
+            self.variant_combo.configure(state="disabled")
             self._restore_workspace_request_once()
         finally:
             self._suspend_workspace_persistence = previous_suspend
         self._refresh_products_workspace()
         self._refresh_workspace_views()
-
         if persist_on_success:
             try:
                 self._settings_saver(intake_root)
@@ -1338,19 +1465,17 @@ class GroundedPromptTkApplication:
     def refresh_variants(self) -> None:
         self._clear_error_state()
         self.variant_var.set("")
-        self.variant_combo.configure(
-            values=(),
-            state="disabled",
-        )
+        self.variant_label_var.set("")
+        self._set_variant_options(())
+        self.variant_combo.configure(state="disabled")
         if self._controller is None:
             return
 
         product_id = self.product_var.get().strip()
         if not product_id:
             return
-
         try:
-            variants = self._controller.variant_ids_for_product(
+            variants = self._controller.variant_options_for_product(
                 product_id
             )
         except Exception as exc:
@@ -1359,10 +1484,8 @@ class GroundedPromptTkApplication:
                 technical=str(exc),
             )
             return
-        self.variant_combo.configure(
-            values=variants,
-            state="readonly",
-        )
+        self._set_variant_options(variants)
+        self.variant_combo.configure(state="readonly")
 
     def submit(self) -> None:
         self._clear_error_state()
