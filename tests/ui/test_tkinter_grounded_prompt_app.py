@@ -1381,3 +1381,207 @@ def test_phase_m_source_has_no_label_slugification_or_direct_governed_data_acces
     assert "sqlite" not in lowered
     assert "pilot-product-variant-exact18" not in lowered
     assert "pilot-source-intake-manifest" not in lowered
+
+
+def _phase_n_app(
+    root,
+    *,
+    workspace=None,
+    save_dialog=lambda **_kwargs: "",
+    file_writer=lambda _path, _payload: None,
+):
+    state = empty_workspace() if workspace is None else workspace
+    return GroundedPromptTkApplication(
+        root,
+        controller_factory=lambda **_kwargs: _FakeController(),
+        directory_picker=lambda: "",
+        settings_loader=lambda: None,
+        settings_saver=lambda _value: None,
+        workspace_loader=lambda: state,
+        workspace_saver=lambda _workspace: None,
+        save_dialog=save_dialog,
+        file_writer=file_writer,
+    )
+
+
+def _phase_n_prime_success(app) -> None:
+    app.intake_root_var.set(r"C:\pilot\intake")
+    app.load_foundation()
+    app.product_label_var.set("Alpha")
+    app._on_product_label_selected()
+    app.variant_label_var.set("Alpha A")
+    app._on_variant_label_selected()
+    app.background_var.set("dark studio")
+    app.camera_angle_var.set("front")
+    app.requested_output_text.insert("1.0", "grounded product prompt")
+    app.submit()
+
+
+def test_phase_n_current_save_writes_exact_utf8_prompt_and_exact_dialog_contract(root) -> None:
+    dialogs = []
+    writes = []
+    def dialog(**kwargs):
+        dialogs.append(kwargs)
+        return r"C:\exports\prompt.txt"
+    app = _phase_n_app(
+        root,
+        save_dialog=dialog,
+        file_writer=lambda path, payload: writes.append((path, payload)),
+    )
+    _phase_n_prime_success(app)
+    before = app._visible_request()
+    app.save_prompt()
+    assert writes == [(r"C:\exports\prompt.txt", b"compiled grounded prompt")]
+    assert dialogs == [{
+        "title": "Save prompt",
+        "initialfile": "RCIS-grounded-prompt.txt",
+        "defaultextension": ".txt",
+        "filetypes": (
+            ("Text files", "*.txt"),
+            ("All files", "*.*"),
+        ),
+    }]
+    assert "initialdir" not in dialogs[0]
+    assert app.copy_feedback_var.get() == "Prompt saved."
+    assert app.result_state_var.get() == "Prompt ready"
+    assert app._visible_request() == before
+
+
+def test_phase_n_shared_writer_adds_no_bom_metadata_newline_or_newline_translation(root) -> None:
+    writes = []
+    app = _phase_n_app(
+        root,
+        save_dialog=lambda **_kwargs: r"C:\exports\exact.txt",
+        file_writer=lambda path, payload: writes.append((path, payload)),
+    )
+    prompt = "line one\nline two"
+    assert app._save_prompt_text(prompt) is True
+    assert writes == [(r"C:\exports\exact.txt", b"line one\nline two")]
+    assert not writes[0][1].startswith(b"\xef\xbb\xbf")
+    assert not writes[0][1].endswith(b"\n")
+    assert b"product_id" not in writes[0][1]
+    assert b"variant_id" not in writes[0][1]
+
+
+def test_phase_n_current_save_cancel_is_noop_and_preserves_result_workspace_and_feedback(root) -> None:
+    writes = []
+    app = _phase_n_app(
+        root,
+        save_dialog=lambda **_kwargs: "",
+        file_writer=lambda path, payload: writes.append((path, payload)),
+    )
+    _phase_n_prime_success(app)
+    app.copy_feedback_var.set("Copied to clipboard.")
+    before_request = app._visible_request()
+    before_workspace = app._workspace
+    app.save_prompt()
+    assert writes == []
+    assert app.prompt_output.get("1.0", "end-1c") == "compiled grounded prompt"
+    assert app.result_state_var.get() == "Prompt ready"
+    assert app.copy_feedback_var.get() == "Copied to clipboard."
+    assert app._visible_request() == before_request
+    assert app._workspace == before_workspace
+    assert app.error_var.get() == ""
+
+
+def test_phase_n_current_save_is_blocked_after_result_becomes_stale(root) -> None:
+    dialogs = []
+    app = _phase_n_app(
+        root,
+        save_dialog=lambda **kwargs: dialogs.append(kwargs) or r"C:\never.txt",
+    )
+    _phase_n_prime_success(app)
+    app.background_var.set("changed after success")
+    app.save_prompt()
+    assert dialogs == []
+    assert app.prompt_output.get("1.0", "end-1c") == ""
+    assert app.error_var.get() == "Generate a current prompt before saving."
+    assert "empty or stale" in app.technical_error_var.get()
+
+
+def test_phase_n_write_failure_is_friendly_and_preserves_current_prompt_and_request(root) -> None:
+    def fail_write(_path, _payload):
+        raise OSError("destination is read-only")
+    app = _phase_n_app(
+        root,
+        save_dialog=lambda **_kwargs: r"C:\exports\prompt.txt",
+        file_writer=fail_write,
+    )
+    _phase_n_prime_success(app)
+    before = app._visible_request()
+    app.save_prompt()
+    assert app.error_var.get() == (
+        "RCIS couldn't save this prompt. Choose another location and try again."
+    )
+    assert "destination is read-only" in app.technical_error_var.get()
+    assert app.prompt_output.get("1.0", "end-1c") == "compiled grounded prompt"
+    assert app.result_state_var.get() == "Prompt ready"
+    assert app._visible_request() == before
+
+
+def test_phase_n_recent_save_writes_exact_stored_prompt_without_open_duplicate_or_submit(root) -> None:
+    workspace = record_recent_prompt(
+        empty_workspace(),
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "bg",
+            "camera_angle": "front",
+            "requested_output": "out",
+        },
+        "stored recent prompt",
+    )
+    writes = []
+    app = _phase_n_app(
+        root,
+        workspace=workspace,
+        save_dialog=lambda **_kwargs: r"C:\exports\recent.txt",
+        file_writer=lambda path, payload: writes.append((path, payload)),
+    )
+    before_request = app._visible_request()
+    app.recent_listbox.selection_set(0)
+    app.save_recent_prompt()
+    assert writes == [(r"C:\exports\recent.txt", b"stored recent prompt")]
+    assert app._visible_request() == before_request
+    assert app._workspace == workspace
+
+
+def test_phase_n_recent_save_without_selection_does_not_open_dialog_or_write(root) -> None:
+    dialogs = []
+    writes = []
+    app = _phase_n_app(
+        root,
+        save_dialog=lambda **kwargs: dialogs.append(kwargs) or r"C:\never.txt",
+        file_writer=lambda path, payload: writes.append((path, payload)),
+    )
+    app.save_recent_prompt()
+    assert dialogs == []
+    assert writes == []
+    assert app.error_var.get() == "Choose a recent prompt before saving."
+
+
+def test_phase_n_recent_save_cancel_is_noop_and_preserves_recent_workspace(root) -> None:
+    workspace = record_recent_prompt(
+        empty_workspace(),
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "bg",
+            "camera_angle": "front",
+            "requested_output": "out",
+        },
+        "stored recent prompt",
+    )
+    writes = []
+    app = _phase_n_app(
+        root,
+        workspace=workspace,
+        save_dialog=lambda **_kwargs: "",
+        file_writer=lambda path, payload: writes.append((path, payload)),
+    )
+    app.recent_listbox.selection_set(0)
+    before = app._workspace
+    app.save_recent_prompt()
+    assert writes == []
+    assert app._workspace == before
+    assert app.error_var.get() == ""

@@ -33,6 +33,11 @@ from rie.ui.local_operator_workspace import (
 WINDOW_TITLE = "RCIS Grounded Prompt"
 
 
+def _write_prompt_bytes(path: str, payload: bytes) -> object:
+    with open(path, "wb") as stream:
+        return stream.write(payload)
+
+
 class GroundedPromptTkApplication:
     """Local product-facing Tkinter UI for grounded prompt generation."""
 
@@ -44,6 +49,8 @@ class GroundedPromptTkApplication:
             GroundedPromptUiController.from_intake_root
         ),
         directory_picker: Callable[[], str] = filedialog.askdirectory,
+        save_dialog: Callable[..., str] = filedialog.asksaveasfilename,
+        file_writer: Callable[[str, bytes], object] = _write_prompt_bytes,
         settings_loader: Callable[[], str | None] = (
             load_remembered_intake_root
         ),
@@ -56,6 +63,8 @@ class GroundedPromptTkApplication:
         self.root = root
         self._controller_factory = controller_factory
         self._directory_picker = directory_picker
+        self._save_dialog = save_dialog
+        self._file_writer = file_writer
         self._settings_loader = settings_loader
         self._settings_saver = settings_saver
         self._workspace_loader = workspace_loader
@@ -483,6 +492,16 @@ class GroundedPromptTkApplication:
             command=self.copy_prompt,
         )
         self.copy_prompt_button.grid(row=0, column=0)
+        self.save_prompt_button = ttk.Button(
+            self.result_actions_frame,
+            text="Save prompt...",
+            command=self.save_prompt,
+        )
+        self.save_prompt_button.grid(
+            row=1,
+            column=0,
+            pady=(6, 0),
+        )
         self.new_request_button = ttk.Button(
             self.result_actions_frame,
             text="New Request",
@@ -560,6 +579,11 @@ class GroundedPromptTkApplication:
             text="Copy Prompt",
             command=self.copy_recent_prompt,
         ).grid(row=1, column=2, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.recent_section,
+            text="Save selected prompt...",
+            command=self.save_recent_prompt,
+        ).grid(row=2, column=2, sticky="w", pady=(6, 0))
         ttk.Button(
             self.recent_section,
             text="Favorite / Unfavorite",
@@ -1343,6 +1367,70 @@ class GroundedPromptTkApplication:
         self.grounding_status_var.set(result.grounding_status)
         self._set_prompt_output(result.prompt_text)
         self.result_state_var.set("Prompt ready")
+
+    def _save_prompt_text(self, prompt: str) -> bool:
+        if not prompt:
+            return False
+        try:
+            destination = self._save_dialog(
+                title="Save prompt",
+                initialfile="RCIS-grounded-prompt.txt",
+                defaultextension=".txt",
+                filetypes=(
+                    ("Text files", "*.txt"),
+                    ("All files", "*.*"),
+                ),
+            )
+        except Exception as exc:
+            self._show_friendly_error(
+                "RCIS couldn't open Save As. Try again.",
+                technical=str(exc),
+            )
+            return False
+        if not destination:
+            return False
+        try:
+            self._file_writer(
+                destination,
+                prompt.encode("utf-8"),
+            )
+        except Exception as exc:
+            self._show_friendly_error(
+                "RCIS couldn't save this prompt. Choose another location and try again.",
+                technical=str(exc),
+            )
+            return False
+        self._clear_error_state()
+        self.copy_feedback_var.set("Prompt saved.")
+        return True
+
+    def save_prompt(self) -> None:
+        prompt = self.prompt_output.get("1.0", "end-1c")
+        if self.result_state_var.get() != "Prompt ready" or not prompt:
+            self._show_friendly_error(
+                "Generate a current prompt before saving.",
+                technical="current prompt result is empty or stale",
+            )
+            return
+        self._save_prompt_text(prompt)
+
+    def save_recent_prompt(self) -> None:
+        selected = self._selected_recent()
+        if selected is None:
+            self._show_friendly_error(
+                "Choose a recent prompt before saving.",
+                technical="no recent prompt is selected",
+            )
+            return
+        _index, item = selected
+        prompt = str(item.get("prompt_text", ""))
+        if not prompt:
+            self._show_friendly_error(
+                "This recent prompt has no text to save.",
+                technical="selected recent prompt_text is empty",
+            )
+            return
+        self._save_prompt_text(prompt)
 
     def copy_prompt(self) -> None:
         prompt = self.prompt_output.get("1.0", "end-1c")

@@ -48,3 +48,16 @@ When daily work is finished, close the RCIS window normally.
 The local UI does not invoke an external AI model.
 It does not invoke an image generator or video generator.
 Local AI Generator Integration is not required for this workflow.
+
+
+## Save a prompt to a text file
+
+After a successful current result shows **Prompt ready**, choose **Save prompt...** to save the generated prompt as a normal text file. RCIS opens the native **Save As** dialog with `RCIS-grounded-prompt.txt` as the suggested filename. You choose the destination; RCIS does not force Downloads, Documents, the repository, the governed intake, or the installation directory.
+
+The saved `.txt` file contains exactly the generated prompt text as UTF-8 bytes. RCIS adds no metadata, product or variant IDs, status fields, labels, header, footer, BOM, newline translation, or extra final newline.
+
+In **Recent**, select one stored prompt and choose **Save selected prompt...** to save that stored prompt text directly. You do not need to open or duplicate the prompt first, and saving does not change the Recent record.
+
+Canceling **Save As** changes nothing and is not an error. If the destination cannot be written, RCIS keeps the prompt and workspace available, shows a friendly recoverable error with technical detail in **View Details**, and does not silently delete or repair a partially created file. Choose **Save prompt...** again after resolving the destination or permission problem.
+
+**Copy Prompt** and **Copy Prompt** in Recent remain available for clipboard use and are unchanged by file saving.
