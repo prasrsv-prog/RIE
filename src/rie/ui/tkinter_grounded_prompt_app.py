@@ -104,6 +104,22 @@ class GroundedPromptTkApplication:
         self.recent_filter_var = tk.StringVar(master=root, value="")
         self.preset_filter_var = tk.StringVar(master=root, value="")
         self.product_filter_var = tk.StringVar(master=root, value="")
+        self.recent_context_product_variant_var = tk.StringVar(
+            master=root,
+            value="",
+        )
+        self.recent_context_background_var = tk.StringVar(
+            master=root,
+            value="",
+        )
+        self.recent_context_camera_angle_var = tk.StringVar(
+            master=root,
+            value="",
+        )
+        self.recent_context_requested_output_var = tk.StringVar(
+            master=root,
+            value="",
+        )
         self._visible_recent_indices: list[int] = []
         self._visible_preset_indices: list[int] = []
         self._visible_product_variants: list[tuple[str, str]] = []
@@ -600,6 +616,10 @@ class GroundedPromptTkApplication:
             sticky="ew",
             pady=(6, 0),
         )
+        self.recent_listbox.bind(
+            "<<ListboxSelect>>",
+            self._on_recent_selection_changed,
+        )
         ttk.Button(
             self.recent_section,
             text="Open",
@@ -625,6 +645,49 @@ class GroundedPromptTkApplication:
             text="Favorite / Unfavorite",
             command=self.toggle_recent_selected_favorite,
         ).grid(row=2, column=3, sticky="w", pady=(6, 0))
+
+        self.recent_context_frame = ttk.LabelFrame(
+            self.recent_section,
+            text="Selected request context",
+            padding=8,
+        )
+        self.recent_context_frame.grid(
+            row=4,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+            pady=(8, 0),
+        )
+        self.recent_context_frame.columnconfigure(1, weight=1)
+        for row_index, (label_text, variable) in enumerate(
+            (
+                ("Product / Variant", self.recent_context_product_variant_var),
+                ("Background", self.recent_context_background_var),
+                ("Camera Angle", self.recent_context_camera_angle_var),
+                ("Requested Output", self.recent_context_requested_output_var),
+            )
+        ):
+            ttk.Label(
+                self.recent_context_frame,
+                text=label_text,
+            ).grid(
+                row=row_index,
+                column=0,
+                sticky="nw",
+                padx=(0, 8),
+                pady=(0, 4),
+            )
+            ttk.Label(
+                self.recent_context_frame,
+                textvariable=variable,
+                wraplength=640,
+                justify="left",
+            ).grid(
+                row=row_index,
+                column=1,
+                sticky="w",
+                pady=(0, 4),
+            )
 
         self.presets_section = ttk.Frame(self.workspace_panel)
         self.presets_section.grid(row=0, column=0, sticky="ew")
@@ -1045,9 +1108,44 @@ class GroundedPromptTkApplication:
             return True
         return normalized_query in display_text.casefold()
 
+    def _clear_recent_context_preview(self) -> None:
+        self.recent_context_product_variant_var.set("")
+        self.recent_context_background_var.set("")
+        self.recent_context_camera_angle_var.set("")
+        self.recent_context_requested_output_var.set("")
+
+    def _refresh_recent_context_preview(self) -> None:
+        selected = self._selected_recent()
+        if selected is None:
+            self._clear_recent_context_preview()
+            return
+        _source_index, item = selected
+        self.recent_context_product_variant_var.set(
+            self._display_product_variant(
+                str(item.get("product_id", "")),
+                str(item.get("variant_id", "")),
+            )
+        )
+        self.recent_context_background_var.set(
+            str(item.get("background", ""))
+        )
+        self.recent_context_camera_angle_var.set(
+            str(item.get("camera_angle", ""))
+        )
+        self.recent_context_requested_output_var.set(
+            str(item.get("requested_output", ""))
+        )
+
+    def _on_recent_selection_changed(
+        self,
+        _event: object = None,
+    ) -> None:
+        self._refresh_recent_context_preview()
+
     def _refresh_recent_workspace(self) -> None:
         self.recent_listbox.delete(0, "end")
         self._visible_recent_indices = []
+        self._clear_recent_context_preview()
         query = self.recent_filter_var.get()
         for source_index, item in enumerate(
             self._workspace["recent_prompts"]
@@ -1056,7 +1154,15 @@ class GroundedPromptTkApplication:
                 item["product_id"],
                 item["variant_id"],
             )
-            if not self._workspace_filter_matches(display_text, query):
+            match_text = "\n".join(
+                (
+                    display_text,
+                    str(item.get("background", "")),
+                    str(item.get("camera_angle", "")),
+                    str(item.get("requested_output", "")),
+                )
+            )
+            if not self._workspace_filter_matches(match_text, query):
                 continue
             favorite = "* " if item.get("favorite") else ""
             self.recent_listbox.insert(

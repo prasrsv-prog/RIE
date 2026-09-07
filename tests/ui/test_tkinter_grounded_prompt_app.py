@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import tkinter as tk
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -1851,3 +1852,252 @@ def test_phase_p_favorite_markers_do_not_participate_in_matching(root) -> None:
     assert tuple(app.product_variant_listbox.get(0, "end")) == (
         "* Beta / Beta A",
     )
+
+# Phase Q - Recent prompt context preview and context search
+
+def _phase_q_workspace():
+    workspace = empty_workspace()
+    workspace = record_recent_prompt(
+        workspace,
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "matte charcoal wall",
+            "camera_angle": "front",
+            "requested_output": "catalog hero",
+        },
+        "prompt-only-token-one",
+    )
+    workspace = record_recent_prompt(
+        workspace,
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "bright window studio",
+            "camera_angle": "rear three-quarter",
+            "requested_output": "marketplace detail",
+        },
+        "prompt-only-token-two",
+    )
+    workspace = record_recent_prompt(
+        workspace,
+        {
+            "product_id": "beta",
+            "variant_id": "beta-a",
+            "background": "outdoor stone",
+            "camera_angle": "side",
+            "requested_output": "social crop",
+        },
+        "beta prompt body",
+    )
+    return workspace
+
+
+def _select_recent_visible_row(app, visible_index: int) -> None:
+    app.recent_listbox.selection_clear(0, "end")
+    app.recent_listbox.selection_set(visible_index)
+    app._on_recent_selection_changed()
+
+
+def test_phase_q_recent_preview_shows_exact_selected_source_item(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    assert app.recent_listbox.bind("<<ListboxSelect>>")
+
+    _select_recent_visible_row(app, 0)
+    source_index = app._visible_recent_indices[0]
+    expected = app._workspace["recent_prompts"][source_index]
+
+    assert app.recent_context_product_variant_var.get() == (
+        app._display_product_variant(
+            expected["product_id"],
+            expected["variant_id"],
+        )
+    )
+    assert (
+        app.recent_context_background_var.get()
+        == expected["background"]
+    )
+    assert (
+        app.recent_context_camera_angle_var.get()
+        == expected["camera_angle"]
+    )
+    assert (
+        app.recent_context_requested_output_var.get()
+        == expected["requested_output"]
+    )
+
+
+def test_phase_q_filtered_duplicate_preview_maps_to_exact_original_item(
+    root,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    app.recent_filter_var.set("alpha")
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "Alpha / Alpha A",
+        "Alpha / Alpha A",
+    )
+
+    _select_recent_visible_row(app, 1)
+    source_index = app._visible_recent_indices[1]
+    expected = app._workspace["recent_prompts"][source_index]
+
+    assert (
+        app.recent_context_background_var.get()
+        == expected["background"]
+    )
+    assert (
+        app.recent_context_camera_angle_var.get()
+        == expected["camera_angle"]
+    )
+    assert (
+        app.recent_context_requested_output_var.get()
+        == expected["requested_output"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("query", "field"),
+    (
+        ("CHARCOAL", "background"),
+        ("three-QUARTER", "camera_angle"),
+        ("Marketplace Detail", "requested_output"),
+    ),
+)
+def test_phase_q_recent_context_search_matches_request_fields(
+    root,
+    query,
+    field,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    app.recent_filter_var.set(query)
+
+    assert app.recent_listbox.size() == 1
+    source_index = app._visible_recent_indices[0]
+    selected = app._workspace["recent_prompts"][source_index]
+    assert query.strip().casefold() in str(selected[field]).casefold()
+
+
+def test_phase_q_recent_search_does_not_match_prompt_text_alone(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+
+    app.recent_filter_var.set("prompt-only-token-one")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == ()
+    assert app._visible_recent_indices == []
+
+
+def test_phase_q_favorite_marker_does_not_participate_in_context_search(
+    root,
+) -> None:
+    workspace = _phase_q_workspace()
+    workspace["recent_prompts"][0]["favorite"] = True
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+
+    app.recent_filter_var.set("*")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == ()
+
+
+def test_phase_q_filter_refresh_and_no_match_clear_stale_preview(
+    root,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    _select_recent_visible_row(app, 0)
+    assert app.recent_context_product_variant_var.get()
+
+    app.recent_filter_var.set("not-present-anywhere")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == ()
+    assert app.recent_context_product_variant_var.get() == ""
+    assert app.recent_context_background_var.get() == ""
+    assert app.recent_context_camera_angle_var.get() == ""
+    assert app.recent_context_requested_output_var.get() == ""
+
+
+def test_phase_q_preview_and_filter_interaction_never_persists_workspace(
+    root,
+) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+
+    app.recent_filter_var.set("alpha")
+    _select_recent_visible_row(app, 0)
+    app.recent_filter_var.set("window")
+    _select_recent_visible_row(app, 0)
+    app.recent_filter_var.set("")
+
+    assert len(saved) == baseline
+
+
+def test_phase_q_filtered_duplicate_actions_still_use_exact_source_item(
+    root,
+) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    app.recent_filter_var.set("alpha")
+    _select_recent_visible_row(app, 1)
+    source_index = app._visible_recent_indices[1]
+    expected = dict(app._workspace["recent_prompts"][source_index])
+
+    app.duplicate_recent()
+
+    assert app.product_var.get() == expected["product_id"]
+    assert app.variant_var.get() == expected["variant_id"]
+    assert app.background_var.get() == expected["background"]
+    assert app.camera_angle_var.get() == expected["camera_angle"]
+    assert (
+        app.requested_output_text.get("1.0", "end-1c")
+        == expected["requested_output"]
+    )
+    assert controller.submit_calls == []
+
+
+def test_phase_q_daily_use_guide_documents_context_preview_and_search() -> None:
+    guide = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+
+    for value in (
+        "read-only product / variant, background, camera angle, and requested output context",
+        "stored prompt text itself is not part of the recent search surface",
+        "selected recent context preview is also temporary ui state",
+        "it is not written to the persisted local workspace",
+        "phase o general-user usability proof remains a separate unresolved governance activity",
+    ):
+        assert value in guide
+
