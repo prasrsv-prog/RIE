@@ -101,6 +101,12 @@ class GroundedPromptTkApplication:
         self.workspace_feedback_var = tk.StringVar(master=root, value="")
         self.workspace_view_var = tk.StringVar(master=root, value="New Prompt")
         self.preset_name_var = tk.StringVar(master=root, value="")
+        self.recent_filter_var = tk.StringVar(master=root, value="")
+        self.preset_filter_var = tk.StringVar(master=root, value="")
+        self.product_filter_var = tk.StringVar(master=root, value="")
+        self._visible_recent_indices: list[int] = []
+        self._visible_preset_indices: list[int] = []
+        self._visible_product_variants: list[tuple[str, str]] = []
         self.default_status_var = tk.StringVar(master=root, value="No default")
 
         try:
@@ -113,6 +119,7 @@ class GroundedPromptTkApplication:
             self.technical_error_var.set(str(exc))
 
         self._build_widgets()
+        self._bind_workspace_filters()
         self.retry_button = ttk.Button(
             root,
             text="Try Again",
@@ -140,6 +147,20 @@ class GroundedPromptTkApplication:
         else:
             self._set_data_source_visible(True)
         self._refresh_workspace_views()
+
+    def _bind_workspace_filters(self) -> None:
+        self.recent_filter_var.trace_add(
+            "write",
+            lambda *_args: self._refresh_recent_workspace(),
+        )
+        self.preset_filter_var.trace_add(
+            "write",
+            lambda *_args: self._refresh_presets_workspace(),
+        )
+        self.product_filter_var.trace_add(
+            "write",
+            lambda *_args: self._refresh_products_workspace(),
+        )
 
     def _bind_result_invalidation(self) -> None:
         for variable in (
@@ -552,43 +573,58 @@ class GroundedPromptTkApplication:
 
         self.recent_section = ttk.Frame(self.workspace_panel)
         self.recent_section.grid(row=0, column=0, sticky="ew")
-        self.recent_section.columnconfigure(0, weight=1)
+        self.recent_section.columnconfigure(1, weight=1)
+        ttk.Label(
+            self.recent_section,
+            text="Search / Filter",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.recent_filter_entry = ttk.Entry(
+            self.recent_section,
+            textvariable=self.recent_filter_var,
+        )
+        self.recent_filter_entry.grid(
+            row=0,
+            column=1,
+            columnspan=3,
+            sticky="ew",
+        )
         self.recent_listbox = tk.Listbox(
             self.recent_section,
             height=6,
             exportselection=False,
         )
         self.recent_listbox.grid(
-            row=0,
+            row=1,
             column=0,
             columnspan=4,
             sticky="ew",
+            pady=(6, 0),
         )
         ttk.Button(
             self.recent_section,
             text="Open",
             command=self.open_recent,
-        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
         ttk.Button(
             self.recent_section,
             text="Duplicate",
             command=self.duplicate_recent,
-        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+        ).grid(row=2, column=1, sticky="w", pady=(6, 0))
         ttk.Button(
             self.recent_section,
             text="Copy Prompt",
             command=self.copy_recent_prompt,
-        ).grid(row=1, column=2, sticky="w", pady=(6, 0))
+        ).grid(row=2, column=2, sticky="w", pady=(6, 0))
         ttk.Button(
             self.recent_section,
             text="Save selected prompt...",
             command=self.save_recent_prompt,
-        ).grid(row=2, column=2, sticky="w", pady=(6, 0))
+        ).grid(row=3, column=2, sticky="w", pady=(6, 0))
         ttk.Button(
             self.recent_section,
             text="Favorite / Unfavorite",
             command=self.toggle_recent_selected_favorite,
-        ).grid(row=1, column=3, sticky="w", pady=(6, 0))
+        ).grid(row=2, column=3, sticky="w", pady=(6, 0))
 
         self.presets_section = ttk.Frame(self.workspace_panel)
         self.presets_section.grid(row=0, column=0, sticky="ew")
@@ -604,7 +640,29 @@ class GroundedPromptTkApplication:
         self.preset_name_entry.grid(
             row=0,
             column=1,
+            columnspan=3,
             sticky="ew",
+        )
+        ttk.Label(
+            self.presets_section,
+            text="Search / Filter",
+        ).grid(
+            row=1,
+            column=0,
+            sticky="w",
+            padx=(0, 8),
+            pady=(6, 0),
+        )
+        self.preset_filter_entry = ttk.Entry(
+            self.presets_section,
+            textvariable=self.preset_filter_var,
+        )
+        self.preset_filter_entry.grid(
+            row=1,
+            column=1,
+            columnspan=3,
+            sticky="ew",
+            pady=(6, 0),
         )
         self.preset_listbox = tk.Listbox(
             self.presets_section,
@@ -612,7 +670,7 @@ class GroundedPromptTkApplication:
             exportselection=False,
         )
         self.preset_listbox.grid(
-            row=1,
+            row=2,
             column=0,
             columnspan=4,
             sticky="ew",
@@ -622,47 +680,62 @@ class GroundedPromptTkApplication:
             self.presets_section,
             text="Save Current",
             command=self.save_current_preset,
-        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ).grid(row=3, column=0, sticky="w", pady=(6, 0))
         ttk.Button(
             self.presets_section,
             text="Load",
             command=self.load_selected_preset,
-        ).grid(row=2, column=1, sticky="w", pady=(6, 0))
+        ).grid(row=3, column=1, sticky="w", pady=(6, 0))
         ttk.Button(
             self.presets_section,
             text="Delete",
             command=self.delete_selected_preset,
-        ).grid(row=2, column=2, sticky="w", pady=(6, 0))
+        ).grid(row=3, column=2, sticky="w", pady=(6, 0))
 
         self.products_section = ttk.Frame(self.workspace_panel)
         self.products_section.grid(row=0, column=0, sticky="ew")
-        self.products_section.columnconfigure(0, weight=1)
+        self.products_section.columnconfigure(1, weight=1)
+        ttk.Label(
+            self.products_section,
+            text="Search / Filter",
+        ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.product_filter_entry = ttk.Entry(
+            self.products_section,
+            textvariable=self.product_filter_var,
+        )
+        self.product_filter_entry.grid(
+            row=0,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+        )
         self.product_variant_listbox = tk.Listbox(
             self.products_section,
             height=6,
             exportselection=False,
         )
         self.product_variant_listbox.grid(
-            row=0,
+            row=1,
             column=0,
             columnspan=3,
             sticky="ew",
+            pady=(6, 0),
         )
         ttk.Button(
             self.products_section,
             text="Use Product",
             command=self.use_selected_product_variant,
-        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
         ttk.Button(
             self.products_section,
             text="Set as Default",
             command=self.set_selected_product_variant_default,
-        ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+        ).grid(row=2, column=1, sticky="w", pady=(6, 0))
         ttk.Button(
             self.products_section,
             text="Favorite / Unfavorite",
             command=self.toggle_selected_product_variant_favorite,
-        ).grid(row=1, column=2, sticky="w", pady=(6, 0))
+        ).grid(row=2, column=2, sticky="w", pady=(6, 0))
 
         self.settings_section = ttk.Frame(self.workspace_panel)
         self.settings_section.grid(row=0, column=0, sticky="ew")
@@ -965,30 +1038,52 @@ class GroundedPromptTkApplication:
             return None
         return int(selected[0])
 
+    @staticmethod
+    def _workspace_filter_matches(display_text: str, query: str) -> bool:
+        normalized_query = query.strip().casefold()
+        if not normalized_query:
+            return True
+        return normalized_query in display_text.casefold()
+
     def _refresh_recent_workspace(self) -> None:
         self.recent_listbox.delete(0, "end")
-        for item in self._workspace["recent_prompts"]:
+        self._visible_recent_indices = []
+        query = self.recent_filter_var.get()
+        for source_index, item in enumerate(
+            self._workspace["recent_prompts"]
+        ):
+            display_text = self._display_product_variant(
+                item["product_id"],
+                item["variant_id"],
+            )
+            if not self._workspace_filter_matches(display_text, query):
+                continue
             favorite = "* " if item.get("favorite") else ""
             self.recent_listbox.insert(
                 "end",
-                favorite
-                + self._display_product_variant(
-                    item["product_id"],
-                    item["variant_id"],
-                ),
+                favorite + display_text,
             )
+            self._visible_recent_indices.append(source_index)
 
     def _refresh_presets_workspace(self) -> None:
         self.preset_listbox.delete(0, "end")
-        for item in self._workspace["presets"]:
-            self.preset_listbox.insert("end", item["name"])
+        self._visible_preset_indices = []
+        query = self.preset_filter_var.get()
+        for source_index, item in enumerate(self._workspace["presets"]):
+            display_text = str(item["name"])
+            if not self._workspace_filter_matches(display_text, query):
+                continue
+            self.preset_listbox.insert("end", display_text)
+            self._visible_preset_indices.append(source_index)
 
     def _refresh_products_workspace(self) -> None:
         if not hasattr(self, "product_variant_listbox"):
             return
         self.product_variant_listbox.delete(0, "end")
+        self._visible_product_variants = []
         if self._controller is None:
             return
+        query = self.product_filter_var.get()
         favorites = {
             (item["product_id"], item["variant_id"])
             for item in self._workspace["product_favorites"]
@@ -1003,16 +1098,26 @@ class GroundedPromptTkApplication:
                 continue
             for variant_option in variants:
                 variant_id = variant_option.variant_id
+                display_text = (
+                    product_option.label
+                    + " / "
+                    + variant_option.label
+                )
+                if not self._workspace_filter_matches(
+                    display_text,
+                    query,
+                ):
+                    continue
                 marker = "* " if (
                     product_id,
                     variant_id,
                 ) in favorites else ""
                 self.product_variant_listbox.insert(
                     "end",
-                    marker
-                    + product_option.label
-                    + " / "
-                    + variant_option.label,
+                    marker + display_text,
+                )
+                self._visible_product_variants.append(
+                    (product_id, variant_id)
                 )
 
     def _refresh_default_status(self) -> None:
@@ -1067,13 +1172,16 @@ class GroundedPromptTkApplication:
         self._set_workspace_view(name)
 
     def _selected_recent(self) -> tuple[int, dict] | None:
-        index = self._selected_index(self.recent_listbox)
-        if index is None:
+        visible_index = self._selected_index(self.recent_listbox)
+        if visible_index is None:
             return None
+        if visible_index >= len(self._visible_recent_indices):
+            return None
+        source_index = self._visible_recent_indices[visible_index]
         recent = self._workspace["recent_prompts"]
-        if index >= len(recent):
+        if source_index >= len(recent):
             return None
-        return index, recent[index]
+        return source_index, recent[source_index]
 
     def open_recent(self) -> None:
         selected = self._selected_recent()
@@ -1130,13 +1238,16 @@ class GroundedPromptTkApplication:
         self._refresh_presets_workspace()
 
     def _selected_preset(self) -> dict | None:
-        index = self._selected_index(self.preset_listbox)
-        if index is None:
+        visible_index = self._selected_index(self.preset_listbox)
+        if visible_index is None:
             return None
+        if visible_index >= len(self._visible_preset_indices):
+            return None
+        source_index = self._visible_preset_indices[visible_index]
         presets = self._workspace["presets"]
-        if index >= len(presets):
+        if source_index >= len(presets):
             return None
-        return presets[index]
+        return presets[source_index]
 
     def load_selected_preset(self) -> None:
         item = self._selected_preset()
@@ -1159,27 +1270,14 @@ class GroundedPromptTkApplication:
     def _selected_product_variant(
         self,
     ) -> tuple[str, str] | None:
-        index = self._selected_index(
+        visible_index = self._selected_index(
             self.product_variant_listbox
         )
-        if index is None or self._controller is None:
+        if visible_index is None:
             return None
-        values = []
-        for product_option in self._controller.product_options:
-            product_id = product_option.product_id
-            try:
-                variants = self._controller.variant_options_for_product(
-                    product_id
-                )
-            except Exception:
-                continue
-            for variant_option in variants:
-                values.append(
-                    (product_id, variant_option.variant_id)
-                )
-        if index >= len(values):
+        if visible_index >= len(self._visible_product_variants):
             return None
-        return values[index]
+        return self._visible_product_variants[visible_index]
 
     def use_selected_product_variant(self) -> None:
         selected = self._selected_product_variant()

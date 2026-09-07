@@ -43,7 +43,7 @@ def test_local_operator_launcher_contains_no_install_network_or_git_mutation_com
     for value in prohibited_commands:
         assert value not in lower
 
-def test_daily_use_guide_references_published_launcher_browse_and_load_flow() -> None:
+def test_daily_use_guide_references_current_launcher_browse_and_load_flow() -> None:
     guide = (
         REPOSITORY_ROOT / "docs" / "rcis-grounded-prompt-daily-use.md"
     ).read_text(encoding="ascii").lower()
@@ -53,35 +53,34 @@ def test_daily_use_guide_references_published_launcher_browse_and_load_flow() ->
     assert "close the rcis window" in guide
 
 
-def test_daily_use_guide_requires_explicit_inputs_submit_and_standard_copy_path() -> None:
+def test_daily_use_guide_documents_current_prompt_and_copy_flow() -> None:
     guide = (
         REPOSITORY_ROOT / "docs" / "rcis-grounded-prompt-daily-use.md"
     ).read_text(encoding="ascii").lower()
     for value in (
-        "select the product id explicitly",
-        "select the variant id explicitly",
+        "human-friendly product and variant labels",
         "background",
         "camera angle",
         "requested output",
-        "submit grounded prompt",
-        "four visible grounding statuses",
-        "ctrl+c",
+        "generate prompt",
+        "prompt ready",
+        "copy prompt",
     ):
         assert value in guide
 
 
-def test_daily_use_guide_documents_invalidation_and_protected_non_capabilities() -> None:
+def test_daily_use_guide_documents_current_workspace_and_non_capabilities() -> None:
     guide = (
         REPOSITORY_ROOT / "docs" / "rcis-grounded-prompt-daily-use.md"
     ).read_text(encoding="ascii").lower()
     for value in (
-        "clears the rendered prompt and the four rendered success statuses",
-        "explicitly submit again",
-        "no hidden defaults",
-        "no automatic product or variant selection",
-        "no automatic prompt rewriting",
-        "does not persist request history",
-        "does not provide saved presets",
+        "changing a result-defining input clears the rendered result",
+        "generate again",
+        "explicit default product / variant",
+        "filter text is temporary ui state and is not written",
+        "recent",
+        "presets",
+        "search / filter",
         "does not start a network service",
         "does not install dependencies",
         "does not invoke an external ai model",

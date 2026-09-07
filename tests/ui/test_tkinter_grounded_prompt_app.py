@@ -1585,3 +1585,269 @@ def test_phase_n_recent_save_cancel_is_noop_and_preserves_recent_workspace(root)
     assert writes == []
     assert app._workspace == before
     assert app.error_var.get() == ""
+
+# Phase P - searchable operator workspace
+
+def _phase_p_workspace():
+    workspace = empty_workspace()
+    workspace = record_recent_prompt(
+        workspace,
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "alpha background",
+            "camera_angle": "front",
+            "requested_output": "alpha output",
+        },
+        "alpha stored prompt",
+    )
+    workspace = record_recent_prompt(
+        workspace,
+        {
+            "product_id": "beta",
+            "variant_id": "beta-a",
+            "background": "beta background",
+            "camera_angle": "side",
+            "requested_output": "beta output",
+        },
+        "beta stored prompt",
+    )
+    workspace = save_preset(
+        workspace,
+        "Studio Alpha",
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-b",
+            "background": "studio",
+            "camera_angle": "top",
+            "requested_output": "alpha preset output",
+        },
+    )
+    workspace = save_preset(
+        workspace,
+        "Outdoor Beta",
+        {
+            "product_id": "beta",
+            "variant_id": "beta-a",
+            "background": "outdoor",
+            "camera_angle": "front",
+            "requested_output": "beta preset output",
+        },
+    )
+    return workspace
+
+
+def test_phase_p_recent_filter_is_case_insensitive_and_clear_restores_rows(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_p_workspace,
+    )
+    original_rows = tuple(app.recent_listbox.get(0, "end"))
+    assert len(original_rows) == 2
+
+    app.recent_filter_var.set("ALPHA")
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "Alpha / Alpha A",
+    )
+
+    app.recent_filter_var.set("")
+    assert tuple(app.recent_listbox.get(0, "end")) == original_rows
+
+
+def test_phase_p_filtered_recent_duplicate_maps_to_exact_source_item(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_p_workspace,
+    )
+    app.recent_filter_var.set("alpha")
+    app.recent_listbox.selection_set(0)
+
+    app.duplicate_recent()
+
+    assert app.product_var.get() == "alpha"
+    assert app.variant_var.get() == "alpha-a"
+    assert app.background_var.get() == "alpha background"
+    assert app.camera_angle_var.get() == "front"
+    assert app.requested_output_text.get("1.0", "end-1c") == "alpha output"
+    assert controller.submit_calls == []
+
+
+def test_phase_p_filtered_recent_favorite_maps_to_exact_source_index(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_p_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    app.recent_filter_var.set("alpha")
+    app.recent_listbox.selection_set(0)
+
+    app.toggle_recent_selected_favorite()
+
+    alpha = next(
+        item
+        for item in app._workspace["recent_prompts"]
+        if item["product_id"] == "alpha"
+    )
+    beta = next(
+        item
+        for item in app._workspace["recent_prompts"]
+        if item["product_id"] == "beta"
+    )
+    assert alpha["favorite"] is True
+    assert beta["favorite"] is False
+    assert app.recent_filter_var.get() == "alpha"
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "* Alpha / Alpha A",
+    )
+    assert saved[-1]["recent_prompts"]
+
+
+def test_phase_p_preset_filter_maps_load_and_delete_to_exact_source(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_p_workspace,
+    )
+    app.preset_filter_var.set("OUTDOOR")
+    assert tuple(app.preset_listbox.get(0, "end")) == (
+        "Outdoor Beta",
+    )
+    app.preset_listbox.selection_set(0)
+
+    app.load_selected_preset()
+
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == "beta-a"
+    assert app.background_var.get() == "outdoor"
+    assert controller.submit_calls == []
+
+    app.show_workspace_view("Presets")
+    assert app.preset_filter_var.get() == "OUTDOOR"
+    app.preset_listbox.selection_set(0)
+
+    app.delete_selected_preset()
+
+    assert [item["name"] for item in app._workspace["presets"]] == [
+        "Studio Alpha"
+    ]
+    assert tuple(app.preset_listbox.get(0, "end")) == ()
+
+
+def test_phase_p_product_filter_maps_use_default_and_favorite_to_exact_ids(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+    )
+    app.show_workspace_view("Products")
+    app.product_filter_var.set("bEtA")
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "Beta / Beta A",
+    )
+    app.product_variant_listbox.selection_set(0)
+
+    app.use_selected_product_variant()
+
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == "beta-a"
+    assert controller.submit_calls == []
+
+    app.show_workspace_view("Products")
+    assert app.product_filter_var.get() == "bEtA"
+    app.product_variant_listbox.selection_set(0)
+
+    app.set_selected_product_variant_default()
+
+    assert app._workspace["default_product_variant"] == {
+        "product_id": "beta",
+        "variant_id": "beta-a",
+    }
+
+    app.product_variant_listbox.selection_set(0)
+    app.toggle_selected_product_variant_favorite()
+
+    assert app._workspace["product_favorites"] == [
+        {"product_id": "beta", "variant_id": "beta-a"}
+    ]
+    assert app.product_filter_var.get() == "bEtA"
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "* Beta / Beta A",
+    )
+
+
+def test_phase_p_filter_changes_never_persist_workspace(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_p_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+
+    app.recent_filter_var.set("alpha")
+    app.preset_filter_var.set("studio")
+    app.product_filter_var.set("beta")
+    app.recent_filter_var.set("")
+    app.preset_filter_var.set("")
+    app.product_filter_var.set("")
+
+    assert len(saved) == baseline
+
+
+def test_phase_p_no_match_filters_are_empty_and_non_mutating(root) -> None:
+    workspace = _phase_p_workspace()
+    before = clone_workspace(workspace)
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+
+    app.recent_filter_var.set("not-present-anywhere")
+    app.preset_filter_var.set("not-present-anywhere")
+    app.product_filter_var.set("not-present-anywhere")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == ()
+    assert tuple(app.preset_listbox.get(0, "end")) == ()
+    assert tuple(app.product_variant_listbox.get(0, "end")) == ()
+    assert app._workspace == before
+
+
+def test_phase_p_favorite_markers_do_not_participate_in_matching(root) -> None:
+    workspace = _phase_p_workspace()
+    alpha_index = next(
+        index
+        for index, item in enumerate(workspace["recent_prompts"])
+        if item["product_id"] == "alpha"
+    )
+    workspace["recent_prompts"][alpha_index]["favorite"] = True
+    workspace = toggle_product_favorite(
+        workspace,
+        "beta",
+        "beta-a",
+    )
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=lambda: workspace,
+    )
+
+    app.recent_filter_var.set("*")
+    app.product_filter_var.set("*")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == ()
+    assert tuple(app.product_variant_listbox.get(0, "end")) == ()
+
+    app.recent_filter_var.set("alpha")
+    app.product_filter_var.set("beta")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "* Alpha / Alpha A",
+    )
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "* Beta / Beta A",
+    )
