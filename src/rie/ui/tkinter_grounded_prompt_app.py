@@ -120,6 +120,26 @@ class GroundedPromptTkApplication:
             master=root,
             value="",
         )
+        self.preset_context_name_var = tk.StringVar(
+            master=root,
+            value="",
+        )
+        self.preset_context_product_variant_var = tk.StringVar(
+            master=root,
+            value="",
+        )
+        self.preset_context_background_var = tk.StringVar(
+            master=root,
+            value="",
+        )
+        self.preset_context_camera_angle_var = tk.StringVar(
+            master=root,
+            value="",
+        )
+        self.preset_context_requested_output_var = tk.StringVar(
+            master=root,
+            value="",
+        )
         self._visible_recent_indices: list[int] = []
         self._visible_preset_indices: list[int] = []
         self._visible_product_variants: list[tuple[str, str]] = []
@@ -739,6 +759,10 @@ class GroundedPromptTkApplication:
             sticky="ew",
             pady=(6, 0),
         )
+        self.preset_listbox.bind(
+            "<<ListboxSelect>>",
+            self._on_preset_selection_changed,
+        )
         ttk.Button(
             self.presets_section,
             text="Save Current",
@@ -754,6 +778,59 @@ class GroundedPromptTkApplication:
             text="Delete",
             command=self.delete_selected_preset,
         ).grid(row=3, column=2, sticky="w", pady=(6, 0))
+
+        self.preset_context_frame = ttk.LabelFrame(
+            self.presets_section,
+            text="Selected preset context",
+            padding=8,
+        )
+        self.preset_context_frame.grid(
+            row=4,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+            pady=(8, 0),
+        )
+        self.preset_context_frame.columnconfigure(1, weight=1)
+        for row_index, (label_text, variable) in enumerate(
+            (
+                ("Preset Name", self.preset_context_name_var),
+                (
+                    "Product / Variant",
+                    self.preset_context_product_variant_var,
+                ),
+                ("Background", self.preset_context_background_var),
+                (
+                    "Camera Angle",
+                    self.preset_context_camera_angle_var,
+                ),
+                (
+                    "Requested Output",
+                    self.preset_context_requested_output_var,
+                ),
+            )
+        ):
+            ttk.Label(
+                self.preset_context_frame,
+                text=label_text,
+            ).grid(
+                row=row_index,
+                column=0,
+                sticky="nw",
+                padx=(0, 8),
+                pady=(0, 4),
+            )
+            ttk.Label(
+                self.preset_context_frame,
+                textvariable=variable,
+                wraplength=640,
+                justify="left",
+            ).grid(
+                row=row_index,
+                column=1,
+                sticky="w",
+                pady=(0, 4),
+            )
 
         self.products_section = ttk.Frame(self.workspace_panel)
         self.products_section.grid(row=0, column=0, sticky="ew")
@@ -1171,13 +1248,62 @@ class GroundedPromptTkApplication:
             )
             self._visible_recent_indices.append(source_index)
 
+    def _clear_preset_context_preview(self) -> None:
+        self.preset_context_name_var.set("")
+        self.preset_context_product_variant_var.set("")
+        self.preset_context_background_var.set("")
+        self.preset_context_camera_angle_var.set("")
+        self.preset_context_requested_output_var.set("")
+
+    def _refresh_preset_context_preview(self) -> None:
+        item = self._selected_preset()
+        if item is None:
+            self._clear_preset_context_preview()
+            return
+        self.preset_context_name_var.set(str(item.get("name", "")))
+        self.preset_context_product_variant_var.set(
+            self._display_product_variant(
+                str(item.get("product_id", "")),
+                str(item.get("variant_id", "")),
+            )
+        )
+        self.preset_context_background_var.set(
+            str(item.get("background", ""))
+        )
+        self.preset_context_camera_angle_var.set(
+            str(item.get("camera_angle", ""))
+        )
+        self.preset_context_requested_output_var.set(
+            str(item.get("requested_output", ""))
+        )
+
+    def _on_preset_selection_changed(
+        self,
+        _event: object = None,
+    ) -> None:
+        self._refresh_preset_context_preview()
+
     def _refresh_presets_workspace(self) -> None:
         self.preset_listbox.delete(0, "end")
         self._visible_preset_indices = []
+        self._clear_preset_context_preview()
         query = self.preset_filter_var.get()
         for source_index, item in enumerate(self._workspace["presets"]):
             display_text = str(item["name"])
-            if not self._workspace_filter_matches(display_text, query):
+            product_variant_text = self._display_product_variant(
+                str(item.get("product_id", "")),
+                str(item.get("variant_id", "")),
+            )
+            match_text = "\n".join(
+                (
+                    display_text,
+                    product_variant_text,
+                    str(item.get("background", "")),
+                    str(item.get("camera_angle", "")),
+                    str(item.get("requested_output", "")),
+                )
+            )
+            if not self._workspace_filter_matches(match_text, query):
                 continue
             self.preset_listbox.insert("end", display_text)
             self._visible_preset_indices.append(source_index)

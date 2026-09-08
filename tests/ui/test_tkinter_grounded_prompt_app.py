@@ -2101,3 +2101,251 @@ def test_phase_q_daily_use_guide_documents_context_preview_and_search() -> None:
     ):
         assert value in guide
 
+# Phase R - Preset context preview and context search
+
+def _phase_r_workspace():
+    workspace = _phase_p_workspace()
+    workspace = save_preset(
+        workspace,
+        "Window Alpha",
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-b",
+            "background": "bright window wall",
+            "camera_angle": "rear three-quarter",
+            "requested_output": "marketplace detail crop",
+        },
+    )
+    return workspace
+
+
+def _select_preset_visible_row(app, visible_index: int) -> None:
+    app.preset_listbox.selection_clear(0, "end")
+    app.preset_listbox.selection_set(visible_index)
+    app._on_preset_selection_changed()
+
+
+def test_phase_r_preset_preview_shows_exact_selected_source_item(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_r_workspace,
+    )
+    assert app.preset_listbox.bind("<<ListboxSelect>>")
+
+    _select_preset_visible_row(app, 1)
+    source_index = app._visible_preset_indices[1]
+    expected = app._workspace["presets"][source_index]
+
+    assert app.preset_context_name_var.get() == expected["name"]
+    assert app.preset_context_product_variant_var.get() == (
+        app._display_product_variant(
+            expected["product_id"],
+            expected["variant_id"],
+        )
+    )
+    assert (
+        app.preset_context_background_var.get()
+        == expected["background"]
+    )
+    assert (
+        app.preset_context_camera_angle_var.get()
+        == expected["camera_angle"]
+    )
+    assert (
+        app.preset_context_requested_output_var.get()
+        == expected["requested_output"]
+    )
+
+
+def test_phase_r_filtered_preset_preview_maps_to_exact_original_item(
+    root,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_r_workspace,
+    )
+    source_indices = [
+        index
+        for index, item in enumerate(app._workspace["presets"])
+        if "alpha" in str(item["name"]).casefold()
+    ]
+
+    app.preset_filter_var.set("alpha")
+
+    assert app._visible_preset_indices == source_indices
+    assert tuple(app.preset_listbox.get(0, "end")) == tuple(
+        app._workspace["presets"][index]["name"]
+        for index in source_indices
+    )
+
+    target_source_index = next(
+        index
+        for index in source_indices
+        if app._workspace["presets"][index]["name"] == "Window Alpha"
+    )
+    visible_index = app._visible_preset_indices.index(target_source_index)
+    _select_preset_visible_row(app, visible_index)
+    expected = app._workspace["presets"][target_source_index]
+
+    assert app.preset_context_name_var.get() == expected["name"]
+    assert (
+        app.preset_context_background_var.get()
+        == expected["background"]
+    )
+    assert (
+        app.preset_context_camera_angle_var.get()
+        == expected["camera_angle"]
+    )
+    assert (
+        app.preset_context_requested_output_var.get()
+        == expected["requested_output"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_names"),
+    (
+        ("OUTDOOR beta", ("Outdoor Beta",)),
+        ("Alpha / Alpha B", ("Window Alpha", "Studio Alpha")),
+        ("bright WINDOW", ("Window Alpha",)),
+        ("rear THREE-quarter", ("Window Alpha",)),
+        ("marketplace DETAIL crop", ("Window Alpha",)),
+    ),
+)
+def test_phase_r_preset_context_search_matches_name_and_request_fields(
+    root,
+    query,
+    expected_names,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_r_workspace,
+    )
+
+    app.preset_filter_var.set(query)
+
+    assert tuple(app.preset_listbox.get(0, "end")) == expected_names
+    assert tuple(
+        app._workspace["presets"][index]["name"]
+        for index in app._visible_preset_indices
+    ) == expected_names
+
+
+def test_phase_r_no_match_filter_clears_stale_preset_preview(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_r_workspace,
+    )
+    _select_preset_visible_row(app, 0)
+    assert app.preset_context_name_var.get()
+
+    app.preset_filter_var.set("not-present-anywhere")
+
+    assert tuple(app.preset_listbox.get(0, "end")) == ()
+    assert app.preset_context_name_var.get() == ""
+    assert app.preset_context_product_variant_var.get() == ""
+    assert app.preset_context_background_var.get() == ""
+    assert app.preset_context_camera_angle_var.get() == ""
+    assert app.preset_context_requested_output_var.get() == ""
+
+
+def test_phase_r_preset_preview_and_filter_never_persist_workspace(
+    root,
+) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_r_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+
+    app.preset_filter_var.set("alpha")
+    _select_preset_visible_row(app, 0)
+    app.preset_filter_var.set("window")
+    _select_preset_visible_row(app, 0)
+    app.preset_filter_var.set("")
+
+    assert len(saved) == baseline
+
+
+def test_phase_r_filtered_load_uses_exact_selected_source_preset(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_r_workspace,
+    )
+    app.preset_filter_var.set("marketplace detail")
+    _select_preset_visible_row(app, 0)
+    source_index = app._visible_preset_indices[0]
+    expected = dict(app._workspace["presets"][source_index])
+
+    app.load_selected_preset()
+
+    assert app.product_var.get() == expected["product_id"]
+    assert app.variant_var.get() == expected["variant_id"]
+    assert app.background_var.get() == expected["background"]
+    assert app.camera_angle_var.get() == expected["camera_angle"]
+    assert (
+        app.requested_output_text.get("1.0", "end-1c")
+        == expected["requested_output"]
+    )
+    assert controller.submit_calls == []
+
+
+def test_phase_r_filtered_delete_uses_exact_selected_source_preset(
+    root,
+) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_r_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    before_names = [
+        item["name"]
+        for item in app._workspace["presets"]
+    ]
+
+    app.preset_filter_var.set("bright window")
+    _select_preset_visible_row(app, 0)
+    selected_source_index = app._visible_preset_indices[0]
+    expected_remaining_names = [
+        name
+        for index, name in enumerate(before_names)
+        if index != selected_source_index
+    ]
+
+    app.delete_selected_preset()
+
+    assert [
+        item["name"]
+        for item in app._workspace["presets"]
+    ] == expected_remaining_names
+    assert tuple(app.preset_listbox.get(0, "end")) == ()
+    assert app.preset_context_name_var.get() == ""
+    assert saved
+
+
+def test_phase_r_daily_use_guide_documents_preset_preview_and_search() -> None:
+    guide = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+
+    for value in (
+        "select a preset to see its read-only preset name, product / variant, background, camera angle, and requested output context",
+        "presets matches the preset name plus product / variant, background, camera angle, and requested output",
+        "selected preset context preview is temporary ui state",
+        "it is not written to the persisted local workspace",
+        "phase o general-user usability proof remains a separate unresolved governance activity",
+    ):
+        assert value in guide
+
