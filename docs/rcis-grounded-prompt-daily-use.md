@@ -25,7 +25,7 @@ RCIS does not automatically rewrite Requested Output and does not invoke an exte
 
 RCIS keeps a local operator workspace for repeat work:
 
-- **Recent** stores recently generated prompts. Select a row to see its read-only Product / Variant, Background, Camera Angle, and Requested Output context, then open the stored result, duplicate its request, copy the exact stored prompt, save it to a text file, or mark it as a favorite.
+- **Recent** stores recently generated prompts. Select a row to see its read-only Product / Variant, Background, Camera Angle, Requested Output, and exact stored Prompt Text context, then open the stored result, duplicate its request, copy the exact stored prompt, save it to a text file, or mark it as a favorite.
 - **Presets** stores named request configurations. Select a preset to see its read-only Preset Name, Product / Variant, Background, Camera Angle, and Requested Output context, then load or delete it later.
 - **Products** lists available product / variant combinations with human-friendly labels. A product variant can be favorited or set as the explicit default for a new request.
 - **Settings** shows the current default and keeps Data Source recovery available.
@@ -40,14 +40,14 @@ The workspace is local operator convenience state. It does not change governed e
 
 Filtering is case-insensitive and deterministic:
 
-- Recent matches the displayed Product / Variant label plus Background, Camera Angle, and Requested Output. Stored prompt text itself is not part of the Recent search surface.
+- Recent matches the displayed Product / Variant label plus Background, Camera Angle, Requested Output, and Prompt Text. Recent search also matches the exact stored prompt text.
 - Presets matches the preset name plus Product / Variant, Background, Camera Angle, and Requested Output.
 - Products matches the displayed Product / Variant label.
 - Favorite markers do not participate in matching.
 
 Clearing a filter restores the complete list in its original order. A filter with no matches shows an empty list. Filter text is temporary UI state and is not written to the persisted local workspace.
 
-The selected Recent context preview is also temporary UI state. It clears when no valid Recent row is selected, including after a filter refresh removes the selected row, and it is not written to the persisted local workspace.
+The selected Recent context preview, including the exact stored Prompt Text, is temporary UI state. It clears when no valid Recent row is selected, including after a filter refresh removes the selected row, and it is not written to the persisted local workspace.
 
 The selected Preset context preview is temporary UI state as well. It clears when no valid Preset row is selected, including after a filter refresh removes the selected row, and it is not written to the persisted local workspace.
 

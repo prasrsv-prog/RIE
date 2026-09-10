@@ -1989,17 +1989,24 @@ def test_phase_q_recent_context_search_matches_request_fields(
     assert query.strip().casefold() in str(selected[field]).casefold()
 
 
-def test_phase_q_recent_search_does_not_match_prompt_text_alone(root) -> None:
+def test_phase_t_recent_search_matches_prompt_text_alone(root) -> None:
     app, _, _ = _phase_j_app(
         root,
         settings_loader=lambda: r"C:\pilot\remembered-intake",
         workspace_loader=_phase_q_workspace,
     )
 
-    app.recent_filter_var.set("prompt-only-token-one")
+    app.recent_filter_var.set("PROMPT-only-token-one")
 
-    assert tuple(app.recent_listbox.get(0, "end")) == ()
-    assert app._visible_recent_indices == []
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "Alpha / Alpha A",
+    )
+    assert len(app._visible_recent_indices) == 1
+    source_index = app._visible_recent_indices[0]
+    assert (
+        app._workspace["recent_prompts"][source_index]["prompt_text"]
+        == "prompt-only-token-one"
+    )
 
 
 def test_phase_q_favorite_marker_does_not_participate_in_context_search(
@@ -2093,13 +2100,195 @@ def test_phase_q_daily_use_guide_documents_context_preview_and_search() -> None:
     ).read_text(encoding="ascii").lower()
 
     for value in (
-        "read-only product / variant, background, camera angle, and requested output context",
-        "stored prompt text itself is not part of the recent search surface",
-        "selected recent context preview is also temporary ui state",
+        "read-only product / variant, background, camera angle, requested output, and exact stored prompt text context",
+        "selected recent context preview, including the exact stored prompt text, is temporary ui state",
         "it is not written to the persisted local workspace",
         "phase o general-user usability proof remains a separate unresolved governance activity",
     ):
         assert value in guide
+
+# Phase T - Recent prompt text preview and full-text search
+
+def test_phase_t_recent_preview_shows_exact_stored_prompt_text(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+
+    _select_recent_visible_row(app, 0)
+    source_index = app._visible_recent_indices[0]
+    expected = app._workspace["recent_prompts"][source_index]
+
+    assert app.recent_context_prompt_text_var.get() == expected["prompt_text"]
+
+
+def test_phase_t_filtered_recent_preview_maps_prompt_text_to_exact_source(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    app.recent_filter_var.set("alpha")
+
+    _select_recent_visible_row(app, 1)
+    source_index = app._visible_recent_indices[1]
+    expected = app._workspace["recent_prompts"][source_index]
+
+    assert app.recent_context_prompt_text_var.get() == expected["prompt_text"]
+
+
+def test_phase_t_no_match_filter_clears_all_recent_preview_fields(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    _select_recent_visible_row(app, 0)
+    source_index = app._visible_recent_indices[0]
+    expected = app._workspace["recent_prompts"][source_index]
+    assert app.recent_context_prompt_text_var.get() == expected["prompt_text"]
+
+    app.recent_filter_var.set("not-present-anywhere")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == ()
+    assert app.recent_context_product_variant_var.get() == ""
+    assert app.recent_context_background_var.get() == ""
+    assert app.recent_context_camera_angle_var.get() == ""
+    assert app.recent_context_requested_output_var.get() == ""
+    assert app.recent_context_prompt_text_var.get() == ""
+
+
+def test_phase_t_prompt_preview_and_full_text_filter_never_persist_workspace(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+
+    app.recent_filter_var.set("prompt-only-token-two")
+    _select_recent_visible_row(app, 0)
+    assert app.recent_context_prompt_text_var.get() == "prompt-only-token-two"
+    app.recent_filter_var.set("")
+
+    assert len(saved) == baseline
+
+
+def test_phase_t_filtered_open_uses_exact_prompt_text_source(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    app.recent_filter_var.set("prompt-only-token-two")
+    app.recent_listbox.selection_set(0)
+
+    app.open_recent()
+
+    assert app.prompt_output.get("1.0", "end-1c") == "prompt-only-token-two"
+    assert app.background_var.get() == "bright window studio"
+    assert controller.submit_calls == []
+
+
+def test_phase_t_filtered_duplicate_uses_exact_original_source(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    app.recent_filter_var.set("prompt-only-token-two")
+    app.recent_listbox.selection_set(0)
+
+    app.duplicate_recent()
+
+    assert app.background_var.get() == "bright window studio"
+    assert app.camera_angle_var.get() == "rear three-quarter"
+    assert app.requested_output_text.get("1.0", "end-1c") == "marketplace detail"
+    assert app.prompt_output.get("1.0", "end-1c") == ""
+    assert controller.submit_calls == []
+
+
+def test_phase_t_filtered_copy_uses_exact_original_prompt(root, monkeypatch) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+    )
+    clipboard = []
+    monkeypatch.setattr(root, "clipboard_clear", lambda: clipboard.clear())
+    monkeypatch.setattr(root, "clipboard_append", clipboard.append)
+    app.recent_filter_var.set("prompt-only-token-two")
+    app.recent_listbox.selection_set(0)
+
+    app.copy_recent_prompt()
+
+    assert clipboard == ["prompt-only-token-two"]
+    assert controller.submit_calls == []
+
+
+def test_phase_t_filtered_save_uses_exact_original_prompt(root) -> None:
+    writes = []
+    controller = _FakeController()
+
+    app = GroundedPromptTkApplication(
+        root,
+        controller_factory=lambda **_kwargs: controller,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        settings_saver=lambda _value: None,
+        workspace_loader=_phase_q_workspace,
+        workspace_saver=lambda _state: None,
+        save_dialog=lambda **_kwargs: r"C:\exports\phase-t.txt",
+        file_writer=lambda path, payload: writes.append((path, payload)),
+    )
+    root.update_idletasks()
+    app.recent_filter_var.set("prompt-only-token-two")
+    app.recent_listbox.selection_set(0)
+
+    app.save_recent_prompt()
+
+    assert writes == [(r"C:\exports\phase-t.txt", b"prompt-only-token-two")]
+    assert controller.submit_calls == []
+
+
+def test_phase_t_filtered_favorite_uses_exact_original_source_index(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_q_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    app.recent_filter_var.set("prompt-only-token-two")
+    source_index = app._visible_recent_indices[0]
+    app.recent_listbox.selection_set(0)
+
+    app.toggle_recent_selected_favorite()
+
+    assert app._workspace["recent_prompts"][source_index]["favorite"] is True
+    assert sum(1 for item in app._workspace["recent_prompts"] if item["favorite"]) == 1
+    assert saved[-1]["recent_prompts"][source_index]["favorite"] is True
+
+
+def test_phase_t_daily_use_guide_documents_prompt_text_preview_and_search() -> None:
+    guide = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+
+    for value in (
+        "exact stored prompt text",
+        "prompt text",
+        "recent search also matches the exact stored prompt text",
+        "temporary ui state",
+        "not written to the persisted local workspace",
+        "phase o general-user usability proof remains a separate unresolved governance activity",
+    ):
+        assert value in guide
+
 
 # Phase R - Preset context preview and context search
 

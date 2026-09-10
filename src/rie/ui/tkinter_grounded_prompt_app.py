@@ -120,6 +120,10 @@ class GroundedPromptTkApplication:
             master=root,
             value="",
         )
+        self.recent_context_prompt_text_var = tk.StringVar(
+            master=root,
+            value="",
+        )
         self.preset_context_name_var = tk.StringVar(
             master=root,
             value="",
@@ -685,6 +689,7 @@ class GroundedPromptTkApplication:
                 ("Background", self.recent_context_background_var),
                 ("Camera Angle", self.recent_context_camera_angle_var),
                 ("Requested Output", self.recent_context_requested_output_var),
+                ("Prompt Text", self.recent_context_prompt_text_var),
             )
         ):
             ttk.Label(
@@ -1190,6 +1195,7 @@ class GroundedPromptTkApplication:
         self.recent_context_background_var.set("")
         self.recent_context_camera_angle_var.set("")
         self.recent_context_requested_output_var.set("")
+        self.recent_context_prompt_text_var.set("")
 
     def _refresh_recent_context_preview(self) -> None:
         selected = self._selected_recent()
@@ -1211,6 +1217,9 @@ class GroundedPromptTkApplication:
         )
         self.recent_context_requested_output_var.set(
             str(item.get("requested_output", ""))
+        )
+        self.recent_context_prompt_text_var.set(
+            str(item.get("prompt_text", ""))
         )
 
     def _on_recent_selection_changed(
@@ -1237,6 +1246,7 @@ class GroundedPromptTkApplication:
                     str(item.get("background", "")),
                     str(item.get("camera_angle", "")),
                     str(item.get("requested_output", "")),
+                    str(item.get("prompt_text", "")),
                 )
             )
             if not self._workspace_filter_matches(match_text, query):
