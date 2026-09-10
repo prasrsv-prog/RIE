@@ -2589,6 +2589,320 @@ def test_phase_u_daily_use_guide_documents_favorite_only_filters() -> None:
         assert value in guide
 
 
+# Phase V - Workspace filter reset and result counts
+
+def _phase_v_workspace():
+    workspace = _phase_u_workspace()
+    workspace = save_preset(
+        workspace,
+        "Studio Alpha",
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-b",
+            "background": "studio",
+            "camera_angle": "top",
+            "requested_output": "alpha preset output",
+        },
+    )
+    workspace = save_preset(
+        workspace,
+        "Outdoor Beta",
+        {
+            "product_id": "beta",
+            "variant_id": "beta-a",
+            "background": "outdoor",
+            "camera_angle": "front",
+            "requested_output": "beta preset output",
+        },
+    )
+    return workspace
+
+
+def test_phase_v_recent_result_count_matches_unfiltered_visible_rows(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+
+    assert app.recent_result_count_var.get() == "3 results"
+    assert len(app._visible_recent_indices) == 3
+    assert app.recent_result_count_label.cget("textvariable")
+
+
+def test_phase_v_recent_result_count_updates_under_text_filter(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+
+    app.recent_filter_var.set("alpha")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "Alpha / Alpha A",
+        "* Alpha / Alpha A",
+    )
+    assert app.recent_result_count_var.get() == "2 results"
+
+
+def test_phase_v_recent_result_count_tracks_favorite_and_combined_filters(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+
+    app.recent_favorites_only_var.set(True)
+    assert app.recent_result_count_var.get() == "2 results"
+
+    app.recent_filter_var.set("alpha")
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "* Alpha / Alpha A",
+    )
+    assert app.recent_result_count_var.get() == "1 result"
+
+
+def test_phase_v_recent_clear_resets_text_only_and_preserves_favorites(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.recent_favorites_only_var.set(True)
+    app.recent_filter_var.set("beta")
+
+    app.recent_filter_clear_button.invoke()
+
+    assert app.recent_filter_var.get() == ""
+    assert app.recent_favorites_only_var.get() is True
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "* Beta / Beta A",
+        "* Alpha / Alpha A",
+    )
+    assert app.recent_result_count_var.get() == "2 results"
+
+
+def test_phase_v_recent_clear_never_persists_workspace(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    app.recent_filter_var.set("alpha")
+
+    app.recent_filter_clear_button.invoke()
+    app.recent_filter_clear_button.invoke()
+
+    assert app.recent_filter_var.get() == ""
+    assert len(saved) == baseline
+
+
+def test_phase_v_preset_result_count_matches_and_tracks_text_filter(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+
+    assert app.preset_result_count_var.get() == "2 results"
+
+    app.preset_filter_var.set("outdoor")
+
+    assert tuple(app.preset_listbox.get(0, "end")) == (
+        "Outdoor Beta",
+    )
+    assert app.preset_result_count_var.get() == "1 result"
+    assert app.preset_result_count_label.cget("textvariable")
+
+
+def test_phase_v_preset_clear_restores_complete_original_order(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    original_rows = tuple(app.preset_listbox.get(0, "end"))
+    app.preset_filter_var.set("outdoor")
+
+    app.preset_filter_clear_button.invoke()
+
+    assert app.preset_filter_var.get() == ""
+    assert tuple(app.preset_listbox.get(0, "end")) == original_rows
+    assert app.preset_result_count_var.get() == "2 results"
+
+
+def test_phase_v_preset_clear_never_persists_workspace(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    app.preset_filter_var.set("studio")
+
+    app.preset_filter_clear_button.invoke()
+    app.preset_filter_clear_button.invoke()
+
+    assert app.preset_filter_var.get() == ""
+    assert len(saved) == baseline
+
+
+def test_phase_v_product_result_count_matches_unfiltered_visible_rows(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.show_workspace_view("Products")
+
+    assert app.product_result_count_var.get() == "3 results"
+    assert len(app._visible_product_variants) == 3
+    assert app.product_result_count_label.cget("textvariable")
+
+
+def test_phase_v_product_result_count_updates_under_text_filter(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.show_workspace_view("Products")
+
+    app.product_filter_var.set("beta")
+
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "* Beta / Beta A",
+    )
+    assert app.product_result_count_var.get() == "1 result"
+
+
+def test_phase_v_product_result_count_tracks_favorite_and_combined_filters(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.show_workspace_view("Products")
+
+    app.product_favorites_only_var.set(True)
+    assert app.product_result_count_var.get() == "2 results"
+
+    app.product_filter_var.set("beta")
+    assert app.product_result_count_var.get() == "1 result"
+    assert app._visible_product_variants == [
+        ("beta", "beta-a"),
+    ]
+
+
+def test_phase_v_product_clear_resets_text_only_and_preserves_favorites(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.show_workspace_view("Products")
+    app.product_favorites_only_var.set(True)
+    app.product_filter_var.set("beta")
+
+    app.product_filter_clear_button.invoke()
+
+    assert app.product_filter_var.get() == ""
+    assert app.product_favorites_only_var.get() is True
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "* Alpha / Alpha B",
+        "* Beta / Beta A",
+    )
+    assert app.product_result_count_var.get() == "2 results"
+
+
+def test_phase_v_product_clear_never_persists_workspace(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    app.show_workspace_view("Products")
+    app.product_filter_var.set("alpha")
+
+    app.product_filter_clear_button.invoke()
+    app.product_filter_clear_button.invoke()
+
+    assert app.product_filter_var.get() == ""
+    assert len(saved) == baseline
+
+
+def test_phase_v_clear_refreshes_preserve_exact_source_mappings(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+
+    app.recent_filter_var.set("prompt-only-token-two")
+    app.recent_filter_clear_button.invoke()
+    app.recent_filter_var.set("prompt-only-token-two")
+    _select_recent_visible_row(app, 0)
+    source_index = app._visible_recent_indices[0]
+    expected_recent = app._workspace["recent_prompts"][source_index]
+    app.duplicate_recent()
+
+    assert expected_recent["prompt_text"] == "prompt-only-token-two"
+    assert app.background_var.get() == "bright window studio"
+    assert app.camera_angle_var.get() == "rear three-quarter"
+
+    app.show_workspace_view("Presets")
+    app.preset_filter_var.set("outdoor")
+    app.preset_filter_clear_button.invoke()
+    app.preset_filter_var.set("outdoor")
+    app.preset_listbox.selection_set(0)
+    app.load_selected_preset()
+
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == "beta-a"
+    assert app.background_var.get() == "outdoor"
+
+    app.show_workspace_view("Products")
+    app.product_favorites_only_var.set(True)
+    app.product_filter_var.set("beta")
+    app.product_filter_clear_button.invoke()
+    app.product_filter_var.set("beta")
+    app.product_variant_listbox.selection_set(0)
+    app.use_selected_product_variant()
+
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == "beta-a"
+    assert controller.submit_calls == []
+
+
+def test_phase_v_daily_use_guide_documents_result_counts_and_clear_scope() -> None:
+    guide = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+
+    for value in (
+        "visible result count",
+        "clear",
+        "recent, presets, and products",
+        "text search / filter field",
+        "does not change favorites only",
+        "temporary ui state",
+        "not written to the persisted local workspace",
+        "phase o general-user usability proof remains a separate unresolved governance activity",
+    ):
+        assert value in guide
+
+
 # Phase R - Preset context preview and context search
 
 def _phase_r_workspace():

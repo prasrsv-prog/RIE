@@ -102,12 +102,24 @@ class GroundedPromptTkApplication:
         self.workspace_view_var = tk.StringVar(master=root, value="New Prompt")
         self.preset_name_var = tk.StringVar(master=root, value="")
         self.recent_filter_var = tk.StringVar(master=root, value="")
+        self.recent_result_count_var = tk.StringVar(
+            master=root,
+            value="0 results",
+        )
         self.recent_favorites_only_var = tk.BooleanVar(
             master=root,
             value=False,
         )
         self.preset_filter_var = tk.StringVar(master=root, value="")
+        self.preset_result_count_var = tk.StringVar(
+            master=root,
+            value="0 results",
+        )
         self.product_filter_var = tk.StringVar(master=root, value="")
+        self.product_result_count_var = tk.StringVar(
+            master=root,
+            value="0 results",
+        )
         self.product_favorites_only_var = tk.BooleanVar(
             master=root,
             value=False,
@@ -641,8 +653,18 @@ class GroundedPromptTkApplication:
         self.recent_filter_entry.grid(
             row=0,
             column=1,
-            columnspan=2,
             sticky="ew",
+        )
+        self.recent_filter_clear_button = ttk.Button(
+            self.recent_section,
+            text="Clear",
+            command=self.clear_recent_filter,
+        )
+        self.recent_filter_clear_button.grid(
+            row=0,
+            column=2,
+            sticky="e",
+            padx=(8, 0),
         )
         self.recent_favorites_only_check = ttk.Checkbutton(
             self.recent_section,
@@ -655,6 +677,16 @@ class GroundedPromptTkApplication:
             sticky="e",
             padx=(8, 0),
         )
+        self.recent_result_count_label = ttk.Label(
+            self.recent_section,
+            textvariable=self.recent_result_count_var,
+        )
+        self.recent_result_count_label.grid(
+            row=0,
+            column=4,
+            sticky="e",
+            padx=(8, 0),
+        )
         self.recent_listbox = tk.Listbox(
             self.recent_section,
             height=6,
@@ -663,7 +695,7 @@ class GroundedPromptTkApplication:
         self.recent_listbox.grid(
             row=1,
             column=0,
-            columnspan=4,
+            columnspan=5,
             sticky="ew",
             pady=(6, 0),
         )
@@ -705,7 +737,7 @@ class GroundedPromptTkApplication:
         self.recent_context_frame.grid(
             row=4,
             column=0,
-            columnspan=4,
+            columnspan=5,
             sticky="ew",
             pady=(8, 0),
         )
@@ -775,8 +807,30 @@ class GroundedPromptTkApplication:
         self.preset_filter_entry.grid(
             row=1,
             column=1,
-            columnspan=3,
             sticky="ew",
+            pady=(6, 0),
+        )
+        self.preset_filter_clear_button = ttk.Button(
+            self.presets_section,
+            text="Clear",
+            command=self.clear_preset_filter,
+        )
+        self.preset_filter_clear_button.grid(
+            row=1,
+            column=2,
+            sticky="e",
+            padx=(8, 0),
+            pady=(6, 0),
+        )
+        self.preset_result_count_label = ttk.Label(
+            self.presets_section,
+            textvariable=self.preset_result_count_var,
+        )
+        self.preset_result_count_label.grid(
+            row=1,
+            column=3,
+            sticky="e",
+            padx=(8, 0),
             pady=(6, 0),
         )
         self.preset_listbox = tk.Listbox(
@@ -880,6 +934,17 @@ class GroundedPromptTkApplication:
             column=1,
             sticky="ew",
         )
+        self.product_filter_clear_button = ttk.Button(
+            self.products_section,
+            text="Clear",
+            command=self.clear_product_filter,
+        )
+        self.product_filter_clear_button.grid(
+            row=0,
+            column=2,
+            sticky="e",
+            padx=(8, 0),
+        )
         self.product_favorites_only_check = ttk.Checkbutton(
             self.products_section,
             text="Favorites only",
@@ -887,7 +952,17 @@ class GroundedPromptTkApplication:
         )
         self.product_favorites_only_check.grid(
             row=0,
-            column=2,
+            column=3,
+            sticky="e",
+            padx=(8, 0),
+        )
+        self.product_result_count_label = ttk.Label(
+            self.products_section,
+            textvariable=self.product_result_count_var,
+        )
+        self.product_result_count_label.grid(
+            row=0,
+            column=4,
             sticky="e",
             padx=(8, 0),
         )
@@ -899,7 +974,7 @@ class GroundedPromptTkApplication:
         self.product_variant_listbox.grid(
             row=1,
             column=0,
-            columnspan=3,
+            columnspan=5,
             sticky="ew",
             pady=(6, 0),
         )
@@ -1227,6 +1302,23 @@ class GroundedPromptTkApplication:
             return True
         return normalized_query in display_text.casefold()
 
+    @staticmethod
+    def _result_count_text(count: int) -> str:
+        noun = "result" if count == 1 else "results"
+        return f"{count} {noun}"
+
+    def clear_recent_filter(self) -> None:
+        if self.recent_filter_var.get():
+            self.recent_filter_var.set("")
+
+    def clear_preset_filter(self) -> None:
+        if self.preset_filter_var.get():
+            self.preset_filter_var.set("")
+
+    def clear_product_filter(self) -> None:
+        if self.product_filter_var.get():
+            self.product_filter_var.set("")
+
     def _clear_recent_context_preview(self) -> None:
         self.recent_context_product_variant_var.set("")
         self.recent_context_background_var.set("")
@@ -1297,6 +1389,9 @@ class GroundedPromptTkApplication:
                 favorite + display_text,
             )
             self._visible_recent_indices.append(source_index)
+        self.recent_result_count_var.set(
+            self._result_count_text(len(self._visible_recent_indices))
+        )
 
     def _clear_preset_context_preview(self) -> None:
         self.preset_context_name_var.set("")
@@ -1357,12 +1452,16 @@ class GroundedPromptTkApplication:
                 continue
             self.preset_listbox.insert("end", display_text)
             self._visible_preset_indices.append(source_index)
+        self.preset_result_count_var.set(
+            self._result_count_text(len(self._visible_preset_indices))
+        )
 
     def _refresh_products_workspace(self) -> None:
         if not hasattr(self, "product_variant_listbox"):
             return
         self.product_variant_listbox.delete(0, "end")
         self._visible_product_variants = []
+        self.product_result_count_var.set(self._result_count_text(0))
         if self._controller is None:
             return
         query = self.product_filter_var.get()
@@ -1407,6 +1506,9 @@ class GroundedPromptTkApplication:
                 self._visible_product_variants.append(
                     (product_id, variant_id)
                 )
+        self.product_result_count_var.set(
+            self._result_count_text(len(self._visible_product_variants))
+        )
 
     def _refresh_default_status(self) -> None:
         value = self._workspace.get("default_product_variant")

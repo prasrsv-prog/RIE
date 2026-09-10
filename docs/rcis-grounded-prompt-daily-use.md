@@ -36,7 +36,7 @@ The workspace is local operator convenience state. It does not change governed e
 
 ## Search and filter the workspace
 
-**Recent**, **Presets**, and **Products** each have a **Search / Filter** field. Recent and Products also have a **Favorites only** control. It is off by default. When **Favorites only** and Search / Filter are both active, they compose by logical AND: an item must be a favorite and also match the text filter.
+Recent, Presets, and Products each have a **Search / Filter** field, a visible result count, and a **Clear** action for the text Search / Filter field. Recent and Products also have a **Favorites only** control. It is off by default. When **Favorites only** and Search / Filter are both active, they compose by logical AND: an item must be a favorite and also match the text filter.
 
 Filtering is case-insensitive and deterministic:
 
@@ -45,7 +45,7 @@ Filtering is case-insensitive and deterministic:
 - Products matches the displayed Product / Variant label.
 - Favorite markers do not participate in matching.
 
-Clearing a text filter restores the rows allowed by the current **Favorites only** setting. Turning **Favorites only** off restores non-favorite rows as well. A filter with no matches shows an empty list. Filter text is temporary UI state and is not written to the persisted local workspace. Both Favorite-only controls are also temporary UI state and are not written to the persisted local workspace.
+The visible result count always reflects the rows currently shown after active filters are applied. **Clear** resets only the corresponding text Search / Filter field; it does not change Favorites only state. Clearing a text filter restores the rows allowed by the current **Favorites only** setting. Turning **Favorites only** off restores non-favorite rows as well. A filter with no matches shows an empty list and a zero-result count. Filter text is temporary UI state and is not written to the persisted local workspace. Result counts and Clear behavior are also temporary UI state and are not written to the persisted local workspace. Both Favorite-only controls are also temporary UI state and are not written to the persisted local workspace.
 
 The selected Recent context preview, including the exact stored Prompt Text, is temporary UI state. It clears when no valid Recent row is selected, including after a filter refresh removes the selected row, and it is not written to the persisted local workspace.
 
