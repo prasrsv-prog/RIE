@@ -2903,6 +2903,331 @@ def test_phase_v_daily_use_guide_documents_result_counts_and_clear_scope() -> No
         assert value in guide
 
 
+# Phase W - Workspace quick activation
+
+def _phase_w_select(listbox, visible_index: int) -> None:
+    listbox.selection_clear(0, "end")
+    listbox.selection_set(visible_index)
+
+
+def _phase_w_button(section, text: str):
+    for child in section.winfo_children():
+        if child.winfo_class() == "TButton" and child.cget("text") == text:
+            return child
+    raise AssertionError(f"button not found: {text}")
+
+
+def test_phase_w_recent_enter_uses_existing_open_behavior(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    _phase_w_select(app.recent_listbox, 0)
+    source_index = app._visible_recent_indices[0]
+    expected = app._workspace["recent_prompts"][source_index]
+
+    assert app.recent_listbox.bind("<Return>")
+    app._activate_recent_primary(None)
+
+    assert app.product_var.get() == expected["product_id"]
+    assert app.variant_var.get() == expected["variant_id"]
+    assert app.result_state_var.get() == "Saved prompt"
+    assert (
+        app.prompt_output.get("1.0", "end-1c")
+        == expected["prompt_text"]
+    )
+
+
+def test_phase_w_recent_double_click_uses_existing_open_behavior(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    _phase_w_select(app.recent_listbox, 1)
+    source_index = app._visible_recent_indices[1]
+    expected = app._workspace["recent_prompts"][source_index]
+
+    assert app.recent_listbox.bind("<Double-Button-1>")
+    app._activate_recent_primary(None)
+
+    assert app.background_var.get() == expected["background"]
+    assert app.camera_angle_var.get() == expected["camera_angle"]
+    assert (
+        app.prompt_output.get("1.0", "end-1c")
+        == expected["prompt_text"]
+    )
+
+
+def test_phase_w_recent_quick_activation_uses_exact_combined_filter_mapping(
+    root,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.recent_favorites_only_var.set(True)
+    app.recent_filter_var.set("alpha")
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "* Alpha / Alpha A",
+    )
+    _phase_w_select(app.recent_listbox, 0)
+    source_index = app._visible_recent_indices[0]
+    expected = app._workspace["recent_prompts"][source_index]
+
+    app._activate_recent_primary(None)
+
+    assert expected["prompt_text"] == "prompt-only-token-one"
+    assert (
+        app.prompt_output.get("1.0", "end-1c")
+        == expected["prompt_text"]
+    )
+    assert app.background_var.get() == expected["background"]
+
+
+def test_phase_w_recent_enter_without_selection_is_noop_and_never_persists(
+    root,
+) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    app.recent_listbox.selection_clear(0, "end")
+
+    app._activate_recent_primary(None)
+
+    assert len(saved) == baseline
+    assert app.workspace_view_var.get() == "New Prompt"
+    assert app.result_state_var.get() == ""
+
+
+def test_phase_w_preset_enter_uses_existing_load_behavior(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    _phase_w_select(app.preset_listbox, 0)
+    source_index = app._visible_preset_indices[0]
+    expected = app._workspace["presets"][source_index]
+
+    assert app.preset_listbox.bind("<Return>")
+    app._activate_preset_primary(None)
+
+    assert app.product_var.get() == expected["product_id"]
+    assert app.variant_var.get() == expected["variant_id"]
+    assert app.background_var.get() == expected["background"]
+    assert app.camera_angle_var.get() == expected["camera_angle"]
+
+
+def test_phase_w_preset_double_click_uses_existing_load_behavior(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    _phase_w_select(app.preset_listbox, 1)
+    source_index = app._visible_preset_indices[1]
+    expected = app._workspace["presets"][source_index]
+
+    assert app.preset_listbox.bind("<Double-Button-1>")
+    app._activate_preset_primary(None)
+
+    assert app.product_var.get() == expected["product_id"]
+    assert app.variant_var.get() == expected["variant_id"]
+    assert (
+        app.requested_output_text.get("1.0", "end-1c")
+        == expected["requested_output"]
+    )
+
+
+def test_phase_w_preset_quick_activation_uses_exact_filtered_mapping(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.preset_filter_var.set("outdoor")
+    assert tuple(app.preset_listbox.get(0, "end")) == (
+        "Outdoor Beta",
+    )
+    _phase_w_select(app.preset_listbox, 0)
+    source_index = app._visible_preset_indices[0]
+    expected = app._workspace["presets"][source_index]
+
+    app._activate_preset_primary(None)
+
+    assert expected["name"] == "Outdoor Beta"
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == "beta-a"
+    assert app.background_var.get() == expected["background"]
+
+
+def test_phase_w_preset_enter_without_selection_is_noop_and_never_persists(
+    root,
+) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    app.preset_listbox.selection_clear(0, "end")
+
+    app._activate_preset_primary(None)
+
+    assert len(saved) == baseline
+    assert app.workspace_view_var.get() == "New Prompt"
+    assert app.product_var.get() == ""
+
+
+def test_phase_w_product_enter_uses_existing_use_product_behavior(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.show_workspace_view("Products")
+    _phase_w_select(app.product_variant_listbox, 0)
+    expected = app._visible_product_variants[0]
+
+    assert app.product_variant_listbox.bind("<Return>")
+    app._activate_product_primary(None)
+
+    assert (app.product_var.get(), app.variant_var.get()) == expected
+    assert app.background_var.get() == ""
+    assert app.camera_angle_var.get() == ""
+
+
+def test_phase_w_product_double_click_uses_existing_use_product_behavior(
+    root,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.show_workspace_view("Products")
+    _phase_w_select(app.product_variant_listbox, 2)
+    expected = app._visible_product_variants[2]
+
+    assert app.product_variant_listbox.bind("<Double-Button-1>")
+    app._activate_product_primary(None)
+
+    assert (app.product_var.get(), app.variant_var.get()) == expected
+    assert app.requested_output_text.get("1.0", "end-1c") == ""
+
+
+def test_phase_w_product_quick_activation_uses_exact_combined_filter_mapping(
+    root,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+    app.show_workspace_view("Products")
+    app.product_favorites_only_var.set(True)
+    app.product_filter_var.set("beta")
+    assert app._visible_product_variants == [
+        ("beta", "beta-a"),
+    ]
+    _phase_w_select(app.product_variant_listbox, 0)
+
+    app._activate_product_primary(None)
+
+    assert app.product_var.get() == "beta"
+    assert app.variant_var.get() == "beta-a"
+
+
+def test_phase_w_product_enter_without_selection_is_noop_and_never_persists(
+    root,
+) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    app.show_workspace_view("Products")
+    app.product_variant_listbox.selection_clear(0, "end")
+
+    app._activate_product_primary(None)
+
+    assert len(saved) == baseline
+    assert app.workspace_view_var.get() == "Products"
+    assert app.product_var.get() == ""
+
+
+def test_phase_w_quick_activation_bindings_are_scoped_to_workspace_lists(
+    root,
+) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+
+    for listbox in (
+        app.recent_listbox,
+        app.preset_listbox,
+        app.product_variant_listbox,
+    ):
+        assert listbox.bind("<Return>")
+        assert listbox.bind("<Double-Button-1>")
+
+    assert root.bind("<Return>") == ""
+    assert root.bind("<Double-Button-1>") == ""
+
+
+def test_phase_w_existing_primary_action_buttons_remain_available(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_v_workspace,
+    )
+
+    recent_open = _phase_w_button(app.recent_section, "Open")
+    preset_load = _phase_w_button(app.presets_section, "Load")
+    product_use = _phase_w_button(app.products_section, "Use Product")
+
+    assert recent_open.cget("command")
+    assert preset_load.cget("command")
+    assert product_use.cget("command")
+
+
+def test_phase_w_daily_use_guide_documents_scoped_quick_activation() -> None:
+    guide = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+
+    for value in (
+        "quick activation",
+        "enter",
+        "double-click",
+        "recent",
+        "presets",
+        "products",
+        "workspace lists",
+        "same existing primary actions",
+        "no global keyboard shortcut",
+        "phase o general-user usability proof remains a separate unresolved governance activity",
+    ):
+        assert value in guide
+
+
 # Phase R - Preset context preview and context search
 
 def _phase_r_workspace():

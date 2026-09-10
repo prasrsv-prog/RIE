@@ -703,6 +703,14 @@ class GroundedPromptTkApplication:
             "<<ListboxSelect>>",
             self._on_recent_selection_changed,
         )
+        self.recent_listbox.bind(
+            "<Return>",
+            self._activate_recent_primary,
+        )
+        self.recent_listbox.bind(
+            "<Double-Button-1>",
+            self._activate_recent_primary,
+        )
         ttk.Button(
             self.recent_section,
             text="Open",
@@ -849,6 +857,14 @@ class GroundedPromptTkApplication:
             "<<ListboxSelect>>",
             self._on_preset_selection_changed,
         )
+        self.preset_listbox.bind(
+            "<Return>",
+            self._activate_preset_primary,
+        )
+        self.preset_listbox.bind(
+            "<Double-Button-1>",
+            self._activate_preset_primary,
+        )
         ttk.Button(
             self.presets_section,
             text="Save Current",
@@ -977,6 +993,14 @@ class GroundedPromptTkApplication:
             columnspan=5,
             sticky="ew",
             pady=(6, 0),
+        )
+        self.product_variant_listbox.bind(
+            "<Return>",
+            self._activate_product_primary,
+        )
+        self.product_variant_listbox.bind(
+            "<Double-Button-1>",
+            self._activate_product_primary,
         )
         ttk.Button(
             self.products_section,
@@ -1560,6 +1584,15 @@ class GroundedPromptTkApplication:
             return
         self._refresh_workspace_views()
         self._set_workspace_view(name)
+
+    def _activate_recent_primary(self, _event=None) -> None:
+        self.open_recent()
+
+    def _activate_preset_primary(self, _event=None) -> None:
+        self.load_selected_preset()
+
+    def _activate_product_primary(self, _event=None) -> None:
+        self.use_selected_product_variant()
 
     def _selected_recent(self) -> tuple[int, dict] | None:
         visible_index = self._selected_index(self.recent_listbox)

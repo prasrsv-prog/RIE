@@ -53,6 +53,12 @@ The selected Preset context preview is temporary UI state as well. It clears whe
 
 Actions on a filtered row continue to operate on the exact underlying Recent item, preset, or product / variant pair.
 
+## Quick activation
+
+The Recent, Presets, and Products workspace lists support quick activation for the currently selected visible row. Press **Enter** or double-click a selected row to run the same existing primary actions: Recent uses **Open**, Presets uses the existing **Load** action, and Products uses **Use Product**.
+
+Quick activation is scoped only to these three workspace lists; there is no global keyboard shortcut. It uses the same existing filtered visible-row mapping and action methods as the buttons, so Search / Filter, Favorites only, result counts, Clear, ordering, and persistence behavior are unchanged.
+
 ## Copy or save a prompt
 
 Use **Copy Prompt** for the current generated prompt or a selected Recent prompt.
