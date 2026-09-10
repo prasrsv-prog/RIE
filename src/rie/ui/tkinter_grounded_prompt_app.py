@@ -102,8 +102,16 @@ class GroundedPromptTkApplication:
         self.workspace_view_var = tk.StringVar(master=root, value="New Prompt")
         self.preset_name_var = tk.StringVar(master=root, value="")
         self.recent_filter_var = tk.StringVar(master=root, value="")
+        self.recent_favorites_only_var = tk.BooleanVar(
+            master=root,
+            value=False,
+        )
         self.preset_filter_var = tk.StringVar(master=root, value="")
         self.product_filter_var = tk.StringVar(master=root, value="")
+        self.product_favorites_only_var = tk.BooleanVar(
+            master=root,
+            value=False,
+        )
         self.recent_context_product_variant_var = tk.StringVar(
             master=root,
             value="",
@@ -193,11 +201,19 @@ class GroundedPromptTkApplication:
             "write",
             lambda *_args: self._refresh_recent_workspace(),
         )
+        self.recent_favorites_only_var.trace_add(
+            "write",
+            lambda *_args: self._refresh_recent_workspace(),
+        )
         self.preset_filter_var.trace_add(
             "write",
             lambda *_args: self._refresh_presets_workspace(),
         )
         self.product_filter_var.trace_add(
+            "write",
+            lambda *_args: self._refresh_products_workspace(),
+        )
+        self.product_favorites_only_var.trace_add(
             "write",
             lambda *_args: self._refresh_products_workspace(),
         )
@@ -625,8 +641,19 @@ class GroundedPromptTkApplication:
         self.recent_filter_entry.grid(
             row=0,
             column=1,
-            columnspan=3,
+            columnspan=2,
             sticky="ew",
+        )
+        self.recent_favorites_only_check = ttk.Checkbutton(
+            self.recent_section,
+            text="Favorites only",
+            variable=self.recent_favorites_only_var,
+        )
+        self.recent_favorites_only_check.grid(
+            row=0,
+            column=3,
+            sticky="e",
+            padx=(8, 0),
         )
         self.recent_listbox = tk.Listbox(
             self.recent_section,
@@ -851,8 +878,18 @@ class GroundedPromptTkApplication:
         self.product_filter_entry.grid(
             row=0,
             column=1,
-            columnspan=2,
             sticky="ew",
+        )
+        self.product_favorites_only_check = ttk.Checkbutton(
+            self.products_section,
+            text="Favorites only",
+            variable=self.product_favorites_only_var,
+        )
+        self.product_favorites_only_check.grid(
+            row=0,
+            column=2,
+            sticky="e",
+            padx=(8, 0),
         )
         self.product_variant_listbox = tk.Listbox(
             self.products_section,
@@ -1233,9 +1270,12 @@ class GroundedPromptTkApplication:
         self._visible_recent_indices = []
         self._clear_recent_context_preview()
         query = self.recent_filter_var.get()
+        favorites_only = self.recent_favorites_only_var.get()
         for source_index, item in enumerate(
             self._workspace["recent_prompts"]
         ):
+            if favorites_only and not item.get("favorite"):
+                continue
             display_text = self._display_product_variant(
                 item["product_id"],
                 item["variant_id"],
@@ -1326,6 +1366,7 @@ class GroundedPromptTkApplication:
         if self._controller is None:
             return
         query = self.product_filter_var.get()
+        favorites_only = self.product_favorites_only_var.get()
         favorites = {
             (item["product_id"], item["variant_id"])
             for item in self._workspace["product_favorites"]
@@ -1345,6 +1386,11 @@ class GroundedPromptTkApplication:
                     + " / "
                     + variant_option.label
                 )
+                if favorites_only and (
+                    product_id,
+                    variant_id,
+                ) not in favorites:
+                    continue
                 if not self._workspace_filter_matches(
                     display_text,
                     query,

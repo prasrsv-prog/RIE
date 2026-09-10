@@ -25,9 +25,9 @@ RCIS does not automatically rewrite Requested Output and does not invoke an exte
 
 RCIS keeps a local operator workspace for repeat work:
 
-- **Recent** stores recently generated prompts. Select a row to see its read-only Product / Variant, Background, Camera Angle, Requested Output, and exact stored Prompt Text context, then open the stored result, duplicate its request, copy the exact stored prompt, save it to a text file, or mark it as a favorite.
+- **Recent** stores recently generated prompts. Select a row to see its read-only Product / Variant, Background, Camera Angle, Requested Output, and exact stored Prompt Text context, then open the stored result, duplicate its request, copy the exact stored prompt, save it to a text file, or mark it as a favorite. Use **Favorites only** when you want to limit Recent to already-favorited items.
 - **Presets** stores named request configurations. Select a preset to see its read-only Preset Name, Product / Variant, Background, Camera Angle, and Requested Output context, then load or delete it later.
-- **Products** lists available product / variant combinations with human-friendly labels. A product variant can be favorited or set as the explicit default for a new request.
+- **Products** lists available product / variant combinations with human-friendly labels. A product variant can be favorited or set as the explicit default for a new request. Use **Favorites only** when you want to limit Products to already-favorited product / variant pairs.
 - **Settings** shows the current default and keeps Data Source recovery available.
 
 An explicit default product / variant is visible operator workspace state; it is not a hidden Background, Camera Angle, or Requested Output value. The operator can change the selected Product or Variant before generating.
@@ -36,7 +36,7 @@ The workspace is local operator convenience state. It does not change governed e
 
 ## Search and filter the workspace
 
-**Recent**, **Presets**, and **Products** each have a **Search / Filter** field.
+**Recent**, **Presets**, and **Products** each have a **Search / Filter** field. Recent and Products also have a **Favorites only** control. It is off by default. When **Favorites only** and Search / Filter are both active, they compose by logical AND: an item must be a favorite and also match the text filter.
 
 Filtering is case-insensitive and deterministic:
 
@@ -45,7 +45,7 @@ Filtering is case-insensitive and deterministic:
 - Products matches the displayed Product / Variant label.
 - Favorite markers do not participate in matching.
 
-Clearing a filter restores the complete list in its original order. A filter with no matches shows an empty list. Filter text is temporary UI state and is not written to the persisted local workspace.
+Clearing a text filter restores the rows allowed by the current **Favorites only** setting. Turning **Favorites only** off restores non-favorite rows as well. A filter with no matches shows an empty list. Filter text is temporary UI state and is not written to the persisted local workspace. Both Favorite-only controls are also temporary UI state and are not written to the persisted local workspace.
 
 The selected Recent context preview, including the exact stored Prompt Text, is temporary UI state. It clears when no valid Recent row is selected, including after a filter refresh removes the selected row, and it is not written to the persisted local workspace.
 

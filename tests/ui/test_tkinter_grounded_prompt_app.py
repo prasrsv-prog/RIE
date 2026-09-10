@@ -2290,6 +2290,305 @@ def test_phase_t_daily_use_guide_documents_prompt_text_preview_and_search() -> N
         assert value in guide
 
 
+# Phase U - Favorite-only workspace filters
+
+def _phase_u_workspace():
+    workspace = _phase_q_workspace()
+    for item in workspace["recent_prompts"]:
+        if item["prompt_text"] in (
+            "beta prompt body",
+            "prompt-only-token-one",
+        ):
+            item["favorite"] = True
+    workspace = toggle_product_favorite(
+        workspace,
+        "alpha",
+        "alpha-b",
+    )
+    workspace = toggle_product_favorite(
+        workspace,
+        "beta",
+        "beta-a",
+    )
+    return workspace
+
+
+def test_phase_u_recent_favorites_only_off_preserves_existing_order(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+
+    assert app.recent_favorites_only_var.get() is False
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "* Beta / Beta A",
+        "Alpha / Alpha A",
+        "* Alpha / Alpha A",
+    )
+
+
+def test_phase_u_recent_favorites_only_shows_exact_favorite_rows(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+
+    app.recent_favorites_only_var.set(True)
+
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "* Beta / Beta A",
+        "* Alpha / Alpha A",
+    )
+    assert [
+        app._workspace["recent_prompts"][index]["prompt_text"]
+        for index in app._visible_recent_indices
+    ] == [
+        "beta prompt body",
+        "prompt-only-token-one",
+    ]
+
+
+def test_phase_u_recent_favorites_only_and_text_search_compose_by_and(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+
+    app.recent_favorites_only_var.set(True)
+    app.recent_filter_var.set("alpha")
+
+    assert tuple(app.recent_listbox.get(0, "end")) == (
+        "* Alpha / Alpha A",
+    )
+    source_index = app._visible_recent_indices[0]
+    assert (
+        app._workspace["recent_prompts"][source_index]["prompt_text"]
+        == "prompt-only-token-one"
+    )
+
+
+def test_phase_u_recent_favorite_only_preview_maps_exact_source(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+    app.recent_favorites_only_var.set(True)
+    app.recent_filter_var.set("alpha")
+
+    _select_recent_visible_row(app, 0)
+    source_index = app._visible_recent_indices[0]
+    expected = app._workspace["recent_prompts"][source_index]
+
+    assert app.recent_context_product_variant_var.get() == (
+        app._display_product_variant(
+            expected["product_id"],
+            expected["variant_id"],
+        )
+    )
+    assert app.recent_context_prompt_text_var.get() == expected["prompt_text"]
+
+
+def test_phase_u_unfavorite_recent_removes_row_and_clears_preview(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    app.recent_favorites_only_var.set(True)
+    app.recent_filter_var.set("alpha")
+    _select_recent_visible_row(app, 0)
+    source_index = app._visible_recent_indices[0]
+
+    app.toggle_recent_selected_favorite()
+
+    assert app._workspace["recent_prompts"][source_index]["favorite"] is False
+    assert tuple(app.recent_listbox.get(0, "end")) == ()
+    assert app.recent_context_product_variant_var.get() == ""
+    assert app.recent_context_background_var.get() == ""
+    assert app.recent_context_camera_angle_var.get() == ""
+    assert app.recent_context_requested_output_var.get() == ""
+    assert app.recent_context_prompt_text_var.get() == ""
+    assert saved[-1]["recent_prompts"][source_index]["favorite"] is False
+
+
+def test_phase_u_recent_favorite_only_filter_state_never_persists(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+
+    app.recent_favorites_only_var.set(True)
+    app.recent_filter_var.set("beta")
+    app.recent_favorites_only_var.set(False)
+    app.recent_filter_var.set("")
+
+    assert len(saved) == baseline
+
+
+def test_phase_u_products_favorites_only_off_preserves_existing_order(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+    app.show_workspace_view("Products")
+
+    assert app.product_favorites_only_var.get() is False
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "Alpha / Alpha A",
+        "* Alpha / Alpha B",
+        "* Beta / Beta A",
+    )
+
+
+def test_phase_u_products_favorites_only_shows_exact_favorite_rows(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+    app.show_workspace_view("Products")
+
+    app.product_favorites_only_var.set(True)
+
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "* Alpha / Alpha B",
+        "* Beta / Beta A",
+    )
+    assert app._visible_product_variants == [
+        ("alpha", "alpha-b"),
+        ("beta", "beta-a"),
+    ]
+
+
+def test_phase_u_products_favorites_only_and_text_search_compose_by_and(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+    app.show_workspace_view("Products")
+
+    app.product_favorites_only_var.set(True)
+    app.product_filter_var.set("beta")
+
+    assert tuple(app.product_variant_listbox.get(0, "end")) == (
+        "* Beta / Beta A",
+    )
+    assert app._visible_product_variants == [
+        ("beta", "beta-a"),
+    ]
+
+
+def test_phase_u_product_use_under_favorite_only_maps_exact_pair(root) -> None:
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+    app.show_workspace_view("Products")
+    app.product_favorites_only_var.set(True)
+    app.product_filter_var.set("alpha b")
+    app.product_variant_listbox.selection_set(0)
+
+    app.use_selected_product_variant()
+
+    assert app.product_var.get() == "alpha"
+    assert app.variant_var.get() == "alpha-b"
+    assert controller.submit_calls == []
+
+
+def test_phase_u_product_default_under_favorite_only_maps_exact_pair(root) -> None:
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+    )
+    app.show_workspace_view("Products")
+    app.product_favorites_only_var.set(True)
+    app.product_filter_var.set("beta")
+    app.product_variant_listbox.selection_set(0)
+
+    app.set_selected_product_variant_default()
+
+    assert app._workspace["default_product_variant"] == {
+        "product_id": "beta",
+        "variant_id": "beta-a",
+    }
+
+
+def test_phase_u_unfavorite_product_removes_row_while_filter_active(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    app.show_workspace_view("Products")
+    app.product_favorites_only_var.set(True)
+    app.product_filter_var.set("alpha b")
+    app.product_variant_listbox.selection_set(0)
+
+    app.toggle_selected_product_variant_favorite()
+
+    assert app._workspace["product_favorites"] == [
+        {"product_id": "beta", "variant_id": "beta-a"},
+    ]
+    assert tuple(app.product_variant_listbox.get(0, "end")) == ()
+    assert saved[-1]["product_favorites"] == [
+        {"product_id": "beta", "variant_id": "beta-a"},
+    ]
+
+
+def test_phase_u_product_favorite_only_filter_state_never_persists(root) -> None:
+    saved = []
+    app, _, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_u_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    app.show_workspace_view("Products")
+
+    app.product_favorites_only_var.set(True)
+    app.product_filter_var.set("alpha")
+    app.product_favorites_only_var.set(False)
+    app.product_filter_var.set("")
+
+    assert len(saved) == baseline
+
+
+def test_phase_u_daily_use_guide_documents_favorite_only_filters() -> None:
+    guide = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+
+    for value in (
+        "favorites only",
+        "recent and products",
+        "logical and",
+        "off by default",
+        "temporary ui state",
+        "not written to the persisted local workspace",
+        "phase o general-user usability proof remains a separate unresolved governance activity",
+    ):
+        assert value in guide
+
+
 # Phase R - Preset context preview and context search
 
 def _phase_r_workspace():
