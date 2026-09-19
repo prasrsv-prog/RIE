@@ -25,14 +25,14 @@ RCIS does not automatically rewrite Requested Output and does not invoke an exte
 
 RCIS keeps a local operator workspace for repeat work:
 
-- **Recent** stores recently generated prompts. Select a row to see its read-only Product / Variant, Background, Camera Angle, Requested Output, and exact stored Prompt Text context, then open the stored result, duplicate its request, copy the exact stored prompt, save it to a text file, or mark it as a favorite. Use **Favorites only** when you want to limit Recent to already-favorited items.
+- **Recent** stores recently generated prompts. Select a row to see its read-only Product / Variant, Background, Camera Angle, Requested Output, and exact stored Prompt Text context, then open the stored result, duplicate its request, copy the exact stored prompt, save it to a text file, or mark it as a favorite. The **Remove** action can remove the selected Recent item from local workspace history. Use **Favorites only** when you want to limit Recent to already-favorited items.
 - **Presets** stores named request configurations. Select a preset to see its read-only Preset Name, Product / Variant, Background, Camera Angle, and Requested Output context, then load or delete it later.
 - **Products** lists available product / variant combinations with human-friendly labels. A product variant can be favorited or set as the explicit default for a new request. Use **Favorites only** when you want to limit Products to already-favorited product / variant pairs.
 - **Settings** shows the current default and keeps Data Source recovery available.
 
 An explicit default product / variant is visible operator workspace state; it is not a hidden Background, Camera Angle, or Requested Output value. The operator can change the selected Product or Variant before generating.
 
-The workspace is local operator convenience state. It does not change governed evidence, product identity, or grounding semantics.
+The workspace is local operator convenience state. It does not change governed evidence, product identity, or grounding semantics. Removing a Recent item changes only local operator workspace history; it does not delete governed evidence or alter grounded prompt semantics.
 
 ## Search and filter the workspace
 
@@ -57,7 +57,7 @@ Actions on a filtered row continue to operate on the exact underlying Recent ite
 
 The Recent, Presets, and Products workspace lists support quick activation for the currently selected visible row. Press **Enter** or double-click a selected row to run the same existing primary actions: Recent uses **Open**, Presets uses the existing **Load** action, and Products uses **Use Product**.
 
-Quick activation is scoped only to these three workspace lists; there is no global keyboard shortcut. It uses the same existing filtered visible-row mapping and action methods as the buttons, so Search / Filter, Favorites only, result counts, Clear, ordering, and persistence behavior are unchanged.
+Quick activation is scoped only to these three workspace lists; there is no global keyboard shortcut. It uses the same existing filtered visible-row mapping and action methods as the buttons, so Search / Filter, Favorites only, result counts, Clear, ordering, and persistence behavior are unchanged. In Recent, Enter and double-click still use Open; **Remove** is available only as the explicit selected-item action.
 
 ## Copy or save a prompt
 

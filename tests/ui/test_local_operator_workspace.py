@@ -9,6 +9,7 @@ from rie.ui.local_operator_workspace import (
     clear_default_product_variant,
     clone_workspace,
     delete_preset,
+    delete_recent_prompt,
     empty_workspace,
     load_workspace,
     record_recent_prompt,
@@ -234,3 +235,86 @@ def test_workspace_module_has_no_frozen_runtime_database_or_service_imports() ->
     assert "grounded_prompt_application_service" not in source
     assert "grounded_prompt_application_composition_root" not in source
     assert "grounded_prompt_application_foundation_provider" not in source
+
+# Phase Y - selected Recent history removal
+
+def _phase_y_recent_workspace() -> dict:
+    workspace = empty_workspace()
+    workspace = set_last_request(workspace, _request(90))
+    workspace = record_recent_prompt(
+        workspace,
+        _request(1),
+        "prompt-1",
+    )
+    workspace = record_recent_prompt(
+        workspace,
+        _request(2),
+        "prompt-2",
+    )
+    workspace = record_recent_prompt(
+        workspace,
+        _request(3),
+        "prompt-3",
+    )
+    workspace["recent_prompts"][1]["favorite"] = True
+    workspace = save_preset(
+        workspace,
+        "Keep preset",
+        _request(40),
+    )
+    workspace = toggle_product_favorite(
+        workspace,
+        "product-50",
+        "variant-50",
+    )
+    workspace = set_default_product_variant(
+        workspace,
+        "product-60",
+        "variant-60",
+    )
+    return workspace
+
+
+def test_phase_y_delete_recent_prompt_removes_exact_valid_index_and_preserves_other_workspace_state() -> None:
+    workspace = _phase_y_recent_workspace()
+    before = clone_workspace(workspace)
+    removed = before["recent_prompts"][1]
+
+    updated = delete_recent_prompt(workspace, 1)
+
+    assert updated["recent_prompts"] == [
+        before["recent_prompts"][0],
+        before["recent_prompts"][2],
+    ]
+    assert removed not in updated["recent_prompts"]
+    for key in (
+        "schema_version",
+        "last_request",
+        "presets",
+        "product_favorites",
+        "default_product_variant",
+    ):
+        assert updated[key] == before[key]
+
+
+def test_phase_y_delete_recent_prompt_negative_index_is_deterministic_noop() -> None:
+    workspace = _phase_y_recent_workspace()
+    before = clone_workspace(workspace)
+
+    updated = delete_recent_prompt(workspace, -1)
+
+    assert updated == before
+    assert updated is not workspace
+
+
+def test_phase_y_delete_recent_prompt_out_of_range_index_is_deterministic_noop() -> None:
+    workspace = _phase_y_recent_workspace()
+    before = clone_workspace(workspace)
+
+    updated = delete_recent_prompt(
+        workspace,
+        len(before["recent_prompts"]),
+    )
+
+    assert updated == before
+    assert updated is not workspace

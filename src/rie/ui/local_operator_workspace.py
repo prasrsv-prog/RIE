@@ -227,6 +227,17 @@ def toggle_recent_favorite(
     return updated
 
 
+def delete_recent_prompt(
+    workspace: object,
+    index: int,
+) -> dict:
+    updated = normalize_workspace(workspace)
+    if index < 0 or index >= len(updated["recent_prompts"]):
+        return updated
+    del updated["recent_prompts"][index]
+    return updated
+
+
 def save_preset(
     workspace: object,
     name: str,

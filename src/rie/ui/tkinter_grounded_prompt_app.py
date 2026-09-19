@@ -18,6 +18,7 @@ from rie.ui.local_operator_workspace import (
     clear_default_product_variant,
     clone_workspace,
     delete_preset,
+    delete_recent_prompt,
     empty_workspace,
     load_workspace,
     record_recent_prompt,
@@ -736,6 +737,11 @@ class GroundedPromptTkApplication:
             text="Favorite / Unfavorite",
             command=self.toggle_recent_selected_favorite,
         ).grid(row=2, column=3, sticky="w", pady=(6, 0))
+        ttk.Button(
+            self.recent_section,
+            text="Remove",
+            command=self.delete_selected_recent,
+        ).grid(row=3, column=3, sticky="w", pady=(6, 0))
 
         self.recent_context_frame = ttk.LabelFrame(
             self.recent_section,
@@ -1641,6 +1647,18 @@ class GroundedPromptTkApplication:
             return
         index, _item = selected
         self._workspace = toggle_recent_favorite(
+            self._workspace,
+            index,
+        )
+        self._save_workspace_state()
+        self._refresh_recent_workspace()
+
+    def delete_selected_recent(self) -> None:
+        selected = self._selected_recent()
+        if selected is None:
+            return
+        index, _item = selected
+        self._workspace = delete_recent_prompt(
             self._workspace,
             index,
         )

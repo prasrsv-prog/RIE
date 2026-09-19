@@ -3476,3 +3476,163 @@ def test_phase_r_daily_use_guide_documents_preset_preview_and_search() -> None:
     ):
         assert value in guide
 
+# Phase Y - selected Recent history removal
+
+def _phase_y_workspace():
+    workspace = empty_workspace()
+    workspace = record_recent_prompt(
+        workspace,
+        {
+            "product_id": "gamma",
+            "variant_id": "gamma-a",
+            "background": "gamma background",
+            "camera_angle": "top",
+            "requested_output": "gamma output",
+        },
+        "gamma stored prompt",
+    )
+    workspace = record_recent_prompt(
+        workspace,
+        {
+            "product_id": "alpha",
+            "variant_id": "alpha-a",
+            "background": "alpha background",
+            "camera_angle": "front",
+            "requested_output": "alpha output",
+        },
+        "alpha stored prompt",
+    )
+    workspace = record_recent_prompt(
+        workspace,
+        {
+            "product_id": "beta",
+            "variant_id": "beta-a",
+            "background": "beta background",
+            "camera_angle": "side",
+            "requested_output": "beta output",
+        },
+        "beta stored prompt",
+    )
+    workspace["recent_prompts"][0]["favorite"] = True
+    workspace["recent_prompts"][1]["favorite"] = True
+    return workspace
+
+
+def test_phase_y_unfiltered_remove_button_deletes_exact_selected_recent_and_persists_once(root) -> None:
+    saved = []
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_y_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    original = clone_workspace(app._workspace)
+    app.recent_listbox.selection_set(1)
+    app._refresh_recent_context_preview()
+    assert app.recent_context_prompt_text_var.get() == "alpha stored prompt"
+
+    _phase_w_button(app.recent_section, "Remove").invoke()
+
+    assert [item["product_id"] for item in app._workspace["recent_prompts"]] == [
+        original["recent_prompts"][0]["product_id"],
+        original["recent_prompts"][2]["product_id"],
+    ]
+    assert len(saved) == baseline + 1
+    assert app.recent_result_count_var.get() == "2 results"
+    assert app.recent_context_product_variant_var.get() == ""
+    assert app.recent_context_prompt_text_var.get() == ""
+    assert controller.submit_calls == []
+
+
+def test_phase_y_text_filtered_remove_maps_exact_source_and_refreshes_preview_and_count(root) -> None:
+    saved = []
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_y_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    app.recent_filter_var.set("alpha")
+    assert app._visible_recent_indices == [1]
+    app.recent_listbox.selection_set(0)
+    app._refresh_recent_context_preview()
+    assert app.recent_context_prompt_text_var.get() == "alpha stored prompt"
+
+    app.delete_selected_recent()
+
+    assert [item["product_id"] for item in app._workspace["recent_prompts"]] == [
+        "beta",
+        "gamma",
+    ]
+    assert app.recent_filter_var.get() == "alpha"
+    assert tuple(app.recent_listbox.get(0, "end")) == ()
+    assert app.recent_result_count_var.get() == "0 results"
+    assert app.recent_context_prompt_text_var.get() == ""
+    assert len(saved) == baseline + 1
+    assert controller.submit_calls == []
+
+
+def test_phase_y_favorites_and_text_filtered_remove_maps_exact_favorite_source_without_disturbing_others(root) -> None:
+    saved = []
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_y_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    before = clone_workspace(app._workspace)
+    app.recent_favorites_only_var.set(True)
+    app.recent_filter_var.set("alpha")
+    assert app._visible_recent_indices == [1]
+    app.recent_listbox.selection_set(0)
+
+    app.delete_selected_recent()
+
+    assert app._workspace["recent_prompts"] == [
+        before["recent_prompts"][0],
+        before["recent_prompts"][2],
+    ]
+    assert app.recent_favorites_only_var.get() is True
+    assert app.recent_filter_var.get() == "alpha"
+    assert app.recent_result_count_var.get() == "0 results"
+    assert len(saved) == baseline + 1
+    assert controller.submit_calls == []
+
+
+def test_phase_y_remove_without_selection_is_noop_and_never_persists(root) -> None:
+    saved = []
+    app, controller, _ = _phase_j_app(
+        root,
+        settings_loader=lambda: r"C:\pilot\remembered-intake",
+        workspace_loader=_phase_y_workspace,
+        workspace_saver=lambda state: saved.append(clone_workspace(state)),
+    )
+    baseline = len(saved)
+    before = clone_workspace(app._workspace)
+
+    _phase_w_button(app.recent_section, "Remove").invoke()
+
+    assert app._workspace == before
+    assert len(saved) == baseline
+    assert controller.submit_calls == []
+
+
+def test_phase_y_daily_use_guide_documents_recent_removal_local_workspace_boundary() -> None:
+    guide = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "rcis-grounded-prompt-daily-use.md"
+    ).read_text(encoding="ascii").lower()
+
+    for value in (
+        "remove the selected recent item from local workspace history",
+        "removing a recent item changes only local operator workspace history",
+        "it does not delete governed evidence",
+        "enter and double-click still use open",
+        "phase o general-user usability proof remains a separate unresolved governance activity",
+    ):
+        assert value in guide
+
