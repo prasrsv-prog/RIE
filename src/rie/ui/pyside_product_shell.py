@@ -32,6 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from rie.application.creative_prompt_composer import CreativePromptBrief
+
 from rie.ui.product_completion_models import (
     CreativeBrief,
     ProductConstraint,
@@ -83,6 +85,39 @@ class GroundedPromptCompatibilityAdapter:
         )
 
 
+class CreativePromptComposerPresentationAdapter:
+    """Project the UI CreativeBrief into the framework-neutral PC3 facade."""
+
+    def __init__(self, composer: Any) -> None:
+        self._composer = composer
+
+    def compose(
+        self,
+        *,
+        product_id: str,
+        variant_id: str,
+        brief: CreativeBrief,
+    ) -> Any:
+        return self._composer.compose_grounded_prompt(
+            product_id=product_id,
+            variant_id=variant_id,
+            brief=CreativePromptBrief(
+                objective=brief.objective,
+                deliverable=brief.deliverable,
+                environment=brief.environment,
+                camera_angle=brief.camera_angle,
+                shot_type=brief.shot_type,
+                lighting_style=brief.lighting_style,
+                composition=brief.composition,
+                mood_style=brief.mood_style,
+                aspect_ratio=brief.aspect_ratio,
+                orientation=brief.orientation,
+                product_emphasis=brief.product_emphasis,
+                preserve_constraints=tuple(brief.preserve_constraints),
+                avoid_constraints=tuple(brief.avoid_constraints),
+                freeform_notes=brief.freeform_notes,
+            ),
+        )
 
 
 class ProductIntelligencePresentationAdapter:
@@ -177,9 +212,15 @@ class ProductCompletionShell(QMainWindow):
         *,
         adapter: GroundedPromptCompatibilityAdapter | None = None,
         product_intelligence_query: Any | None = None,
+        creative_prompt_composer: Any | None = None,
     ) -> None:
         super().__init__()
         self._adapter = adapter
+        self._creative_prompt_composer = (
+            CreativePromptComposerPresentationAdapter(creative_prompt_composer)
+            if creative_prompt_composer is not None
+            else None
+        )
         self._product_intelligence = (
             ProductIntelligencePresentationAdapter(product_intelligence_query)
             if product_intelligence_query is not None
@@ -279,20 +320,53 @@ class ProductCompletionShell(QMainWindow):
         self.environment_edit.setPlaceholderText("Example: dark studio")
         self.camera_edit = QLineEdit()
         self.camera_edit.setPlaceholderText("Example: front")
+        self.shot_type_edit = QLineEdit()
+        self.shot_type_edit.setObjectName("creativeBriefShotType")
+        self.shot_type_edit.setPlaceholderText("Example: medium product shot")
         self.lighting_edit = QLineEdit()
         self.lighting_edit.setPlaceholderText("Example: soft directional light")
         self.composition_edit = QLineEdit()
         self.composition_edit.setPlaceholderText("Example: centered product, clean negative space")
         self.mood_edit = QLineEdit()
         self.mood_edit.setPlaceholderText("Example: premium, technical")
+        self.aspect_ratio_edit = QLineEdit()
+        self.aspect_ratio_edit.setObjectName("creativeBriefAspectRatio")
+        self.aspect_ratio_edit.setPlaceholderText("Example: 4:5")
+        self.orientation_edit = QLineEdit()
+        self.orientation_edit.setObjectName("creativeBriefOrientation")
+        self.orientation_edit.setPlaceholderText("Example: portrait")
+        self.product_emphasis_edit = QLineEdit()
+        self.product_emphasis_edit.setObjectName("creativeBriefProductEmphasis")
+        self.product_emphasis_edit.setPlaceholderText("Example: product dominant")
+        self.preserve_edit = QLineEdit()
+        self.preserve_edit.setObjectName("creativeBriefUserPreserve")
+        self.preserve_edit.setPlaceholderText(
+            "User creative preserve notes; separate multiple items with ;"
+        )
+        self.avoid_edit = QLineEdit()
+        self.avoid_edit.setObjectName("creativeBriefUserAvoid")
+        self.avoid_edit.setPlaceholderText(
+            "User creative avoid notes; separate multiple items with ;"
+        )
+        self.notes_edit = QPlainTextEdit()
+        self.notes_edit.setObjectName("creativeBriefFreeformNotes")
+        self.notes_edit.setPlaceholderText("Optional creative notes")
+        self.notes_edit.setMaximumHeight(72)
         self.deliverable_edit = QLineEdit()
         self.deliverable_edit.setPlaceholderText("Example: grounded product prompt")
         brief_form.addRow("Purpose", self.objective_edit)
         brief_form.addRow("Scene / Environment", self.environment_edit)
         brief_form.addRow("Camera", self.camera_edit)
+        brief_form.addRow("Shot Type", self.shot_type_edit)
         brief_form.addRow("Lighting", self.lighting_edit)
         brief_form.addRow("Composition", self.composition_edit)
         brief_form.addRow("Mood / Style", self.mood_edit)
+        brief_form.addRow("Aspect Ratio", self.aspect_ratio_edit)
+        brief_form.addRow("Orientation", self.orientation_edit)
+        brief_form.addRow("Product Emphasis", self.product_emphasis_edit)
+        brief_form.addRow("User Preserve", self.preserve_edit)
+        brief_form.addRow("User Avoid", self.avoid_edit)
+        brief_form.addRow("Notes", self.notes_edit)
         brief_form.addRow("Output", self.deliverable_edit)
         layout.addWidget(brief_group)
 
@@ -319,6 +393,14 @@ class ProductCompletionShell(QMainWindow):
             "Your grounded prompt will appear here."
         )
         prompt_layout.addWidget(self.prompt_preview)
+        self.prompt_grounding_metadata = QLabel(
+            "No grounded prompt built yet."
+        )
+        self.prompt_grounding_metadata.setObjectName(
+            "promptGroundingMetadata"
+        )
+        self.prompt_grounding_metadata.setWordWrap(True)
+        prompt_layout.addWidget(self.prompt_grounding_metadata)
         layout.addWidget(prompt_group, 1)
 
         self.create_feedback = QLabel(
@@ -901,15 +983,34 @@ class ProductCompletionShell(QMainWindow):
                 "Product ready. Complete the creative brief."
             )
 
+    @staticmethod
+    def _split_user_instructions(value: str) -> tuple[str, ...]:
+        return tuple(
+            item.strip()
+            for item in value.split(";")
+            if item.strip()
+        )
+
     def current_brief(self) -> CreativeBrief:
         return CreativeBrief(
             objective=self.objective_edit.text(),
             deliverable=self.deliverable_edit.text(),
             environment=self.environment_edit.text(),
             camera_angle=self.camera_edit.text(),
+            shot_type=self.shot_type_edit.text(),
             lighting_style=self.lighting_edit.text(),
             composition=self.composition_edit.text(),
             mood_style=self.mood_edit.text(),
+            aspect_ratio=self.aspect_ratio_edit.text(),
+            orientation=self.orientation_edit.text(),
+            product_emphasis=self.product_emphasis_edit.text(),
+            preserve_constraints=self._split_user_instructions(
+                self.preserve_edit.text()
+            ),
+            avoid_constraints=self._split_user_instructions(
+                self.avoid_edit.text()
+            ),
+            freeform_notes=self.notes_edit.toPlainText(),
         )
 
     def apply_product_context(
@@ -957,12 +1058,6 @@ class ProductCompletionShell(QMainWindow):
         )
 
     def _build_grounded_prompt(self) -> None:
-        if self._adapter is None:
-            self.create_feedback.setText(
-                "Grounded prompt adapter is not connected in this shell proof."
-            )
-            return
-
         product_label = self.product_combo.currentText()
         variant_label = self.variant_combo.currentText()
         product_id = self._product_ids_by_label.get(product_label)
@@ -970,6 +1065,54 @@ class ProductCompletionShell(QMainWindow):
         if not product_id or not variant_id:
             self.create_feedback.setText(
                 "Choose a product and variant before building a prompt."
+            )
+            return
+
+        if self._creative_prompt_composer is not None:
+            try:
+                result = self._creative_prompt_composer.compose(
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    brief=self.current_brief(),
+                )
+            except Exception as exc:
+                self.create_feedback.setText(f"Could not build prompt: {exc}")
+                return
+
+            self.prompt_preview.setPlainText(result.prompt_text)
+            used_knowledge = tuple(result.used_knowledge_ids)
+            used_assets = tuple(result.used_asset_ids)
+            missing = tuple(result.missing_knowledge)
+            conflicts = tuple(result.conflicts)
+            self.prompt_grounding_metadata.setText(
+                "Grounding: "
+                + str(result.grounding_status)
+                + " | Knowledge: "
+                + (", ".join(used_knowledge) or "none")
+                + " | Assets: "
+                + (", ".join(used_assets) or "none")
+                + " | Missing: "
+                + (", ".join(missing) or "none")
+                + " | Conflicts: "
+                + (", ".join(conflicts) or "none")
+            )
+            if (
+                result.grounding_status == "PASSED"
+                and bool(result.prompt_text.strip())
+                and not missing
+                and not conflicts
+            ):
+                self.create_feedback.setText("Grounded prompt ready.")
+            else:
+                self.create_feedback.setText(
+                    "Grounded prompt could not be completed safely; "
+                    "review grounding diagnostics."
+                )
+            return
+
+        if self._adapter is None:
+            self.create_feedback.setText(
+                "Grounded prompt adapter is not connected in this shell proof."
             )
             return
 
@@ -984,6 +1127,10 @@ class ProductCompletionShell(QMainWindow):
             return
 
         self.prompt_preview.setPlainText(result.prompt_text)
+        self.prompt_grounding_metadata.setText(
+            "Compatibility path result; structured PC3 grounding metadata "
+            "is unavailable on the legacy adapter."
+        )
         self.create_feedback.setText("Grounded prompt ready.")
 
 

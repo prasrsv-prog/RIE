@@ -102,14 +102,28 @@ def test_creative_brief_is_richer_than_legacy_three_fields(qt_app) -> None:
         shell.objective_edit.setText("ecommerce hero")
         shell.environment_edit.setText("dark studio")
         shell.camera_edit.setText("front")
+        shell.shot_type_edit.setText("medium product shot")
         shell.lighting_edit.setText("soft directional")
         shell.composition_edit.setText("centered")
         shell.mood_edit.setText("premium")
+        shell.aspect_ratio_edit.setText("4:5")
+        shell.orientation_edit.setText("portrait")
+        shell.product_emphasis_edit.setText("helmet dominant")
+        shell.preserve_edit.setText("keep visor clear; preserve logo")
+        shell.avoid_edit.setText("no floating product")
+        shell.notes_edit.setPlainText("natural floor contact")
         shell.deliverable_edit.setText("grounded product prompt")
         brief = shell.current_brief()
         assert brief.objective == "ecommerce hero"
+        assert brief.shot_type == "medium product shot"
         assert brief.lighting_style == "soft directional"
         assert brief.composition == "centered"
+        assert brief.aspect_ratio == "4:5"
+        assert brief.orientation == "portrait"
+        assert brief.product_emphasis == "helmet dominant"
+        assert brief.preserve_constraints == ("keep visor clear", "preserve logo")
+        assert brief.avoid_constraints == ("no floating product",)
+        assert brief.freeform_notes == "natural floor contact"
         assert brief.legacy_submit_fields()["background"] == "dark studio"
     finally:
         shell.close()
@@ -525,3 +539,221 @@ def test_products_workspace_source_has_no_direct_storage_or_asset_registry_acces
         "database_connection",
     ):
         assert forbidden not in lowered
+
+class _FakeCreativePromptComposer:
+    def __init__(self, *, result=None, error=None) -> None:
+        self.calls = []
+        self._result = result or SimpleNamespace(
+            prompt_text="PC3 compiled grounded prompt",
+            grounding_status="PASSED",
+            used_knowledge_ids=("knowledge-identity", "knowledge-manual"),
+            used_asset_ids=("asset-identity",),
+            missing_knowledge=(),
+            conflicts=(),
+        )
+        self._error = error
+
+    def compose_grounded_prompt(self, *, product_id, variant_id, brief):
+        self.calls.append(
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "brief": brief,
+            }
+        )
+        if self._error is not None:
+            raise self._error
+        return self._result
+
+
+class _FailIfSubmittedController(_FakeController):
+    def __init__(self) -> None:
+        self.submit_calls = 0
+
+    def submit(self, **kwargs):
+        self.submit_calls += 1
+        raise AssertionError("legacy adapter must not be called when composer is connected")
+
+
+def _fill_required_create_fields(shell: ProductCompletionShell) -> None:
+    shell.environment_edit.setText("dark studio")
+    shell.camera_edit.setText("front three-quarter")
+    shell.deliverable_edit.setText("grounded product prompt")
+
+
+def test_create_workspace_exposes_rich_pc3_brief_fields(qt_app) -> None:
+    shell = _shell()
+    try:
+        assert shell.shot_type_edit.objectName() == "creativeBriefShotType"
+        assert shell.aspect_ratio_edit.objectName() == "creativeBriefAspectRatio"
+        assert shell.orientation_edit.objectName() == "creativeBriefOrientation"
+        assert (
+            shell.product_emphasis_edit.objectName()
+            == "creativeBriefProductEmphasis"
+        )
+        assert shell.preserve_edit.objectName() == "creativeBriefUserPreserve"
+        assert shell.avoid_edit.objectName() == "creativeBriefUserAvoid"
+        assert shell.notes_edit.objectName() == "creativeBriefFreeformNotes"
+        assert shell.prompt_grounding_metadata.objectName() == (
+            "promptGroundingMetadata"
+        )
+    finally:
+        shell.close()
+
+
+def test_pc3_composer_path_is_preferred_over_legacy_adapter(qt_app) -> None:
+    controller = _FailIfSubmittedController()
+    composer = _FakeCreativePromptComposer()
+    shell = ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(controller),
+        creative_prompt_composer=composer,
+    )
+    try:
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.variant_combo.setCurrentText("White Glossy")
+        _fill_required_create_fields(shell)
+        shell.objective_edit.setText("ecommerce hero")
+        shell.shot_type_edit.setText("medium product shot")
+        shell.aspect_ratio_edit.setText("4:5")
+        shell.preserve_edit.setText("keep visor clear; preserve logo")
+        shell.avoid_edit.setText("no floating product")
+        shell.notes_edit.setPlainText("natural floor contact")
+
+        shell.prompt_button.click()
+        qt_app.processEvents()
+
+        assert controller.submit_calls == 0
+        assert len(composer.calls) == 1
+        call = composer.calls[0]
+        assert call["product_id"] == "sv300"
+        assert call["variant_id"] == "white-glossy"
+        assert call["brief"].objective == "ecommerce hero"
+        assert call["brief"].shot_type == "medium product shot"
+        assert call["brief"].aspect_ratio == "4:5"
+        assert call["brief"].preserve_constraints == (
+            "keep visor clear",
+            "preserve logo",
+        )
+        assert call["brief"].avoid_constraints == ("no floating product",)
+        assert call["brief"].freeform_notes == "natural floor contact"
+        assert shell.prompt_preview.toPlainText() == "PC3 compiled grounded prompt"
+        assert "Grounding: PASSED" in shell.prompt_grounding_metadata.text()
+        assert "knowledge-identity" in shell.prompt_grounding_metadata.text()
+        assert shell.create_feedback.text() == "Grounded prompt ready."
+    finally:
+        shell.close()
+
+
+def test_pc3_composer_error_preserves_entered_creative_brief(qt_app) -> None:
+    composer = _FakeCreativePromptComposer(
+        error=ValueError("environment must be a nonempty string")
+    )
+    shell = ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(_FakeController()),
+        creative_prompt_composer=composer,
+    )
+    try:
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.variant_combo.setCurrentText("White Glossy")
+        shell.objective_edit.setText("ecommerce hero")
+        shell.environment_edit.setText("   ")
+        shell.camera_edit.setText("front")
+        shell.shot_type_edit.setText("close-up")
+        shell.deliverable_edit.setText("grounded product prompt")
+
+        shell.prompt_button.click()
+        qt_app.processEvents()
+
+        assert "environment must be a nonempty string" in shell.create_feedback.text()
+        assert shell.objective_edit.text() == "ecommerce hero"
+        assert shell.environment_edit.text() == "   "
+        assert shell.camera_edit.text() == "front"
+        assert shell.shot_type_edit.text() == "close-up"
+        assert shell.deliverable_edit.text() == "grounded product prompt"
+    finally:
+        shell.close()
+
+
+def test_pc3_failed_grounding_is_not_presented_as_success(qt_app) -> None:
+    composer = _FakeCreativePromptComposer(
+        result=SimpleNamespace(
+            prompt_text="",
+            grounding_status="FAILED",
+            used_knowledge_ids=("knowledge-identity",),
+            used_asset_ids=("asset-identity",),
+            missing_knowledge=(),
+            conflicts=("creative_override:helmet_body_material",),
+        )
+    )
+    shell = ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(_FakeController()),
+        creative_prompt_composer=composer,
+    )
+    try:
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.variant_combo.setCurrentText("White Glossy")
+        _fill_required_create_fields(shell)
+        shell.prompt_button.click()
+        qt_app.processEvents()
+
+        assert shell.prompt_preview.toPlainText() == ""
+        assert "Grounding: FAILED" in shell.prompt_grounding_metadata.text()
+        assert "creative_override:helmet_body_material" in (
+            shell.prompt_grounding_metadata.text()
+        )
+        assert "could not be completed safely" in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_legacy_adapter_only_path_remains_compatible_with_richer_fields(qt_app) -> None:
+    shell = _shell()
+    try:
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.variant_combo.setCurrentText("White Glossy")
+        shell.environment_edit.setText("dark studio")
+        shell.camera_edit.setText("front")
+        shell.shot_type_edit.setText("close-up")
+        shell.aspect_ratio_edit.setText("4:5")
+        shell.deliverable_edit.setText("grounded product prompt")
+        shell.prompt_button.click()
+        qt_app.processEvents()
+
+        assert shell.prompt_preview.toPlainText() == (
+            "sv300 / white-glossy / dark studio / front / grounded product prompt"
+        )
+        assert "Compatibility path result" in (
+            shell.prompt_grounding_metadata.text()
+        )
+        assert shell.create_feedback.text() == "Grounded prompt ready."
+    finally:
+        shell.close()
+
+
+def test_pc3_pyside_source_has_no_direct_storage_access_and_keeps_visuals_disabled() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "rie"
+        / "ui"
+        / "pyside_product_shell.py"
+    )
+    text = source.read_text(encoding="utf-8")
+    lowered = text.lower()
+    assert "CreativePromptComposerPresentationAdapter" in text
+    assert "creative_prompt_composer: Any | None" in text
+    assert "self.visual_button.setEnabled(False)" in text
+    for forbidden in (
+        "evidence_repository",
+        "knowledge_repository",
+        "governed_asset_library_registry",
+        "persisted_evidence",
+        "sqlite3",
+        "database_connection",
+    ):
+        assert forbidden not in lowered
+

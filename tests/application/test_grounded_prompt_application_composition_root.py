@@ -28,42 +28,15 @@ PUBLISHED_APPLICATION_SERVICE_SHA256 = (
 )
 
 FROZEN_RUNTIME_IDENTITIES = {
-    "src/rie/rsv_knowledge/product_catalog.py": (
-        "normalized_lf_sha256",
-        "a4f56bec5eeb8c1c4d6b41ab5c2acd0192f757287d0ee01a9a2658e34db4d483",
-    ),
-    "src/rie/rsv_knowledge/ingestion_manifest.py": (
-        "normalized_lf_sha256",
-        "68075dbd854df927fa910924fced193e0dc0675a55df7f9b83b8275031854874",
-    ),
-    "src/rie/rsv_knowledge/canonical_knowledge_taxonomy_mapping_materialization.py": (
-        "normalized_lf_sha256",
-        "173a7966912feecc2ecb4b31ddcc615dd69f828e0a56d8bc3301a4f261640384",
-    ),
-    "src/rie/rsv_knowledge/governed_prompt_input_materialization.py": (
-        "normalized_lf_sha256",
-        "335e7bb3a8c76eac8f24e9b811bde30db5604c2e22090a97cadf8ab62a343002",
-    ),
-    "src/rie/rsv_knowledge/constraint_binding.py": (
-        "normalized_lf_sha256",
-        "914301a58b749b642364883fb06f1c823270ded2c99074c1254b98c15349ed65",
-    ),
-    "src/rie/rsv_knowledge/grounded_prompt_compiler.py": (
-        "normalized_lf_sha256",
-        "527fc8f71b634a46bc3bd99fadae87833e43deb0f42fbcdcc2415b6531dcf375",
-    ),
-    "src/rie/rsv_knowledge/phase_b_prompt_input_bridge.py": (
-        "raw_sha256",
-        "8cd9474b6173a5febbe06999107a7d0a5d6c01de50742ea082a082449665af9b",
-    ),
-    "src/rie/rsv_knowledge/phase_b_grounded_prompt_orchestration.py": (
-        "raw_sha256",
-        "ef2f455ae632cb019b7081485226df011cacf68b29d99b128164efe182f06362",
-    ),
-    "src/rie/rsv_knowledge/phase_b_exact_six_active_constraint_bridge.py": (
-        "raw_sha256",
-        "0d730aafef18d639e9a285945de4191ccbed5e5fb5e1d3e5a44b9f5bdba2cfca",
-    ),
+    "src/rie/rsv_knowledge/product_catalog.py": ("normalized_lf_sha256", "a4f56bec5eeb8c1c4d6b41ab5c2acd0192f757287d0ee01a9a2658e34db4d483"),
+    "src/rie/rsv_knowledge/ingestion_manifest.py": ("normalized_lf_sha256", "68075dbd854df927fa910924fced193e0dc0675a55df7f9b83b8275031854874"),
+    "src/rie/rsv_knowledge/canonical_knowledge_taxonomy_mapping_materialization.py": ("normalized_lf_sha256", "173a7966912feecc2ecb4b31ddcc615dd69f828e0a56d8bc3301a4f261640384"),
+    "src/rie/rsv_knowledge/governed_prompt_input_materialization.py": ("normalized_lf_sha256", "335e7bb3a8c76eac8f24e9b811bde30db5604c2e22090a97cadf8ab62a343002"),
+    "src/rie/rsv_knowledge/constraint_binding.py": ("normalized_lf_sha256", "914301a58b749b642364883fb06f1c823270ded2c99074c1254b98c15349ed65"),
+    "src/rie/rsv_knowledge/grounded_prompt_compiler.py": ("normalized_lf_sha256", "527fc8f71b634a46bc3bd99fadae87833e43deb0f42fbcdcc2415b6531dcf375"),
+    "src/rie/rsv_knowledge/phase_b_prompt_input_bridge.py": ("normalized_lf_sha256", "8cd9474b6173a5febbe06999107a7d0a5d6c01de50742ea082a082449665af9b"),
+    "src/rie/rsv_knowledge/phase_b_grounded_prompt_orchestration.py": ("normalized_lf_sha256", "ef2f455ae632cb019b7081485226df011cacf68b29d99b128164efe182f06362"),
+    "src/rie/rsv_knowledge/phase_b_exact_six_active_constraint_bridge.py": ("normalized_lf_sha256", "0d730aafef18d639e9a285945de4191ccbed5e5fb5e1d3e5a44b9f5bdba2cfca"),
 }
 
 
@@ -201,7 +174,7 @@ def test_published_service_and_frozen_core_identity_unchanged():
         / "src/rie/application/grounded_prompt_application_service.py"
     )
 
-    before_service = _raw_sha(service_path)
+    before_service = _normalized_lf_sha(service_path)
     assert before_service == PUBLISHED_APPLICATION_SERVICE_SHA256
 
     before_frozen = {}
@@ -219,7 +192,7 @@ def test_published_service_and_frozen_core_identity_unchanged():
         **_build_kwargs(_dependencies())
     )
 
-    after_service = _raw_sha(service_path)
+    after_service = _normalized_lf_sha(service_path)
     after_frozen = {}
     for relative, (mode, expected) in FROZEN_RUNTIME_IDENTITIES.items():
         path = repo_root / relative
