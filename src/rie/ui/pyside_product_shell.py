@@ -150,6 +150,25 @@ class ProductIntelligencePresentationAdapter:
         )
 
 
+    def search_facts(
+        self,
+        query: str,
+        *,
+        product_id: str,
+        variant_id: str,
+    ) -> tuple[Any, ...]:
+        return tuple(
+            self._query.search_product_facts(
+                query,
+                product_id=product_id,
+                variant_id=variant_id,
+            )
+        )
+
+    def provenance(self, reference_id: str) -> Any:
+        return self._query.get_provenance(reference_id)
+
+
 class ProductCompletionShell(QMainWindow):
     """Foundation shell for the PC1-PC7 product-completion migration."""
 
@@ -168,6 +187,9 @@ class ProductCompletionShell(QMainWindow):
         )
         self._product_ids_by_label: dict[str, str] = {}
         self._variant_ids_by_label: dict[str, str] = {}
+        self._workspace_product_ids_by_label: dict[str, str] = {}
+        self._workspace_variant_ids_by_label: dict[str, str] = {}
+        self._workspace_provenance_refs: tuple[str, ...] = ()
 
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1360, 840)
@@ -183,7 +205,9 @@ class ProductCompletionShell(QMainWindow):
 
         self._create_page = self._build_create_page()
         self.pages.addWidget(self._create_page)
-        for name in NAVIGATION[1:]:
+        self._products_page = self._build_products_page()
+        self.pages.addWidget(self._products_page)
+        for name in NAVIGATION[2:]:
             self.pages.addWidget(self._placeholder_page(name))
 
         self.product_context_panel = self._build_product_context_panel()
@@ -213,6 +237,7 @@ class ProductCompletionShell(QMainWindow):
 
         if self._adapter is not None or self._product_intelligence is not None:
             self._load_products()
+        self._load_products_workspace()
 
     def _build_create_page(self) -> QWidget:
         page = QWidget()
@@ -309,6 +334,151 @@ class ProductCompletionShell(QMainWindow):
 
         return page
 
+    def _build_products_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("productsWorkspace")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        heading = QLabel("Products")
+        heading.setObjectName("productsHeading")
+        heading.setStyleSheet("font-size: 22px; font-weight: 600;")
+        layout.addWidget(heading)
+
+        intro = QLabel(
+            "Browse grounded product intelligence without leaving the creative workspace."
+        )
+        intro.setObjectName("productsIntro")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        selector_group = QGroupBox("Product / Variant")
+        selector_form = QFormLayout(selector_group)
+        self.products_product_combo = QComboBox()
+        self.products_product_combo.setObjectName("productsProductSelector")
+        self.products_variant_combo = QComboBox()
+        self.products_variant_combo.setObjectName("productsVariantSelector")
+        self.products_variant_combo.setEnabled(False)
+        selector_form.addRow("Product", self.products_product_combo)
+        selector_form.addRow("Variant", self.products_variant_combo)
+        layout.addWidget(selector_group)
+
+        self.products_status = QLabel("")
+        self.products_status.setObjectName("productsWorkspaceStatus")
+        self.products_status.setWordWrap(True)
+        layout.addWidget(self.products_status)
+
+        intelligence_group = QGroupBox("Grounded Product Intelligence")
+        intelligence_layout = QVBoxLayout(intelligence_group)
+        self.products_identity = QLabel("No product selected.")
+        self.products_identity.setObjectName("productsIdentity")
+        self.products_identity.setWordWrap(True)
+        intelligence_layout.addWidget(self.products_identity)
+
+        self.products_summary = QLabel(
+            "Select a product and variant to load grounded intelligence."
+        )
+        self.products_summary.setObjectName("productsSummary")
+        self.products_summary.setWordWrap(True)
+        intelligence_layout.addWidget(self.products_summary)
+
+        self.products_facts = QPlainTextEdit()
+        self.products_facts.setObjectName("productsFacts")
+        self.products_facts.setReadOnly(True)
+        self.products_facts.setPlaceholderText("Grounded facts will appear here.")
+        intelligence_layout.addWidget(self.products_facts)
+
+        self.products_constraints = QPlainTextEdit()
+        self.products_constraints.setObjectName("productsConstraints")
+        self.products_constraints.setReadOnly(True)
+        self.products_constraints.setPlaceholderText(
+            "Preservation constraints will appear here."
+        )
+        intelligence_layout.addWidget(self.products_constraints)
+
+        self.products_unknowns = QLabel("No unknown/conflict state loaded.")
+        self.products_unknowns.setObjectName("productsUnknowns")
+        self.products_unknowns.setWordWrap(True)
+        intelligence_layout.addWidget(self.products_unknowns)
+
+        self.products_provenance_summary = QLabel(
+            "No provenance summary loaded."
+        )
+        self.products_provenance_summary.setObjectName(
+            "productsProvenanceSummary"
+        )
+        self.products_provenance_summary.setWordWrap(True)
+        intelligence_layout.addWidget(self.products_provenance_summary)
+        layout.addWidget(intelligence_group, 1)
+
+        search_group = QGroupBox("Search Grounded Facts")
+        search_layout = QHBoxLayout(search_group)
+        self.products_fact_search = QLineEdit()
+        self.products_fact_search.setObjectName("productsFactSearch")
+        self.products_fact_search.setPlaceholderText(
+            "Search grounded fact labels and values"
+        )
+        self.products_fact_search_button = QPushButton("Search")
+        self.products_fact_search_button.setObjectName(
+            "productsFactSearchButton"
+        )
+        search_layout.addWidget(self.products_fact_search, 1)
+        search_layout.addWidget(self.products_fact_search_button)
+        layout.addWidget(search_group)
+
+        self.products_search_results = QPlainTextEdit()
+        self.products_search_results.setObjectName("productsSearchResults")
+        self.products_search_results.setReadOnly(True)
+        self.products_search_results.setPlaceholderText(
+            "Matching grounded facts will appear here."
+        )
+        layout.addWidget(self.products_search_results)
+
+        provenance_group = QGroupBox("Provenance")
+        provenance_layout = QVBoxLayout(provenance_group)
+        provenance_selector_row = QHBoxLayout()
+        self.products_provenance_combo = QComboBox()
+        self.products_provenance_combo.setObjectName(
+            "productsProvenanceSelector"
+        )
+        self.products_provenance_button = QPushButton("Inspect")
+        self.products_provenance_button.setObjectName(
+            "productsProvenanceInspectButton"
+        )
+        provenance_selector_row.addWidget(self.products_provenance_combo, 1)
+        provenance_selector_row.addWidget(self.products_provenance_button)
+        provenance_layout.addLayout(provenance_selector_row)
+
+        self.products_provenance_detail = QPlainTextEdit()
+        self.products_provenance_detail.setObjectName(
+            "productsProvenanceDetail"
+        )
+        self.products_provenance_detail.setReadOnly(True)
+        self.products_provenance_detail.setPlaceholderText(
+            "Authority, version, status, and source paths will appear here."
+        )
+        provenance_layout.addWidget(self.products_provenance_detail)
+        layout.addWidget(provenance_group)
+
+        self.products_product_combo.currentIndexChanged.connect(
+            self._products_product_changed
+        )
+        self.products_variant_combo.currentIndexChanged.connect(
+            self._products_variant_changed
+        )
+        self.products_fact_search_button.clicked.connect(
+            self._search_products_facts
+        )
+        self.products_fact_search.returnPressed.connect(
+            self._search_products_facts
+        )
+        self.products_provenance_button.clicked.connect(
+            self._inspect_products_provenance
+        )
+
+        return page
+
     def _build_product_context_panel(self) -> QWidget:
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -373,6 +543,261 @@ class ProductCompletionShell(QMainWindow):
         layout.addWidget(title_label)
         layout.addWidget(value)
         return value
+
+    def _load_products_workspace(self) -> None:
+        self._workspace_product_ids_by_label.clear()
+        self._workspace_variant_ids_by_label.clear()
+        self._workspace_provenance_refs = ()
+
+        self.products_product_combo.clear()
+        self.products_variant_combo.clear()
+        self.products_provenance_combo.clear()
+        self.products_product_combo.addItem("Choose product...")
+        self.products_variant_combo.addItem("Choose variant...")
+        self.products_provenance_combo.addItem("Choose provenance...")
+
+        if self._product_intelligence is None:
+            self.products_product_combo.setEnabled(False)
+            self.products_variant_combo.setEnabled(False)
+            self.products_fact_search.setEnabled(False)
+            self.products_fact_search_button.setEnabled(False)
+            self.products_provenance_combo.setEnabled(False)
+            self.products_provenance_button.setEnabled(False)
+            self.products_status.setText(
+                "Product Intelligence is unavailable in this shell session. "
+                "No storage fallback is used."
+            )
+            return
+
+        self.products_product_combo.setEnabled(True)
+        self.products_fact_search.setEnabled(True)
+        self.products_fact_search_button.setEnabled(True)
+        self.products_provenance_combo.setEnabled(True)
+        self.products_provenance_button.setEnabled(True)
+        self.products_status.setText(
+            "Product Intelligence connected. Select a product and variant."
+        )
+
+        for option in self._product_intelligence.product_options:
+            self._workspace_product_ids_by_label[option.label] = option.product_id
+            self.products_product_combo.addItem(option.label)
+
+    def _products_product_changed(self) -> None:
+        label = self.products_product_combo.currentText()
+        product_id = self._workspace_product_ids_by_label.get(label)
+
+        self.products_variant_combo.clear()
+        self.products_variant_combo.addItem("Choose variant...")
+        self._workspace_variant_ids_by_label.clear()
+        self._clear_products_context()
+
+        if self._product_intelligence is None or not product_id:
+            self.products_variant_combo.setEnabled(False)
+            return
+
+        for option in self._product_intelligence.variant_options_for_product(
+            product_id
+        ):
+            self._workspace_variant_ids_by_label[option.label] = option.variant_id
+            self.products_variant_combo.addItem(option.label)
+
+        self.products_variant_combo.setEnabled(True)
+        self.products_identity.setText(label)
+        self.products_summary.setText(
+            "Product selected. Choose a variant to load grounded intelligence."
+        )
+
+    def _products_variant_changed(self) -> None:
+        if self._product_intelligence is None:
+            return
+
+        product_label = self.products_product_combo.currentText()
+        variant_label = self.products_variant_combo.currentText()
+        product_id = self._workspace_product_ids_by_label.get(product_label)
+        variant_id = self._workspace_variant_ids_by_label.get(variant_label)
+
+        if not product_id or not variant_id:
+            return
+
+        try:
+            snapshot = self._product_intelligence.context_snapshot(
+                product_id=product_id,
+                variant_id=variant_id,
+            )
+        except Exception as exc:
+            self._clear_products_context()
+            self.products_identity.setText(
+                f"{product_label} / {variant_label}"
+            )
+            self.products_summary.setText(
+                "RCIS could not load grounded product intelligence."
+            )
+            self.products_status.setText(
+                f"Could not load Product Intelligence: {exc}"
+            )
+            return
+
+        self._render_products_context(snapshot)
+        self.products_status.setText("Grounded Product Intelligence loaded.")
+
+    def _clear_products_context(self) -> None:
+        self._workspace_provenance_refs = ()
+        self.products_identity.setText("No product selected.")
+        self.products_summary.setText(
+            "Select a product and variant to load grounded intelligence."
+        )
+        self.products_facts.clear()
+        self.products_constraints.clear()
+        self.products_unknowns.setText("No unknown/conflict state loaded.")
+        self.products_provenance_summary.setText(
+            "No provenance summary loaded."
+        )
+        self.products_search_results.clear()
+        self.products_provenance_combo.clear()
+        self.products_provenance_combo.addItem("Choose provenance...")
+        self.products_provenance_detail.clear()
+
+    def _render_products_context(
+        self,
+        snapshot: ProductContextSnapshot,
+    ) -> None:
+        self.products_identity.setText(snapshot.display_name)
+        self.products_summary.setText(
+            snapshot.summary or "Grounded product context loaded."
+        )
+        self.products_facts.setPlainText(
+            "\n".join(
+                f"{fact.label}: {fact.value} [{fact.scope}]"
+                for fact in snapshot.fact_groups
+            )
+            or "No grounded facts available."
+        )
+        self.products_constraints.setPlainText(
+            "\n".join(
+                f"{constraint.rule_text} [{constraint.scope}]"
+                for constraint in snapshot.preservation_constraints
+            )
+            or "No grounded preservation constraints available."
+        )
+
+        unknown_lines = [
+            unknown.user_facing_label
+            for unknown in snapshot.unknown_topics
+        ]
+        unknown_lines.extend(snapshot.conflicts)
+        self.products_unknowns.setText(
+            "\n".join(unknown_lines)
+            or "No unknown/conflict items reported."
+        )
+        self.products_provenance_summary.setText(
+            snapshot.provenance_summary
+            or "No provenance summary available."
+        )
+
+        refs = tuple(
+            dict.fromkeys(
+                reference_id
+                for fact in snapshot.fact_groups
+                for reference_id in fact.provenance_refs
+            )
+        )
+        self._workspace_provenance_refs = refs
+        self.products_provenance_combo.clear()
+        self.products_provenance_combo.addItem("Choose provenance...")
+        for reference_id in refs:
+            self.products_provenance_combo.addItem(reference_id)
+        self.products_provenance_detail.clear()
+        self.products_search_results.clear()
+
+    def _current_workspace_identity(
+        self,
+    ) -> tuple[str | None, str | None]:
+        product_id = self._workspace_product_ids_by_label.get(
+            self.products_product_combo.currentText()
+        )
+        variant_id = self._workspace_variant_ids_by_label.get(
+            self.products_variant_combo.currentText()
+        )
+        return product_id, variant_id
+
+    def _search_products_facts(self) -> None:
+        if self._product_intelligence is None:
+            self.products_status.setText(
+                "Product Intelligence is unavailable; no storage fallback is used."
+            )
+            return
+
+        product_id, variant_id = self._current_workspace_identity()
+        query = self.products_fact_search.text().strip()
+        if not product_id or not variant_id:
+            self.products_status.setText(
+                "Choose a product and variant before searching facts."
+            )
+            return
+        if not query:
+            self.products_status.setText("Enter a fact search term.")
+            return
+
+        try:
+            matches = self._product_intelligence.search_facts(
+                query,
+                product_id=product_id,
+                variant_id=variant_id,
+            )
+        except Exception as exc:
+            self.products_status.setText(f"Could not search grounded facts: {exc}")
+            return
+
+        self.products_search_results.setPlainText(
+            "\n".join(
+                f"{fact.label}: {fact.value} [{fact.scope}]"
+                for fact in matches
+            )
+            or "No grounded fact matches."
+        )
+        self.products_status.setText(
+            f"Grounded fact search complete: {len(matches)} match"
+            f"{'' if len(matches) == 1 else 'es'}."
+        )
+
+    def _inspect_products_provenance(self) -> None:
+        if self._product_intelligence is None:
+            self.products_status.setText(
+                "Product Intelligence is unavailable; no storage fallback is used."
+            )
+            return
+
+        reference_id = self.products_provenance_combo.currentText()
+        if reference_id not in self._workspace_provenance_refs:
+            self.products_status.setText(
+                "Choose a provenance reference to inspect."
+            )
+            return
+
+        try:
+            provenance = self._product_intelligence.provenance(reference_id)
+        except Exception as exc:
+            self.products_status.setText(
+                f"Could not load provenance: {exc}"
+            )
+            return
+
+        source_paths = tuple(provenance.source_paths)
+        lines = [
+            f"Reference: {provenance.reference_id}",
+            f"Type: {provenance.source_type or 'unknown'}",
+            f"Authority: {provenance.authority or 'unknown'}",
+            f"Status: {provenance.status or 'unknown'}",
+            f"Version: {provenance.version or 'unknown'}",
+            "Source paths:",
+        ]
+        lines.extend(
+            f"- {path}" for path in source_paths
+        )
+        if not source_paths:
+            lines.append("- none")
+        self.products_provenance_detail.setPlainText("\n".join(lines))
+        self.products_status.setText("Provenance loaded.")
 
     def _placeholder_page(self, name: str) -> QWidget:
         page = QWidget()

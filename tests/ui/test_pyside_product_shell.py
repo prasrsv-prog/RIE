@@ -210,6 +210,8 @@ def test_packaging_smoke_constructs_shell_and_writes_marker(qt_app, tmp_path, mo
 class _FakeProductIntelligenceQuery:
     def __init__(self) -> None:
         self.context_calls = []
+        self.search_calls = []
+        self.provenance_calls = []
 
     def list_products(self):
         return (
@@ -265,6 +267,44 @@ class _FakeProductIntelligenceQuery:
             ),
             conflicts=(),
             provenance_summary="official / manufacturer / accepted",
+        )
+
+
+    def search_product_facts(
+        self,
+        query: str,
+        *,
+        product_id: str,
+        variant_id: str,
+    ):
+        self.search_calls.append((query, product_id, variant_id))
+        if "glossy" not in query.casefold():
+            return ()
+        return (
+            SimpleNamespace(
+                fact_id="fact-1",
+                category="Appearance",
+                label="Finish",
+                value="White glossy shell finish",
+                scope="variant",
+                authority_state="grounded",
+                provenance_refs=("ev-1",),
+            ),
+        )
+
+    def get_provenance(self, reference_id: str):
+        self.provenance_calls.append(reference_id)
+        assert reference_id == "ev-1"
+        return SimpleNamespace(
+            reference_id="ev-1",
+            source_type="structured_evidence",
+            authority="manufacturer-approved-source",
+            status="approved",
+            version="2026.08",
+            source_paths=(
+                "SV300/sv300manual book.pdf",
+                "SV300/White Glossy/front.png",
+            ),
         )
 
 
@@ -325,5 +365,163 @@ def test_pyside_source_uses_query_only_through_presentation_adapter() -> None:
         "governed_asset_library_registry",
         "persisted_evidence",
         "sqlite3",
+    ):
+        assert forbidden not in lowered
+
+
+
+def _products_shell(query=None) -> ProductCompletionShell:
+    return ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(_FakeController()),
+        product_intelligence_query=query,
+    )
+
+
+def _select_products_workspace_variant(
+    shell: ProductCompletionShell,
+    qt_app: QApplication,
+) -> None:
+    shell.navigation.setCurrentRow(NAVIGATION.index("Products"))
+    qt_app.processEvents()
+    shell.products_product_combo.setCurrentText("SV300")
+    qt_app.processEvents()
+    shell.products_variant_combo.setCurrentText("White Glossy")
+    qt_app.processEvents()
+
+
+def test_products_navigation_is_real_workspace_not_placeholder(qt_app) -> None:
+    shell = _products_shell(_FakeProductIntelligenceQuery())
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Products"))
+        qt_app.processEvents()
+        assert shell.pages.currentWidget().objectName() == "productsWorkspace"
+        assert shell.products_product_combo.objectName() == "productsProductSelector"
+        assert shell.products_fact_search.objectName() == "productsFactSearch"
+        assert (
+            shell.products_provenance_detail.objectName()
+            == "productsProvenanceDetail"
+        )
+    finally:
+        shell.close()
+
+
+def test_products_workspace_populates_query_products_and_variants(qt_app) -> None:
+    query = _FakeProductIntelligenceQuery()
+    shell = _products_shell(query)
+    try:
+        assert shell.products_product_combo.findText("SV300") >= 0
+        shell.products_product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        assert shell.products_variant_combo.isEnabled()
+        assert shell.products_variant_combo.findText("White Glossy") >= 0
+    finally:
+        shell.close()
+
+
+def test_products_workspace_variant_selection_renders_grounded_context(qt_app) -> None:
+    query = _FakeProductIntelligenceQuery()
+    shell = _products_shell(query)
+    try:
+        _select_products_workspace_variant(shell, qt_app)
+
+        assert query.context_calls[-1] == (
+            "sv300",
+            "sv300-white-glossy",
+        )
+        assert shell.products_identity.text() == "SV300 / White Glossy"
+        assert "White glossy shell finish" in shell.products_facts.toPlainText()
+        assert (
+            "Preserve the white glossy shell finish"
+            in shell.products_constraints.toPlainText()
+        )
+        assert "Exact mass is not available." in shell.products_unknowns.text()
+        assert "manufacturer" in shell.products_provenance_summary.text()
+        assert shell.products_provenance_combo.findText("ev-1") >= 0
+    finally:
+        shell.close()
+
+
+def test_products_workspace_fact_search_uses_product_intelligence_query(qt_app) -> None:
+    query = _FakeProductIntelligenceQuery()
+    shell = _products_shell(query)
+    try:
+        _select_products_workspace_variant(shell, qt_app)
+        shell.products_fact_search.setText("glossy")
+        shell.products_fact_search_button.click()
+        qt_app.processEvents()
+
+        assert query.search_calls == [
+            ("glossy", "sv300", "sv300-white-glossy"),
+        ]
+        assert "White glossy shell finish" in (
+            shell.products_search_results.toPlainText()
+        )
+        assert "1 match" in shell.products_status.text()
+    finally:
+        shell.close()
+
+
+def test_products_workspace_provenance_inspection_uses_query_boundary(qt_app) -> None:
+    query = _FakeProductIntelligenceQuery()
+    shell = _products_shell(query)
+    try:
+        _select_products_workspace_variant(shell, qt_app)
+        shell.products_provenance_combo.setCurrentText("ev-1")
+        shell.products_provenance_button.click()
+        qt_app.processEvents()
+
+        assert query.provenance_calls == ["ev-1"]
+        detail = shell.products_provenance_detail.toPlainText()
+        assert "Authority: manufacturer-approved-source" in detail
+        assert "Status: approved" in detail
+        assert "Version: 2026.08" in detail
+        assert "SV300/White Glossy/front.png" in detail
+    finally:
+        shell.close()
+
+
+def test_products_workspace_disconnected_state_has_no_fallback(qt_app) -> None:
+    shell = ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(_FakeController())
+    )
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Products"))
+        qt_app.processEvents()
+        assert not shell.products_product_combo.isEnabled()
+        assert not shell.products_fact_search.isEnabled()
+        assert "Product Intelligence is unavailable" in shell.products_status.text()
+        assert "No storage fallback" in shell.products_status.text()
+    finally:
+        shell.close()
+
+
+def test_products_workspace_browsing_does_not_mutate_create_selection(qt_app) -> None:
+    query = _FakeProductIntelligenceQuery()
+    shell = _products_shell(query)
+    try:
+        assert shell.product_combo.currentText() == "Choose product..."
+        _select_products_workspace_variant(shell, qt_app)
+        assert shell.product_combo.currentText() == "Choose product..."
+        assert shell.variant_combo.currentText() == "Choose variant..."
+    finally:
+        shell.close()
+
+
+def test_products_workspace_source_has_no_direct_storage_or_asset_registry_access() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "rie"
+        / "ui"
+        / "pyside_product_shell.py"
+    )
+    lowered = source.read_text(encoding="utf-8").lower()
+    for forbidden in (
+        "evidence_repository",
+        "governed_asset_library_registry",
+        "persisted_evidence",
+        "sqlite3",
+        "knowledge_repository",
+        "database_connection",
     ):
         assert forbidden not in lowered
