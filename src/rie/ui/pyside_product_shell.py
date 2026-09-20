@@ -34,7 +34,10 @@ from PySide6.QtWidgets import (
 
 from rie.ui.product_completion_models import (
     CreativeBrief,
+    ProductConstraint,
     ProductContextSnapshot,
+    ProductFact,
+    ProductUnknown,
 )
 
 
@@ -80,6 +83,73 @@ class GroundedPromptCompatibilityAdapter:
         )
 
 
+
+
+class ProductIntelligencePresentationAdapter:
+    """Map framework-neutral PC2 read models into existing UI read models."""
+
+    def __init__(self, query: Any) -> None:
+        self._query = query
+
+    @property
+    def product_options(self) -> tuple[Any, ...]:
+        return tuple(self._query.list_products())
+
+    def variant_options_for_product(self, product_id: str) -> tuple[Any, ...]:
+        return tuple(self._query.list_variants(product_id))
+
+    def context_snapshot(
+        self,
+        *,
+        product_id: str,
+        variant_id: str,
+    ) -> ProductContextSnapshot:
+        context = self._query.get_product_context(product_id, variant_id)
+        return ProductContextSnapshot(
+            product_id=context.product_id,
+            variant_id=context.variant_id,
+            product_label=context.product_label,
+            variant_label=context.variant_label,
+            summary=context.summary,
+            fact_groups=tuple(
+                ProductFact(
+                    fact_id=fact.fact_id,
+                    category=fact.category,
+                    label=fact.label,
+                    value=fact.value,
+                    scope=fact.scope,
+                    authority_state=fact.authority_state,
+                    provenance_refs=tuple(fact.provenance_refs),
+                )
+                for fact in context.fact_groups
+            ),
+            preservation_constraints=tuple(
+                ProductConstraint(
+                    constraint_id=item.constraint_id,
+                    label=item.label,
+                    rule_text=item.rule_text,
+                    scope=item.scope,
+                    severity=item.severity,
+                    source_fact_refs=tuple(item.source_fact_refs),
+                )
+                for item in context.preservation_constraints
+            ),
+            authorized_reference_asset_ids=tuple(
+                context.authorized_reference_asset_ids
+            ),
+            unknown_topics=tuple(
+                ProductUnknown(
+                    topic=item.topic,
+                    user_facing_label=item.user_facing_label,
+                    reason=item.reason,
+                )
+                for item in context.unknown_topics
+            ),
+            conflicts=tuple(context.conflicts),
+            provenance_summary=context.provenance_summary,
+        )
+
+
 class ProductCompletionShell(QMainWindow):
     """Foundation shell for the PC1-PC7 product-completion migration."""
 
@@ -87,9 +157,15 @@ class ProductCompletionShell(QMainWindow):
         self,
         *,
         adapter: GroundedPromptCompatibilityAdapter | None = None,
+        product_intelligence_query: Any | None = None,
     ) -> None:
         super().__init__()
         self._adapter = adapter
+        self._product_intelligence = (
+            ProductIntelligencePresentationAdapter(product_intelligence_query)
+            if product_intelligence_query is not None
+            else None
+        )
         self._product_ids_by_label: dict[str, str] = {}
         self._variant_ids_by_label: dict[str, str] = {}
 
@@ -135,7 +211,7 @@ class ProductCompletionShell(QMainWindow):
         self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.navigation.setCurrentRow(0)
 
-        if self._adapter is not None:
+        if self._adapter is not None or self._product_intelligence is not None:
             self._load_products()
 
     def _build_create_page(self) -> QWidget:
@@ -314,11 +390,30 @@ class ProductCompletionShell(QMainWindow):
         layout.addStretch(1)
         return page
 
+    def _product_options(self) -> tuple[Any, ...]:
+        if self._product_intelligence is not None:
+            return self._product_intelligence.product_options
+        if self._adapter is not None:
+            return self._adapter.product_options
+        return ()
+
+    def _variant_options_for_product(
+        self,
+        product_id: str,
+    ) -> tuple[Any, ...]:
+        if self._product_intelligence is not None:
+            return self._product_intelligence.variant_options_for_product(
+                product_id
+            )
+        if self._adapter is not None:
+            return self._adapter.variant_options_for_product(product_id)
+        return ()
+
     def _load_products(self) -> None:
         self._product_ids_by_label.clear()
         self.product_combo.clear()
         self.product_combo.addItem("Choose product...")
-        for option in self._adapter.product_options:
+        for option in self._product_options():
             self._product_ids_by_label[option.label] = option.product_id
             self.product_combo.addItem(option.label)
 
@@ -329,12 +424,12 @@ class ProductCompletionShell(QMainWindow):
         self.variant_combo.addItem("Choose variant...")
         self._variant_ids_by_label.clear()
 
-        if not product_id or self._adapter is None:
+        if not product_id:
             self.variant_combo.setEnabled(False)
             self.apply_product_context(None)
             return
 
-        for option in self._adapter.variant_options_for_product(product_id):
+        for option in self._variant_options_for_product(product_id):
             self._variant_ids_by_label[option.label] = option.variant_id
             self.variant_combo.addItem(option.label)
         self.variant_combo.setEnabled(True)
@@ -351,6 +446,31 @@ class ProductCompletionShell(QMainWindow):
             product_label in self._product_ids_by_label
             and variant_label in self._variant_ids_by_label
         ):
+            product_id = self._product_ids_by_label[product_label]
+            variant_id = self._variant_ids_by_label[variant_label]
+            if self._product_intelligence is not None:
+                try:
+                    snapshot = self._product_intelligence.context_snapshot(
+                        product_id=product_id,
+                        variant_id=variant_id,
+                    )
+                except Exception as exc:
+                    self.context_title.setText(
+                        f"{product_label} / {variant_label}"
+                    )
+                    self.context_summary.setText(
+                        "RCIS could not load grounded product intelligence."
+                    )
+                    self.create_feedback.setText(
+                        f"Could not load Product Context: {exc}"
+                    )
+                    return
+                self.apply_product_context(snapshot)
+                self.create_feedback.setText(
+                    "Grounded Product Context ready. Complete the creative brief."
+                )
+                return
+
             self.context_title.setText(f"{product_label} / {variant_label}")
             self.create_feedback.setText(
                 "Product ready. Complete the creative brief."

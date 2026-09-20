@@ -205,3 +205,125 @@ def test_packaging_smoke_constructs_shell_and_writes_marker(qt_app, tmp_path, mo
     monkeypatch.setenv("RCIS_PYSIDE_PACKAGING_SMOKE_MARKER_PATH", str(marker))
     packaging_smoke_main()
     assert marker.read_text(encoding="ascii") == "RCIS_PYSIDE_FOUNDATION_SMOKE_OK\n"
+
+
+class _FakeProductIntelligenceQuery:
+    def __init__(self) -> None:
+        self.context_calls = []
+
+    def list_products(self):
+        return (
+            SimpleNamespace(product_id="sv300", label="SV300"),
+        )
+
+    def list_variants(self, product_id: str):
+        assert product_id == "sv300"
+        return (
+            SimpleNamespace(
+                variant_id="sv300-white-glossy",
+                product_id="sv300",
+                label="White Glossy",
+            ),
+        )
+
+    def get_product_context(self, product_id: str, variant_id: str):
+        self.context_calls.append((product_id, variant_id))
+        return SimpleNamespace(
+            product_id=product_id,
+            variant_id=variant_id,
+            product_label="SV300",
+            variant_label="White Glossy",
+            summary="Grounded product intelligence loaded.",
+            fact_groups=(
+                SimpleNamespace(
+                    fact_id="fact-1",
+                    category="Appearance",
+                    label="Finish",
+                    value="White glossy shell finish",
+                    scope="variant",
+                    authority_state="grounded",
+                    provenance_refs=("ev-1",),
+                ),
+            ),
+            preservation_constraints=(
+                SimpleNamespace(
+                    constraint_id="constraint-1",
+                    label="Finish",
+                    rule_text="Preserve the white glossy shell finish",
+                    scope="variant",
+                    severity="preserve",
+                    source_fact_refs=("fact-1",),
+                ),
+            ),
+            authorized_reference_asset_ids=(),
+            unknown_topics=(
+                SimpleNamespace(
+                    topic="mass",
+                    user_facing_label="Exact mass is not available.",
+                    reason="absent",
+                ),
+            ),
+            conflicts=(),
+            provenance_summary="official / manufacturer / accepted",
+        )
+
+
+def test_product_intelligence_query_hydrates_product_context_on_variant_selection(qt_app) -> None:
+    query = _FakeProductIntelligenceQuery()
+    shell = ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(_FakeController()),
+        product_intelligence_query=query,
+    )
+    try:
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        assert shell.variant_combo.findText("White Glossy") >= 0
+
+        shell.variant_combo.setCurrentText("White Glossy")
+        qt_app.processEvents()
+
+        assert query.context_calls == [
+            ("sv300", "sv300-white-glossy"),
+        ]
+        assert shell.context_title.text() == "SV300 / White Glossy"
+        assert "White glossy shell finish" in shell.facts_label.text()
+        assert "Preserve the white glossy shell finish" in shell.constraints_label.text()
+        assert "Exact mass is not available." in shell.unknowns_label.text()
+        assert shell.create_feedback.text().startswith(
+            "Grounded Product Context ready"
+        )
+    finally:
+        shell.close()
+
+
+def test_product_intelligence_query_can_drive_selection_without_legacy_adapter(qt_app) -> None:
+    query = _FakeProductIntelligenceQuery()
+    shell = ProductCompletionShell(product_intelligence_query=query)
+    try:
+        assert shell.product_combo.findText("SV300") >= 0
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.variant_combo.setCurrentText("White Glossy")
+        qt_app.processEvents()
+        assert "White glossy shell finish" in shell.facts_label.text()
+
+        shell.prompt_button.click()
+        qt_app.processEvents()
+        assert "adapter is not connected" in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_pyside_source_uses_query_only_through_presentation_adapter() -> None:
+    source = Path(__file__).resolve().parents[2] / "src" / "rie" / "ui" / "pyside_product_shell.py"
+    text = source.read_text(encoding="utf-8")
+    assert "ProductIntelligencePresentationAdapter" in text
+    assert "product_intelligence_query: Any | None" in text
+    lowered = text.lower()
+    for forbidden in (
+        "evidence_repository",
+        "governed_asset_library_registry",
+        "persisted_evidence",
+        "sqlite3",
+    ):
+        assert forbidden not in lowered
