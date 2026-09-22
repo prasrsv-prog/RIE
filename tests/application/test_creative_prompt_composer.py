@@ -92,6 +92,7 @@ def _brief(**overrides) -> CreativePromptBrief:
         "product_emphasis": "helmet dominant",
         "preserve_constraints": ("keep visor clear", "preserve logo placement"),
         "avoid_constraints": ("no floating product",),
+        "selected_reference_asset_ids": ("asset-reference-1",),
         "freeform_notes": "natural floor contact",
     }
     values.update(overrides)
@@ -257,6 +258,7 @@ def test_normalizes_compile_result_without_promoting_generated_output() -> None:
         "knowledge-manual",
     )
     assert result.used_asset_ids == ("asset-identity", "asset-manual")
+    assert result.selected_reference_asset_ids == ("asset-reference-1",)
     assert result.missing_knowledge == ()
     assert result.conflicts == ()
     assert not hasattr(result, "official_product_truth")
@@ -306,6 +308,42 @@ def test_valid_failed_grounding_result_is_returned_as_not_successful() -> None:
     assert result.grounding_status == "FAILED"
     assert result.conflicts == ("creative_override:helmet_body_material",)
     assert not result.is_grounded_success
+
+
+def test_selected_reference_assets_are_preserved_but_not_sent_as_creative_variables() -> None:
+    calls = []
+    composer = CreativePromptComposer(application_service=_service(calls))
+    result = composer.compose_grounded_prompt(
+        product_id="sv300",
+        variant_id="sv300-white-glossy",
+        brief=_brief(
+            selected_reference_asset_ids=("asset-photo-a", "asset-photo-b")
+        ),
+    )
+
+    assert result.selected_reference_asset_ids == (
+        "asset-photo-a",
+        "asset-photo-b",
+    )
+    assert "selected_reference_asset_ids" not in calls[0]["creative_variables"]
+    assert result.used_asset_ids == ("asset-identity", "asset-manual")
+
+
+def test_duplicate_selected_reference_asset_ids_fail_before_service_execution() -> None:
+    calls = []
+    composer = CreativePromptComposer(application_service=_service(calls))
+    with pytest.raises(
+        CreativePromptComposerContractError,
+        match="must not contain duplicates",
+    ):
+        composer.compose_grounded_prompt(
+            product_id="sv300",
+            variant_id="sv300-white-glossy",
+            brief=_brief(
+                selected_reference_asset_ids=("asset-photo-a", "asset-photo-a")
+            ),
+        )
+    assert calls == []
 
 
 def test_invalid_service_result_fails_closed() -> None:

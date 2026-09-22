@@ -43,6 +43,7 @@ class CreativePromptBrief:
     preserve_constraints: tuple[str, ...] = ()
     avoid_constraints: tuple[str, ...] = ()
     freeform_notes: str = ""
+    selected_reference_asset_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class CreativePromptCompositionResult:
     used_asset_ids: tuple[str, ...] = ()
     missing_knowledge: tuple[str, ...] = ()
     conflicts: tuple[str, ...] = ()
+    selected_reference_asset_ids: tuple[str, ...] = ()
 
     @property
     def is_grounded_success(self) -> bool:
@@ -232,6 +234,17 @@ class CreativePromptComposer:
             brief.avoid_constraints,
             "avoid_constraints",
         )
+        selected_reference_asset_ids = _id_tuple(
+            brief.selected_reference_asset_ids,
+            "selected_reference_asset_ids",
+        )
+        if len(selected_reference_asset_ids) != len(
+            set(selected_reference_asset_ids)
+        ):
+            raise CreativePromptComposerContractError(
+                "selected_reference_asset_ids must not contain duplicates"
+            )
+        values["selected_reference_asset_ids"] = selected_reference_asset_ids
         return CreativePromptBrief(**values)
 
     def compose_grounded_prompt(
@@ -258,6 +271,7 @@ class CreativePromptComposer:
             product_id=product_id,
             variant_id=variant_id,
             requested_output=brief.deliverable,
+            selected_reference_asset_ids=brief.selected_reference_asset_ids,
         )
 
     def _creative_variables(
@@ -289,6 +303,7 @@ class CreativePromptComposer:
         product_id: str,
         variant_id: str,
         requested_output: str,
+        selected_reference_asset_ids: tuple[str, ...],
     ) -> CreativePromptCompositionResult:
         if not isinstance(result, PhaseBGroundedPromptOrchestrationResult):
             raise CreativePromptComposerContractError(
@@ -354,6 +369,7 @@ class CreativePromptComposer:
             grounding_status=compile_result.grounding_status,
             used_knowledge_ids=used_knowledge_ids,
             used_asset_ids=used_asset_ids,
+            selected_reference_asset_ids=selected_reference_asset_ids,
             missing_knowledge=missing_knowledge,
             conflicts=conflicts,
         )

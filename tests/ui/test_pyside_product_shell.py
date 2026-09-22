@@ -540,6 +540,116 @@ def test_products_workspace_source_has_no_direct_storage_or_asset_registry_acces
     ):
         assert forbidden not in lowered
 
+class _FakeVisualReferenceAssetQuery:
+    product_options = (
+        SimpleNamespace(product_id="sv300", label="SV300"),
+    )
+
+    def __init__(self) -> None:
+        self.list_calls = []
+        self.preview_calls = []
+        self._asset = SimpleNamespace(
+            reference_id="reference-front",
+            asset_id="asset-photo-front",
+            product_id="sv300",
+            variant_id="white-glossy",
+            product_label="SV300",
+            variant_label="White Glossy",
+            filename="front.png",
+            source_relative_path="SV300/White Glossy/front.png",
+            source_type="APPROVED_PRODUCT_PHOTO",
+            authority="RSV_INTERNAL_APPROVED_SOURCE",
+            version="2026-08-09",
+            status="APPROVED",
+            sha256="a" * 64,
+            available=True,
+        )
+
+    def variant_options_for_product(self, product_id: str):
+        assert product_id == "sv300"
+        return (
+            SimpleNamespace(
+                variant_id="white-glossy",
+                product_id="sv300",
+                label="White Glossy",
+            ),
+        )
+
+    def list_assets(self, *, product_id: str, variant_id: str):
+        self.list_calls.append((product_id, variant_id))
+        return (self._asset,)
+
+    def load_preview_bytes(self, asset_id: str):
+        self.preview_calls.append(asset_id)
+        assert asset_id == "asset-photo-front"
+        return b"not-an-image-for-widget-contract-test"
+
+
+def test_assets_navigation_is_real_read_only_workspace(qt_app) -> None:
+    query = _FakeVisualReferenceAssetQuery()
+    shell = ProductCompletionShell(visual_reference_asset_query=query)
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Assets"))
+        qt_app.processEvents()
+        assert shell.pages.currentWidget().objectName() == "assetsWorkspace"
+        assert shell.assets_product_combo.objectName() == "assetsProductSelector"
+        assert shell.assets_list.objectName() == "assetsReferenceList"
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
+def test_assets_workspace_browses_approved_reference_metadata(qt_app) -> None:
+    query = _FakeVisualReferenceAssetQuery()
+    shell = ProductCompletionShell(visual_reference_asset_query=query)
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Assets"))
+        shell.assets_product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.assets_variant_combo.setCurrentText("White Glossy")
+        qt_app.processEvents()
+        assert query.list_calls == [("sv300", "white-glossy")]
+        assert shell.assets_list.count() == 1
+        shell.assets_list.setCurrentRow(0)
+        qt_app.processEvents()
+        assert "RSV_INTERNAL_APPROVED_SOURCE" in shell.assets_detail.text()
+        assert "APPROVED" in shell.assets_detail.text()
+        assert "SV300/White Glossy/front.png" in shell.assets_detail.text()
+        assert query.preview_calls == ["asset-photo-front"]
+    finally:
+        shell.close()
+
+
+def test_create_reference_selection_flows_to_composer_without_generation(qt_app) -> None:
+    visual_query = _FakeVisualReferenceAssetQuery()
+    composer = _FakeCreativePromptComposer()
+    shell = ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(_FakeController()),
+        creative_prompt_composer=composer,
+        visual_reference_asset_query=visual_query,
+    )
+    try:
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.variant_combo.setCurrentText("White Glossy")
+        qt_app.processEvents()
+        assert shell.reference_asset_list.count() == 1
+        shell.reference_asset_list.item(0).setSelected(True)
+        qt_app.processEvents()
+        assert shell.current_brief().selected_reference_asset_ids == (
+            "asset-photo-front",
+        )
+        _fill_required_create_fields(shell)
+        shell.prompt_button.click()
+        qt_app.processEvents()
+        assert composer.calls[0]["brief"].selected_reference_asset_ids == (
+            "asset-photo-front",
+        )
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
 class _FakeCreativePromptComposer:
     def __init__(self, *, result=None, error=None) -> None:
         self.calls = []

@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QComboBox,
     QFormLayout,
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
@@ -115,9 +118,42 @@ class CreativePromptComposerPresentationAdapter:
                 product_emphasis=brief.product_emphasis,
                 preserve_constraints=tuple(brief.preserve_constraints),
                 avoid_constraints=tuple(brief.avoid_constraints),
+                selected_reference_asset_ids=tuple(
+                    brief.selected_reference_asset_ids
+                ),
                 freeform_notes=brief.freeform_notes,
             ),
         )
+
+
+class VisualReferenceAssetPresentationAdapter:
+    """Expose PC4 visual-reference reads without UI storage access."""
+
+    def __init__(self, query: Any) -> None:
+        self._query = query
+
+    @property
+    def product_options(self) -> tuple[Any, ...]:
+        return tuple(self._query.product_options)
+
+    def variant_options_for_product(self, product_id: str) -> tuple[Any, ...]:
+        return tuple(self._query.variant_options_for_product(product_id))
+
+    def assets_for_selection(
+        self,
+        *,
+        product_id: str,
+        variant_id: str,
+    ) -> tuple[Any, ...]:
+        return tuple(
+            self._query.list_assets(
+                product_id=product_id,
+                variant_id=variant_id,
+            )
+        )
+
+    def preview_bytes(self, asset_id: str) -> bytes:
+        return self._query.load_preview_bytes(asset_id)
 
 
 class ProductIntelligencePresentationAdapter:
@@ -213,6 +249,7 @@ class ProductCompletionShell(QMainWindow):
         adapter: GroundedPromptCompatibilityAdapter | None = None,
         product_intelligence_query: Any | None = None,
         creative_prompt_composer: Any | None = None,
+        visual_reference_asset_query: Any | None = None,
     ) -> None:
         super().__init__()
         self._adapter = adapter
@@ -226,11 +263,20 @@ class ProductCompletionShell(QMainWindow):
             if product_intelligence_query is not None
             else None
         )
+        self._visual_reference_assets = (
+            VisualReferenceAssetPresentationAdapter(visual_reference_asset_query)
+            if visual_reference_asset_query is not None
+            else None
+        )
         self._product_ids_by_label: dict[str, str] = {}
         self._variant_ids_by_label: dict[str, str] = {}
         self._workspace_product_ids_by_label: dict[str, str] = {}
         self._workspace_variant_ids_by_label: dict[str, str] = {}
         self._workspace_provenance_refs: tuple[str, ...] = ()
+        self._create_reference_assets_by_ref: dict[str, Any] = {}
+        self._assets_workspace_product_ids_by_label: dict[str, str] = {}
+        self._assets_workspace_variant_ids_by_label: dict[str, str] = {}
+        self._assets_workspace_assets_by_ref: dict[str, Any] = {}
 
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1360, 840)
@@ -248,7 +294,9 @@ class ProductCompletionShell(QMainWindow):
         self.pages.addWidget(self._create_page)
         self._products_page = self._build_products_page()
         self.pages.addWidget(self._products_page)
-        for name in NAVIGATION[2:]:
+        self._assets_page = self._build_assets_page()
+        self.pages.addWidget(self._assets_page)
+        for name in NAVIGATION[3:]:
             self.pages.addWidget(self._placeholder_page(name))
 
         self.product_context_panel = self._build_product_context_panel()
@@ -279,6 +327,7 @@ class ProductCompletionShell(QMainWindow):
         if self._adapter is not None or self._product_intelligence is not None:
             self._load_products()
         self._load_products_workspace()
+        self._load_assets_workspace()
 
     def _build_create_page(self) -> QWidget:
         page = QWidget()
@@ -370,6 +419,34 @@ class ProductCompletionShell(QMainWindow):
         brief_form.addRow("Output", self.deliverable_edit)
         layout.addWidget(brief_group)
 
+        reference_group = QGroupBox("3. Reference Assets")
+        reference_layout = QHBoxLayout(reference_group)
+        self.reference_asset_list = QListWidget()
+        self.reference_asset_list.setObjectName("createReferenceAssetList")
+        self.reference_asset_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self.reference_asset_list.setMinimumHeight(120)
+        reference_layout.addWidget(self.reference_asset_list, 1)
+
+        reference_detail_layout = QVBoxLayout()
+        self.reference_asset_preview = QLabel("No reference selected.")
+        self.reference_asset_preview.setObjectName("createReferenceAssetPreview")
+        self.reference_asset_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.reference_asset_preview.setMinimumSize(220, 150)
+        self.reference_asset_preview.setWordWrap(True)
+        reference_detail_layout.addWidget(self.reference_asset_preview)
+        self.reference_asset_detail = QLabel(
+            "Select one or more approved product photos. "
+            "Selections are carried forward as reference IDs; visual generation "
+            "remains disabled until PC5."
+        )
+        self.reference_asset_detail.setObjectName("createReferenceAssetDetail")
+        self.reference_asset_detail.setWordWrap(True)
+        reference_detail_layout.addWidget(self.reference_asset_detail)
+        reference_layout.addLayout(reference_detail_layout, 1)
+        layout.addWidget(reference_group)
+
         action_row = QHBoxLayout()
         self.prompt_button = QPushButton("Build Grounded Prompt")
         self.prompt_button.setObjectName("buildGroundedPrompt")
@@ -384,7 +461,7 @@ class ProductCompletionShell(QMainWindow):
         action_row.addStretch(1)
         layout.addLayout(action_row)
 
-        prompt_group = QGroupBox("3. Prompt")
+        prompt_group = QGroupBox("4. Prompt")
         prompt_layout = QVBoxLayout(prompt_group)
         self.prompt_preview = QPlainTextEdit()
         self.prompt_preview.setObjectName("promptPreview")
@@ -412,6 +489,9 @@ class ProductCompletionShell(QMainWindow):
 
         self.product_combo.currentIndexChanged.connect(self._product_changed)
         self.variant_combo.currentIndexChanged.connect(self._variant_changed)
+        self.reference_asset_list.itemSelectionChanged.connect(
+            self._create_reference_selection_changed
+        )
         self.prompt_button.clicked.connect(self._build_grounded_prompt)
 
         return page
@@ -561,6 +641,77 @@ class ProductCompletionShell(QMainWindow):
 
         return page
 
+    def _build_assets_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("assetsWorkspace")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        heading = QLabel("Assets")
+        heading.setObjectName("assetsHeading")
+        heading.setStyleSheet("font-size: 22px; font-weight: 600;")
+        layout.addWidget(heading)
+
+        intro = QLabel(
+            "Browse approved product-photo references through the read-only PC4 "
+            "application boundary. Asset selection does not generate or promote "
+            "new product truth."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        selector_group = QGroupBox("Product / Variant")
+        selector_form = QFormLayout(selector_group)
+        self.assets_product_combo = QComboBox()
+        self.assets_product_combo.setObjectName("assetsProductSelector")
+        self.assets_variant_combo = QComboBox()
+        self.assets_variant_combo.setObjectName("assetsVariantSelector")
+        self.assets_variant_combo.setEnabled(False)
+        selector_form.addRow("Product", self.assets_product_combo)
+        selector_form.addRow("Variant", self.assets_variant_combo)
+        layout.addWidget(selector_group)
+
+        browser_group = QGroupBox("Approved Visual References")
+        browser_layout = QHBoxLayout(browser_group)
+        self.assets_list = QListWidget()
+        self.assets_list.setObjectName("assetsReferenceList")
+        self.assets_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        browser_layout.addWidget(self.assets_list, 1)
+
+        detail_layout = QVBoxLayout()
+        self.assets_preview = QLabel("Choose a product and variant.")
+        self.assets_preview.setObjectName("assetsPreview")
+        self.assets_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.assets_preview.setMinimumSize(300, 220)
+        self.assets_preview.setWordWrap(True)
+        detail_layout.addWidget(self.assets_preview)
+
+        self.assets_detail = QLabel("No visual reference selected.")
+        self.assets_detail.setObjectName("assetsDetail")
+        self.assets_detail.setWordWrap(True)
+        detail_layout.addWidget(self.assets_detail)
+        browser_layout.addLayout(detail_layout, 1)
+        layout.addWidget(browser_group, 1)
+
+        self.assets_status = QLabel("")
+        self.assets_status.setObjectName("assetsWorkspaceStatus")
+        self.assets_status.setWordWrap(True)
+        layout.addWidget(self.assets_status)
+
+        self.assets_product_combo.currentIndexChanged.connect(
+            self._assets_product_changed
+        )
+        self.assets_variant_combo.currentIndexChanged.connect(
+            self._assets_variant_changed
+        )
+        self.assets_list.itemSelectionChanged.connect(
+            self._assets_selection_changed
+        )
+        return page
+
     def _build_product_context_panel(self) -> QWidget:
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -625,6 +776,278 @@ class ProductCompletionShell(QMainWindow):
         layout.addWidget(title_label)
         layout.addWidget(value)
         return value
+
+    @staticmethod
+    def _asset_detail_text(asset: Any) -> str:
+        scope = asset.product_label
+        if asset.variant_id is not None:
+            scope += " / " + asset.variant_label
+        return (
+            f"Scope: {scope}\n"
+            f"Authority: {asset.authority}\n"
+            f"Status: {asset.status}\n"
+            f"Version: {asset.version}\n"
+            f"SHA256: {asset.sha256 or 'unavailable'}\n"
+            f"Source: {asset.source_relative_path}\n"
+            f"Availability: {'available' if asset.available else 'unavailable'}"
+        )
+
+    def _set_asset_preview(
+        self,
+        *,
+        label: QLabel,
+        asset: Any,
+    ) -> None:
+        if not asset.available or asset.asset_id is None:
+            label.setPixmap(QPixmap())
+            label.setText("Reference file is unavailable.")
+            return
+        if self._visual_reference_assets is None:
+            label.setPixmap(QPixmap())
+            label.setText("Visual Reference Asset Query is unavailable.")
+            return
+        try:
+            payload = self._visual_reference_assets.preview_bytes(asset.asset_id)
+        except Exception as exc:
+            label.setPixmap(QPixmap())
+            label.setText(f"Preview unavailable: {exc}")
+            return
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(payload):
+            label.setPixmap(QPixmap())
+            label.setText("Preview format could not be rendered.")
+            return
+        label.setText("")
+        label.setPixmap(
+            pixmap.scaled(
+                label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+
+    @staticmethod
+    def _populate_asset_list(
+        widget: QListWidget,
+        assets: tuple[Any, ...],
+        target: dict[str, Any],
+    ) -> None:
+        widget.clear()
+        target.clear()
+        for asset in assets:
+            reference_id = str(asset.reference_id)
+            target[reference_id] = asset
+            text = str(asset.filename)
+            if not asset.available:
+                text += " [unavailable]"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, reference_id)
+            if not asset.available or asset.asset_id is None:
+                item.setFlags(
+                    item.flags()
+                    & ~Qt.ItemFlag.ItemIsSelectable
+                    & ~Qt.ItemFlag.ItemIsEnabled
+                )
+                item.setToolTip("This approved reference is currently unavailable.")
+            else:
+                item.setToolTip(str(asset.source_relative_path))
+            widget.addItem(item)
+
+    def _load_create_reference_assets(
+        self,
+        *,
+        product_id: str | None = None,
+        variant_id: str | None = None,
+    ) -> None:
+        self.reference_asset_list.clear()
+        self._create_reference_assets_by_ref.clear()
+        self.reference_asset_preview.setPixmap(QPixmap())
+        self.reference_asset_preview.setText("No reference selected.")
+
+        if self._visual_reference_assets is None:
+            self.reference_asset_list.setEnabled(False)
+            self.reference_asset_detail.setText(
+                "Visual Reference Asset Query is unavailable in this shell session."
+            )
+            return
+        self.reference_asset_list.setEnabled(True)
+        if not product_id or not variant_id:
+            self.reference_asset_detail.setText(
+                "Choose a product and variant to load approved references."
+            )
+            return
+
+        try:
+            assets = self._visual_reference_assets.assets_for_selection(
+                product_id=product_id,
+                variant_id=variant_id,
+            )
+        except Exception as exc:
+            self.reference_asset_detail.setText(
+                f"Could not load approved visual references: {exc}"
+            )
+            return
+
+        self._populate_asset_list(
+            self.reference_asset_list,
+            assets,
+            self._create_reference_assets_by_ref,
+        )
+        available_count = sum(
+            1 for asset in assets if asset.available and asset.asset_id is not None
+        )
+        unavailable_count = len(assets) - available_count
+        self.reference_asset_detail.setText(
+            f"{available_count} selectable approved reference(s); "
+            f"{unavailable_count} unavailable. Select any references to carry "
+            "their canonical asset IDs into the creative brief."
+        )
+
+    def _create_reference_selection_changed(self) -> None:
+        selected_assets = []
+        for row in range(self.reference_asset_list.count()):
+            item = self.reference_asset_list.item(row)
+            if not item.isSelected():
+                continue
+            reference_id = item.data(Qt.ItemDataRole.UserRole)
+            asset = self._create_reference_assets_by_ref.get(reference_id)
+            if asset is not None and asset.available and asset.asset_id is not None:
+                selected_assets.append(asset)
+
+        if not selected_assets:
+            self.reference_asset_preview.setPixmap(QPixmap())
+            self.reference_asset_preview.setText("No reference selected.")
+            return
+
+        self._set_asset_preview(
+            label=self.reference_asset_preview,
+            asset=selected_assets[0],
+        )
+        self.reference_asset_detail.setText(
+            f"Selected {len(selected_assets)} reference(s).\n\n"
+            + self._asset_detail_text(selected_assets[0])
+        )
+
+    def _selected_create_reference_asset_ids(self) -> tuple[str, ...]:
+        output = []
+        for row in range(self.reference_asset_list.count()):
+            item = self.reference_asset_list.item(row)
+            if not item.isSelected():
+                continue
+            reference_id = item.data(Qt.ItemDataRole.UserRole)
+            asset = self._create_reference_assets_by_ref.get(reference_id)
+            if asset is not None and asset.available and asset.asset_id is not None:
+                output.append(str(asset.asset_id))
+        return tuple(output)
+
+    def _load_assets_workspace(self) -> None:
+        self._assets_workspace_product_ids_by_label.clear()
+        self._assets_workspace_variant_ids_by_label.clear()
+        self._assets_workspace_assets_by_ref.clear()
+        self.assets_product_combo.clear()
+        self.assets_variant_combo.clear()
+        self.assets_list.clear()
+        self.assets_product_combo.addItem("Choose product...")
+        self.assets_variant_combo.addItem("Choose variant...")
+        self.assets_preview.setPixmap(QPixmap())
+        self.assets_preview.setText("Choose a product and variant.")
+        self.assets_detail.setText("No visual reference selected.")
+
+        if self._visual_reference_assets is None:
+            self.assets_product_combo.setEnabled(False)
+            self.assets_variant_combo.setEnabled(False)
+            self.assets_list.setEnabled(False)
+            self.assets_status.setText(
+                "Visual Reference Asset Query is unavailable. No storage fallback "
+                "is used."
+            )
+            return
+
+        self.assets_product_combo.setEnabled(True)
+        self.assets_list.setEnabled(True)
+        for option in self._visual_reference_assets.product_options:
+            self._assets_workspace_product_ids_by_label[option.label] = option.product_id
+            self.assets_product_combo.addItem(option.label)
+        self.assets_status.setText(
+            "Read-only visual-reference query connected. Choose a product and variant."
+        )
+
+    def _assets_product_changed(self) -> None:
+        label = self.assets_product_combo.currentText()
+        product_id = self._assets_workspace_product_ids_by_label.get(label)
+        self.assets_variant_combo.clear()
+        self.assets_variant_combo.addItem("Choose variant...")
+        self._assets_workspace_variant_ids_by_label.clear()
+        self.assets_list.clear()
+        self._assets_workspace_assets_by_ref.clear()
+        self.assets_preview.setPixmap(QPixmap())
+        self.assets_preview.setText("Choose a product and variant.")
+        self.assets_detail.setText("No visual reference selected.")
+
+        if self._visual_reference_assets is None or not product_id:
+            self.assets_variant_combo.setEnabled(False)
+            return
+        try:
+            variants = self._visual_reference_assets.variant_options_for_product(
+                product_id
+            )
+        except Exception as exc:
+            self.assets_variant_combo.setEnabled(False)
+            self.assets_status.setText(f"Could not load variants: {exc}")
+            return
+        for option in variants:
+            self._assets_workspace_variant_ids_by_label[option.label] = option.variant_id
+            self.assets_variant_combo.addItem(option.label)
+        self.assets_variant_combo.setEnabled(True)
+        self.assets_status.setText("Choose a variant to browse approved references.")
+
+    def _assets_variant_changed(self) -> None:
+        if self._visual_reference_assets is None:
+            return
+        product_id = self._assets_workspace_product_ids_by_label.get(
+            self.assets_product_combo.currentText()
+        )
+        variant_id = self._assets_workspace_variant_ids_by_label.get(
+            self.assets_variant_combo.currentText()
+        )
+        if not product_id or not variant_id:
+            return
+        try:
+            assets = self._visual_reference_assets.assets_for_selection(
+                product_id=product_id,
+                variant_id=variant_id,
+            )
+        except Exception as exc:
+            self.assets_status.setText(
+                f"Could not load approved visual references: {exc}"
+            )
+            return
+        self._populate_asset_list(
+            self.assets_list,
+            assets,
+            self._assets_workspace_assets_by_ref,
+        )
+        available_count = sum(
+            1 for asset in assets if asset.available and asset.asset_id is not None
+        )
+        self.assets_status.setText(
+            f"Loaded {len(assets)} approved reference(s); "
+            f"{available_count} available for selection."
+        )
+
+    def _assets_selection_changed(self) -> None:
+        selected = self.assets_list.selectedItems()
+        if not selected:
+            self.assets_preview.setPixmap(QPixmap())
+            self.assets_preview.setText("No visual reference selected.")
+            self.assets_detail.setText("No visual reference selected.")
+            return
+        reference_id = selected[0].data(Qt.ItemDataRole.UserRole)
+        asset = self._assets_workspace_assets_by_ref.get(reference_id)
+        if asset is None:
+            return
+        self._set_asset_preview(label=self.assets_preview, asset=asset)
+        self.assets_detail.setText(self._asset_detail_text(asset))
 
     def _load_products_workspace(self) -> None:
         self._workspace_product_ids_by_label.clear()
@@ -927,6 +1350,7 @@ class ProductCompletionShell(QMainWindow):
     def _product_changed(self) -> None:
         label = self.product_combo.currentText()
         product_id = self._product_ids_by_label.get(label)
+        self._load_create_reference_assets()
         self.variant_combo.clear()
         self.variant_combo.addItem("Choose variant...")
         self._variant_ids_by_label.clear()
@@ -955,6 +1379,10 @@ class ProductCompletionShell(QMainWindow):
         ):
             product_id = self._product_ids_by_label[product_label]
             variant_id = self._variant_ids_by_label[variant_label]
+            self._load_create_reference_assets(
+                product_id=product_id,
+                variant_id=variant_id,
+            )
             if self._product_intelligence is not None:
                 try:
                     snapshot = self._product_intelligence.context_snapshot(
@@ -1009,6 +1437,9 @@ class ProductCompletionShell(QMainWindow):
             ),
             avoid_constraints=self._split_user_instructions(
                 self.avoid_edit.text()
+            ),
+            selected_reference_asset_ids=(
+                self._selected_create_reference_asset_ids()
             ),
             freeform_notes=self.notes_edit.toPlainText(),
         )
@@ -1082,6 +1513,9 @@ class ProductCompletionShell(QMainWindow):
             self.prompt_preview.setPlainText(result.prompt_text)
             used_knowledge = tuple(result.used_knowledge_ids)
             used_assets = tuple(result.used_asset_ids)
+            selected_references = tuple(
+                getattr(result, "selected_reference_asset_ids", ())
+            )
             missing = tuple(result.missing_knowledge)
             conflicts = tuple(result.conflicts)
             self.prompt_grounding_metadata.setText(
@@ -1089,8 +1523,10 @@ class ProductCompletionShell(QMainWindow):
                 + str(result.grounding_status)
                 + " | Knowledge: "
                 + (", ".join(used_knowledge) or "none")
-                + " | Assets: "
+                + " | Grounded Assets: "
                 + (", ".join(used_assets) or "none")
+                + " | Selected References: "
+                + (", ".join(selected_references) or "none")
                 + " | Missing: "
                 + (", ".join(missing) or "none")
                 + " | Conflicts: "
