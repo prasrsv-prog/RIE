@@ -15,6 +15,7 @@ from rie.application.grounded_prompt_application_service import (
     GroundedPromptApplicationRequest,
     GroundedPromptApplicationService,
 )
+from rie.application.visual_reference_asset_query import VisualReferenceAssetQuery
 from rie.rsv_knowledge.grounded_prompt_compiler import (
     GroundedPromptCompileResult,
 )
@@ -150,6 +151,7 @@ class CreativePromptComposer:
         self,
         *,
         application_service: GroundedPromptApplicationService,
+        visual_reference_asset_query: object | None = None,
     ) -> None:
         if not isinstance(
             application_service,
@@ -158,13 +160,24 @@ class CreativePromptComposer:
             raise CreativePromptComposerContractError(
                 "application_service must be GroundedPromptApplicationService"
             )
+        if (
+            visual_reference_asset_query is not None
+            and not callable(
+                getattr(visual_reference_asset_query, "list_assets", None)
+            )
+        ):
+            raise CreativePromptComposerContractError(
+                "visual_reference_asset_query must expose list_assets"
+            )
         self._application_service = application_service
+        self._visual_reference_asset_query = visual_reference_asset_query
 
     @classmethod
     def from_intake_root(
         cls,
         *,
         intake_root: str | Path,
+        visual_reference_asset_query: object | None = None,
     ) -> "CreativePromptComposer":
         foundation = load_frozen_pilot_grounded_prompt_application_foundation(
             intake_root=intake_root
@@ -185,7 +198,16 @@ class CreativePromptComposer:
                 foundation.product_constraint_knowledge_mappings
             ),
         )
-        return cls(application_service=service)
+        if visual_reference_asset_query is None:
+            visual_reference_asset_query = (
+                VisualReferenceAssetQuery.from_intake_root(
+                    intake_root=intake_root
+                )
+            )
+        return cls(
+            application_service=service,
+            visual_reference_asset_query=visual_reference_asset_query,
+        )
 
     def available_requested_outputs(self) -> tuple[str, ...]:
         return _REQUESTED_OUTPUT_SUGGESTIONS
@@ -257,6 +279,11 @@ class CreativePromptComposer:
         product_id = _required_text(product_id, "product_id")
         variant_id = _required_text(variant_id, "variant_id")
         brief = self.validate_creative_brief(brief)
+        self._validate_selected_reference_assets(
+            product_id=product_id,
+            variant_id=variant_id,
+            selected_reference_asset_ids=brief.selected_reference_asset_ids,
+        )
 
         creative_variables = self._creative_variables(brief)
         request = GroundedPromptApplicationRequest(
@@ -273,6 +300,66 @@ class CreativePromptComposer:
             requested_output=brief.deliverable,
             selected_reference_asset_ids=brief.selected_reference_asset_ids,
         )
+
+    def _validate_selected_reference_assets(
+        self,
+        *,
+        product_id: str,
+        variant_id: str,
+        selected_reference_asset_ids: tuple[str, ...],
+    ) -> None:
+        if not selected_reference_asset_ids:
+            return
+        if self._visual_reference_asset_query is None:
+            raise CreativePromptComposerContractError(
+                "selected_reference_asset_ids require visual-reference authorization"
+            )
+
+        try:
+            authorized_assets = tuple(
+                self._visual_reference_asset_query.list_assets(
+                    product_id=product_id,
+                    variant_id=variant_id,
+                )
+            )
+        except Exception as exc:
+            raise CreativePromptComposerContractError(
+                "visual-reference authorization query failed"
+            ) from exc
+
+        authorized_ids: set[str] = set()
+        for asset in authorized_assets:
+            asset_product_id = getattr(asset, "product_id", None)
+            asset_variant_id = getattr(asset, "variant_id", None)
+            asset_id = getattr(asset, "asset_id", None)
+            available = getattr(asset, "available", False)
+
+            if asset_product_id != product_id:
+                raise CreativePromptComposerContractError(
+                    "visual-reference authorization query returned cross-product asset"
+                )
+            if asset_variant_id not in (None, variant_id):
+                raise CreativePromptComposerContractError(
+                    "visual-reference authorization query returned cross-variant asset"
+                )
+            if (
+                isinstance(asset_id, str)
+                and asset_id.strip()
+                and available is True
+            ):
+                authorized_ids.add(asset_id.strip())
+
+        unauthorized = tuple(
+            asset_id
+            for asset_id in selected_reference_asset_ids
+            if asset_id not in authorized_ids
+        )
+        if unauthorized:
+            raise CreativePromptComposerContractError(
+                "selected_reference_asset_ids are not authorized for "
+                f"{product_id}/{variant_id}: "
+                + ", ".join(unauthorized)
+            )
 
     def _creative_variables(
         self,

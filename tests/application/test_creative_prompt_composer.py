@@ -77,6 +77,32 @@ def _service(calls: list[dict[str, object]], *, result=None):
     )
 
 
+class _FakeVisualReferenceAssetQuery:
+    def __init__(
+        self,
+        *,
+        authorized_asset_ids: tuple[str, ...] = ("asset-photo-a", "asset-photo-b"),
+    ) -> None:
+        self.authorized_asset_ids = authorized_asset_ids
+        self.calls: list[tuple[str, str]] = []
+
+    def list_assets(self, *, product_id: str, variant_id: str):
+        self.calls.append((product_id, variant_id))
+        return tuple(
+            type(
+                "Asset",
+                (),
+                {
+                    "asset_id": asset_id,
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "available": True,
+                },
+            )()
+            for asset_id in self.authorized_asset_ids
+        )
+
+
 def _brief(**overrides) -> CreativePromptBrief:
     values = {
         "objective": "ecommerce hero",
@@ -92,7 +118,7 @@ def _brief(**overrides) -> CreativePromptBrief:
         "product_emphasis": "helmet dominant",
         "preserve_constraints": ("keep visor clear", "preserve logo placement"),
         "avoid_constraints": ("no floating product",),
-        "selected_reference_asset_ids": ("asset-reference-1",),
+        "selected_reference_asset_ids": (),
         "freeform_notes": "natural floor contact",
     }
     values.update(overrides)
@@ -245,11 +271,17 @@ def test_available_requested_outputs_are_suggestions_not_restrictions() -> None:
 
 def test_normalizes_compile_result_without_promoting_generated_output() -> None:
     calls = []
-    composer = CreativePromptComposer(application_service=_service(calls))
+    visual_query = _FakeVisualReferenceAssetQuery(
+        authorized_asset_ids=("asset-reference-1",)
+    )
+    composer = CreativePromptComposer(
+        application_service=_service(calls),
+        visual_reference_asset_query=visual_query,
+    )
     result = composer.compose_grounded_prompt(
         product_id="sv300",
         variant_id="sv300-white-glossy",
-        brief=_brief(),
+        brief=_brief(selected_reference_asset_ids=("asset-reference-1",)),
     )
     assert result.prompt_text == "compiled grounded prompt"
     assert result.grounding_status == "PASSED"
@@ -312,7 +344,11 @@ def test_valid_failed_grounding_result_is_returned_as_not_successful() -> None:
 
 def test_selected_reference_assets_are_preserved_but_not_sent_as_creative_variables() -> None:
     calls = []
-    composer = CreativePromptComposer(application_service=_service(calls))
+    visual_query = _FakeVisualReferenceAssetQuery()
+    composer = CreativePromptComposer(
+        application_service=_service(calls),
+        visual_reference_asset_query=visual_query,
+    )
     result = composer.compose_grounded_prompt(
         product_id="sv300",
         variant_id="sv300-white-glossy",
@@ -327,6 +363,44 @@ def test_selected_reference_assets_are_preserved_but_not_sent_as_creative_variab
     )
     assert "selected_reference_asset_ids" not in calls[0]["creative_variables"]
     assert result.used_asset_ids == ("asset-identity", "asset-manual")
+    assert visual_query.calls == [("sv300", "sv300-white-glossy")]
+
+
+def test_selected_reference_assets_require_application_authorization_query() -> None:
+    calls = []
+    composer = CreativePromptComposer(application_service=_service(calls))
+    with pytest.raises(
+        CreativePromptComposerContractError,
+        match="require visual-reference authorization",
+    ):
+        composer.compose_grounded_prompt(
+            product_id="sv300",
+            variant_id="sv300-white-glossy",
+            brief=_brief(selected_reference_asset_ids=("asset-photo-a",)),
+        )
+    assert calls == []
+
+
+def test_unauthorized_selected_reference_asset_fails_before_service_execution() -> None:
+    calls = []
+    visual_query = _FakeVisualReferenceAssetQuery(
+        authorized_asset_ids=("asset-photo-a",)
+    )
+    composer = CreativePromptComposer(
+        application_service=_service(calls),
+        visual_reference_asset_query=visual_query,
+    )
+    with pytest.raises(
+        CreativePromptComposerContractError,
+        match="not authorized",
+    ):
+        composer.compose_grounded_prompt(
+            product_id="sv300",
+            variant_id="sv300-white-glossy",
+            brief=_brief(selected_reference_asset_ids=("asset-other-product",)),
+        )
+    assert visual_query.calls == [("sv300", "sv300-white-glossy")]
+    assert calls == []
 
 
 def test_duplicate_selected_reference_asset_ids_fail_before_service_execution() -> None:
@@ -388,6 +462,13 @@ def test_from_intake_root_reuses_published_provider_and_composition_root(
     service = _service([])
     load_calls = []
     build_calls = []
+    visual_query = _FakeVisualReferenceAssetQuery()
+    visual_query_build_calls = []
+
+    def fake_visual_query_from_intake_root(*, intake_root):
+        visual_query_build_calls.append(Path(intake_root))
+        return visual_query
+
 
     def fake_load(*, intake_root):
         load_calls.append(Path(intake_root))
@@ -407,12 +488,19 @@ def test_from_intake_root_reuses_published_provider_and_composition_root(
         "build_grounded_prompt_application_service",
         fake_build,
     )
+    monkeypatch.setattr(
+        composer_module.VisualReferenceAssetQuery,
+        "from_intake_root",
+        fake_visual_query_from_intake_root,
+    )
 
     composer = CreativePromptComposer.from_intake_root(
         intake_root="C:/pilot-intake"
     )
     assert isinstance(composer, CreativePromptComposer)
     assert load_calls == [Path("C:/pilot-intake")]
+    assert visual_query_build_calls == [Path("C:/pilot-intake")]
+    assert composer._visual_reference_asset_query is visual_query
     assert build_calls == [
         {
             "collection_id": foundation.collection_id,
@@ -431,6 +519,53 @@ def test_from_intake_root_reuses_published_provider_and_composition_root(
             ),
         }
     ]
+
+
+def test_from_intake_root_accepts_composition_supplied_visual_query(
+    monkeypatch,
+) -> None:
+    foundation = type(
+        "Foundation",
+        (),
+        {
+            "collection_id": "collection-1",
+            "catalog": object(),
+            "governed_knowledge": (object(),),
+            "knowledge_mappings": (object(),),
+            "traceable_evidence_items": (object(),),
+            "product_constraint_governed_knowledge": (object(),),
+            "product_constraint_ingestion_manifest_records": (object(),),
+            "product_constraint_knowledge_mappings": (object(),),
+        },
+    )()
+    service = _service([])
+    visual_query = _FakeVisualReferenceAssetQuery()
+
+    monkeypatch.setattr(
+        composer_module,
+        "load_frozen_pilot_grounded_prompt_application_foundation",
+        lambda *, intake_root: foundation,
+    )
+    monkeypatch.setattr(
+        composer_module,
+        "build_grounded_prompt_application_service",
+        lambda **kwargs: service,
+    )
+
+    def fail_visual_query_build(*, intake_root):
+        raise AssertionError("supplied visual-reference query must be reused")
+
+    monkeypatch.setattr(
+        composer_module.VisualReferenceAssetQuery,
+        "from_intake_root",
+        fail_visual_query_build,
+    )
+
+    composer = CreativePromptComposer.from_intake_root(
+        intake_root="C:/pilot-intake",
+        visual_reference_asset_query=visual_query,
+    )
+    assert composer._visual_reference_asset_query is visual_query
 
 
 def test_composer_source_is_framework_neutral_and_has_no_direct_storage_imports() -> None:

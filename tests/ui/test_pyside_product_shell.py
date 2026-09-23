@@ -9,6 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication, QScrollArea, QSplitter
 
+import rie.ui.pyside_product_shell as shell_module
+
 from rie.ui.product_completion_models import (
     ProductConstraint,
     ProductContextSnapshot,
@@ -20,6 +22,7 @@ from rie.ui.pyside_product_shell import (
     NAVIGATION,
     ProductCompletionShell,
     WINDOW_TITLE,
+    build_normal_product_completion_shell,
     packaging_smoke_main,
 )
 
@@ -689,6 +692,87 @@ def _fill_required_create_fields(shell: ProductCompletionShell) -> None:
     shell.environment_edit.setText("dark studio")
     shell.camera_edit.setText("front three-quarter")
     shell.deliverable_edit.setText("grounded product prompt")
+
+
+def test_normal_launch_composition_wires_pc2_pc3_and_pc4_dependencies(
+    qt_app,
+    monkeypatch,
+) -> None:
+    product_query = _FakeProductIntelligenceQuery()
+
+    class _NormalLaunchVisualQuery(_FakeVisualReferenceAssetQuery):
+        def list_assets(self, *, product_id: str, variant_id: str):
+            assert product_id == "sv300"
+            assert variant_id == "sv300-white-glossy"
+            self.list_calls.append((product_id, variant_id))
+            self._asset.variant_id = variant_id
+            return (self._asset,)
+
+    visual_query = _NormalLaunchVisualQuery()
+    composer = _FakeCreativePromptComposer()
+    intake_root = "C:/pilot-intake"
+
+    monkeypatch.setattr(
+        shell_module,
+        "load_remembered_intake_root",
+        lambda: intake_root,
+    )
+    monkeypatch.setattr(
+        shell_module.ProductIntelligenceQuery,
+        "from_intake_root",
+        staticmethod(lambda *, intake_root: product_query),
+    )
+    monkeypatch.setattr(
+        shell_module,
+        "VisualReferenceAssetQuery",
+        lambda *, intake_root, product_intelligence_query: visual_query,
+    )
+    monkeypatch.setattr(
+        shell_module.CreativePromptComposer,
+        "from_intake_root",
+        staticmethod(
+            lambda *, intake_root, visual_reference_asset_query: composer
+        ),
+    )
+
+    shell = build_normal_product_completion_shell()
+    try:
+        assert shell._product_intelligence is not None
+        assert shell._creative_prompt_composer is not None
+        assert shell._visual_reference_assets is not None
+        assert shell.reference_asset_list.count() == 0
+        assert "Choose a product and variant" in shell.reference_asset_detail.text()
+
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        assert shell.variant_combo.findText("White Glossy") >= 0
+
+        shell.variant_combo.setCurrentText("White Glossy")
+        qt_app.processEvents()
+        assert visual_query.list_calls == [("sv300", "sv300-white-glossy")]
+        assert shell.reference_asset_list.count() == 1
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
+def test_normal_launch_without_remembered_intake_remains_disconnected(
+    qt_app,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        shell_module,
+        "load_remembered_intake_root",
+        lambda: None,
+    )
+    shell = build_normal_product_completion_shell()
+    try:
+        assert shell._product_intelligence is None
+        assert shell._creative_prompt_composer is None
+        assert shell._visual_reference_assets is None
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
 
 
 def test_create_workspace_exposes_rich_pc3_brief_fields(qt_app) -> None:

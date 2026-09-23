@@ -35,8 +35,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from rie.application.creative_prompt_composer import CreativePromptBrief
+from rie.application.creative_prompt_composer import (
+    CreativePromptBrief,
+    CreativePromptComposer,
+)
+from rie.application.product_intelligence_query import ProductIntelligenceQuery
+from rie.application.visual_reference_asset_query import VisualReferenceAssetQuery
 
+from rie.ui.local_operator_settings import load_remembered_intake_root
 from rie.ui.product_completion_models import (
     CreativeBrief,
     ProductConstraint,
@@ -1570,6 +1576,34 @@ class ProductCompletionShell(QMainWindow):
         self.create_feedback.setText("Grounded prompt ready.")
 
 
+def build_normal_product_completion_shell() -> ProductCompletionShell:
+    """Compose the normal PySide shell from remembered local foundation state."""
+    intake_root = load_remembered_intake_root()
+    if intake_root is None:
+        return ProductCompletionShell()
+
+    try:
+        product_intelligence_query = ProductIntelligenceQuery.from_intake_root(
+            intake_root=intake_root
+        )
+        visual_reference_asset_query = VisualReferenceAssetQuery(
+            intake_root=intake_root,
+            product_intelligence_query=product_intelligence_query,
+        )
+        creative_prompt_composer = CreativePromptComposer.from_intake_root(
+            intake_root=intake_root,
+            visual_reference_asset_query=visual_reference_asset_query,
+        )
+    except Exception:
+        return ProductCompletionShell()
+
+    return ProductCompletionShell(
+        product_intelligence_query=product_intelligence_query,
+        creative_prompt_composer=creative_prompt_composer,
+        visual_reference_asset_query=visual_reference_asset_query,
+    )
+
+
 def packaging_smoke_main() -> None:
     """Construct and validate the Qt shell without entering the event loop."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -1588,7 +1622,7 @@ def packaging_smoke_main() -> None:
 
 def main() -> None:
     app = QApplication.instance() or QApplication([])
-    shell = ProductCompletionShell()
+    shell = build_normal_product_completion_shell()
     shell.show()
     raise SystemExit(app.exec())
 
