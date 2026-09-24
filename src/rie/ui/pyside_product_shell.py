@@ -41,6 +41,10 @@ from rie.application.creative_prompt_composer import (
 )
 from rie.application.product_intelligence_query import ProductIntelligenceQuery
 from rie.application.visual_reference_asset_query import VisualReferenceAssetQuery
+from rie.application.visual_generation_provider import (
+    VisualGenerationRequest,
+    VisualGenerationResult,
+)
 
 from rie.ui.local_operator_settings import load_remembered_intake_root
 from rie.ui.product_completion_models import (
@@ -256,6 +260,7 @@ class ProductCompletionShell(QMainWindow):
         product_intelligence_query: Any | None = None,
         creative_prompt_composer: Any | None = None,
         visual_reference_asset_query: Any | None = None,
+        visual_generation_provider: Any | None = None,
     ) -> None:
         super().__init__()
         self._adapter = adapter
@@ -269,6 +274,14 @@ class ProductCompletionShell(QMainWindow):
             if product_intelligence_query is not None
             else None
         )
+        if visual_generation_provider is not None and not callable(
+            getattr(visual_generation_provider, "generate", None)
+        ):
+            raise TypeError(
+                "visual_generation_provider must expose generate"
+            )
+        self._visual_generation_provider = visual_generation_provider
+
         self._visual_reference_assets = (
             VisualReferenceAssetPresentationAdapter(visual_reference_asset_query)
             if visual_reference_asset_query is not None
@@ -445,7 +458,7 @@ class ProductCompletionShell(QMainWindow):
         self.reference_asset_detail = QLabel(
             "Select one or more approved product photos. "
             "Selections are carried forward as reference IDs; visual generation "
-            "remains disabled until PC5."
+            "uses only an explicitly injected PC5 provider."
         )
         self.reference_asset_detail.setObjectName("createReferenceAssetDetail")
         self.reference_asset_detail.setWordWrap(True)
@@ -459,9 +472,13 @@ class ProductCompletionShell(QMainWindow):
         self.visual_button = QPushButton("Generate Visuals")
         self.visual_button.setObjectName("generateVisuals")
         self.visual_button.setEnabled(False)
+        if self._visual_generation_provider is not None:
+            self.visual_button.setEnabled(True)
         self.visual_button.setToolTip(
-            "Visual generation provider is not connected in the foundation slice."
+            "Visual generation provider is not connected. "
+            "No provider is connected in the normal foundation slice."
         )
+        self.visual_button.clicked.connect(self._generate_visuals)
         action_row.addWidget(self.prompt_button)
         action_row.addWidget(self.visual_button)
         action_row.addStretch(1)
@@ -1574,6 +1591,48 @@ class ProductCompletionShell(QMainWindow):
             "is unavailable on the legacy adapter."
         )
         self.create_feedback.setText("Grounded prompt ready.")
+
+
+    def _generate_visuals(self, _checked: bool = False) -> None:
+        provider = self._visual_generation_provider
+        if provider is None:
+            self.create_feedback.setText(
+                "Visual generation provider is not connected."
+            )
+            return
+
+        grounded_prompt = self.prompt_preview.toPlainText()
+        if not grounded_prompt.strip():
+            self.create_feedback.setText(
+                "Build a grounded prompt before generating visuals."
+            )
+            return
+
+        try:
+            request = VisualGenerationRequest(
+                grounded_prompt=grounded_prompt,
+                selected_reference_asset_ids=(
+                    self._selected_create_reference_asset_ids()
+                ),
+            )
+            result = provider.generate(request)
+            if not isinstance(result, VisualGenerationResult):
+                raise TypeError(
+                    "visual generation provider returned an invalid result"
+                )
+        except Exception as exc:
+            self.create_feedback.setText(
+                f"Could not generate visuals: {exc}"
+            )
+            return
+
+        if result.message.strip():
+            self.create_feedback.setText(result.message)
+        else:
+            self.create_feedback.setText(
+                "Visual generation completed with "
+                f"{len(result.provider_output_refs)} provider output reference(s)."
+            )
 
 
 def build_normal_product_completion_shell() -> ProductCompletionShell:
