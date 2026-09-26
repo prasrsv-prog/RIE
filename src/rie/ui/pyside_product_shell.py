@@ -40,6 +40,13 @@ from rie.application.creative_prompt_composer import (
     CreativePromptComposer,
 )
 from rie.application.product_intelligence_query import ProductIntelligenceQuery
+from rie.application.safe_operator_dashboard_adapter import (
+    STATUS_DENIED,
+    STATUS_INVALID,
+    STATUS_READY,
+    SafeOperatorDashboardRequest,
+    SafeOperatorDashboardResult,
+)
 from rie.application.visual_reference_asset_query import VisualReferenceAssetQuery
 from rie.application.visual_generation_provider import (
     VisualGenerationRequest,
@@ -61,6 +68,7 @@ NAVIGATION = (
     "Create",
     "Products",
     "Assets",
+    "Approvals",
     "Projects",
     "History",
     "Presets",
@@ -261,6 +269,7 @@ class ProductCompletionShell(QMainWindow):
         creative_prompt_composer: Any | None = None,
         visual_reference_asset_query: Any | None = None,
         visual_generation_provider: Any | None = None,
+        operator_dashboard_builder: Any | None = None,
     ) -> None:
         super().__init__()
         self._adapter = adapter
@@ -281,6 +290,11 @@ class ProductCompletionShell(QMainWindow):
                 "visual_generation_provider must expose generate"
             )
         self._visual_generation_provider = visual_generation_provider
+        if operator_dashboard_builder is not None and not callable(
+            operator_dashboard_builder
+        ):
+            raise TypeError("operator_dashboard_builder must be callable")
+        self._operator_dashboard_builder = operator_dashboard_builder
 
         self._visual_reference_assets = (
             VisualReferenceAssetPresentationAdapter(visual_reference_asset_query)
@@ -315,7 +329,9 @@ class ProductCompletionShell(QMainWindow):
         self.pages.addWidget(self._products_page)
         self._assets_page = self._build_assets_page()
         self.pages.addWidget(self._assets_page)
-        for name in NAVIGATION[3:]:
+        self._approvals_page = self._build_approvals_page()
+        self.pages.addWidget(self._approvals_page)
+        for name in NAVIGATION[4:]:
             self.pages.addWidget(self._placeholder_page(name))
 
         self.product_context_panel = self._build_product_context_panel()
@@ -734,6 +750,238 @@ class ProductCompletionShell(QMainWindow):
             self._assets_selection_changed
         )
         return page
+
+    def _build_approvals_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("approvalsWorkspace")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        heading = QLabel("Approvals")
+        heading.setObjectName("approvalsHeading")
+        heading.setStyleSheet("font-size: 22px; font-weight: 600;")
+        layout.addWidget(heading)
+
+        intro = QLabel(
+            "Review one explicit Gate 16 approval request through the existing "
+            "safe operator dashboard boundary. This workspace is read-only and "
+            "does not execute approval mutations."
+        )
+        intro.setObjectName("approvalsIntro")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        request_group = QGroupBox("Approval Request")
+        request_form = QFormLayout(request_group)
+
+        self.approvals_request_id = QLineEdit()
+        self.approvals_request_id.setObjectName("approvalsRequestId")
+        self.approvals_operator_reference = QLineEdit()
+        self.approvals_operator_reference.setObjectName(
+            "approvalsOperatorReference"
+        )
+        self.approvals_role_reference = QLineEdit()
+        self.approvals_role_reference.setObjectName("approvalsRoleReference")
+        self.approvals_target_type = QLineEdit()
+        self.approvals_target_type.setObjectName("approvalsTargetType")
+        self.approvals_target_reference = QLineEdit()
+        self.approvals_target_reference.setObjectName(
+            "approvalsTargetReference"
+        )
+        self.approvals_action = QLineEdit()
+        self.approvals_action.setObjectName("approvalsAction")
+        self.approvals_action.setPlaceholderText("APPROVE or REJECT")
+        self.approvals_reason_reference = QLineEdit()
+        self.approvals_reason_reference.setObjectName(
+            "approvalsReasonReference"
+        )
+        self.approvals_audit_context_reference = QLineEdit()
+        self.approvals_audit_context_reference.setObjectName(
+            "approvalsAuditContextReference"
+        )
+        self.approvals_audit_limit = QLineEdit()
+        self.approvals_audit_limit.setObjectName("approvalsAuditLimit")
+        self.approvals_audit_limit.setPlaceholderText("1-100")
+
+        request_form.addRow("Request ID", self.approvals_request_id)
+        request_form.addRow("Operator", self.approvals_operator_reference)
+        request_form.addRow("Role", self.approvals_role_reference)
+        request_form.addRow("Target Type", self.approvals_target_type)
+        request_form.addRow("Target Reference", self.approvals_target_reference)
+        request_form.addRow("Action", self.approvals_action)
+        request_form.addRow("Reason Reference", self.approvals_reason_reference)
+        request_form.addRow(
+            "Audit Context",
+            self.approvals_audit_context_reference,
+        )
+        request_form.addRow("Audit Limit", self.approvals_audit_limit)
+        layout.addWidget(request_group)
+
+        self.approvals_refresh_button = QPushButton("Evaluate Approval Request")
+        self.approvals_refresh_button.setObjectName(
+            "approvalsEvaluateRequest"
+        )
+        layout.addWidget(self.approvals_refresh_button)
+
+        self.approvals_status = QLabel("")
+        self.approvals_status.setObjectName("approvalsWorkspaceStatus")
+        self.approvals_status.setWordWrap(True)
+        layout.addWidget(self.approvals_status)
+
+        result_group = QGroupBox("Safe Dashboard Projection")
+        result_layout = QVBoxLayout(result_group)
+        self.approvals_summary = QPlainTextEdit()
+        self.approvals_summary.setObjectName("approvalsAssessmentSummary")
+        self.approvals_summary.setReadOnly(True)
+        self.approvals_summary.setPlaceholderText(
+            "Approval assessment will appear here."
+        )
+        result_layout.addWidget(self.approvals_summary)
+
+        self.approvals_audit_history = QPlainTextEdit()
+        self.approvals_audit_history.setObjectName("approvalsAuditHistory")
+        self.approvals_audit_history.setReadOnly(True)
+        self.approvals_audit_history.setPlaceholderText(
+            "Matching approval audit records will appear here."
+        )
+        result_layout.addWidget(self.approvals_audit_history)
+        layout.addWidget(result_group, 1)
+
+        connected = self._operator_dashboard_builder is not None
+        self.approvals_refresh_button.setEnabled(connected)
+        if connected:
+            self.approvals_status.setText(
+                "Operator dashboard boundary connected. "
+                "Enter an explicit approval request."
+            )
+        else:
+            self.approvals_status.setText(
+                "Operator dashboard boundary is unavailable; "
+                "no storage fallback is used."
+            )
+
+        self.approvals_refresh_button.clicked.connect(
+            self._refresh_operator_dashboard
+        )
+        return page
+
+    def _approval_request_from_inputs(self) -> SafeOperatorDashboardRequest:
+        audit_limit_text = self.approvals_audit_limit.text().strip()
+        try:
+            audit_limit = int(audit_limit_text, 10)
+        except ValueError as exc:
+            raise ValueError(
+                "audit limit must be an integer from 1 through 100"
+            ) from exc
+
+        return SafeOperatorDashboardRequest(
+            request_id=self.approvals_request_id.text(),
+            operator_reference=self.approvals_operator_reference.text(),
+            role_reference=self.approvals_role_reference.text(),
+            target_type=self.approvals_target_type.text(),
+            target_reference=self.approvals_target_reference.text(),
+            action=self.approvals_action.text(),
+            reason_reference=self.approvals_reason_reference.text(),
+            audit_context_reference=(
+                self.approvals_audit_context_reference.text()
+            ),
+            audit_limit=audit_limit,
+        )
+
+    @staticmethod
+    def _operator_dashboard_summary(
+        result: SafeOperatorDashboardResult,
+    ) -> str:
+        lines = [
+            f"Status: {result.status}",
+            f"Error: {result.error_code or 'none'}",
+        ]
+        projection = result.projection
+        if projection is None:
+            lines.append("Projection: unavailable")
+            return "\n".join(lines)
+
+        lines.extend(
+            [
+                f"Request: {projection.request_id}",
+                f"Operator: {projection.operator_reference}",
+                f"Role: {projection.role_reference}",
+                f"Permission: {projection.permission_reference or 'none'}",
+                f"Target: {projection.target_type} / {projection.target_reference}",
+                f"Action: {projection.action}",
+                f"Assessment: {projection.assessment_outcome}",
+                f"Reason Code: {projection.assessment_reason_code}",
+                f"Reason Reference: {projection.reason_reference}",
+                f"Audit Context: {projection.audit_context_reference}",
+            ]
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _operator_dashboard_audit_text(
+        result: SafeOperatorDashboardResult,
+    ) -> str:
+        projection = result.projection
+        if projection is None or not projection.matching_audit_records:
+            return "No matching approval audit records."
+
+        return "\n".join(
+            (
+                f"{record.audit_record_id} | {record.decision_id} | "
+                f"{record.action} | {record.assessment_outcome} | "
+                f"{record.assessment_reason_code}"
+            )
+            for record in projection.matching_audit_records
+        )
+
+    def _refresh_operator_dashboard(self, _checked: bool = False) -> None:
+        builder = self._operator_dashboard_builder
+        self.approvals_summary.clear()
+        self.approvals_audit_history.clear()
+
+        if builder is None:
+            self.approvals_status.setText(
+                "Operator dashboard boundary is unavailable; "
+                "no storage fallback is used."
+            )
+            return
+
+        try:
+            request = self._approval_request_from_inputs()
+            result = builder(request)
+            if not isinstance(result, SafeOperatorDashboardResult):
+                raise TypeError(
+                    "operator dashboard builder returned an invalid result"
+                )
+        except Exception as exc:
+            self.approvals_status.setText(
+                f"Could not build operator dashboard: {exc}"
+            )
+            return
+
+        self.approvals_summary.setPlainText(
+            self._operator_dashboard_summary(result)
+        )
+        self.approvals_audit_history.setPlainText(
+            self._operator_dashboard_audit_text(result)
+        )
+
+        if result.status == STATUS_READY:
+            self.approvals_status.setText(
+                "Operator approval projection ready. "
+                "No approval mutation has been executed."
+            )
+        elif result.status == STATUS_DENIED:
+            self.approvals_status.setText(
+                "Operator approval projection denied. "
+                "No approval mutation has been executed."
+            )
+        elif result.status == STATUS_INVALID:
+            self.approvals_status.setText(
+                "Operator dashboard projection invalid: "
+                f"{result.error_code}. No approval mutation has been executed."
+            )
 
     def _build_product_context_panel(self) -> QWidget:
         content = QWidget()

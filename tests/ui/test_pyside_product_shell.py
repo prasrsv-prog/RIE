@@ -11,6 +11,29 @@ from PySide6.QtWidgets import QApplication, QScrollArea, QSplitter
 
 import rie.ui.pyside_product_shell as shell_module
 
+from rie.application.operator_approval_application_service import (
+    CONFLICT_CLEAR,
+    IDEMPOTENCY_NEW,
+    LIFECYCLE_ELIGIBLE,
+    PROVENANCE_VERIFIED,
+    REASON_ELIGIBLE_FOR_SEPARATELY_AUTHORIZED_EXECUTION,
+    RIGHTS_CLEARED,
+    TargetApprovalContext,
+)
+from rie.application.safe_operator_dashboard_adapter import (
+    STATUS_READY,
+    SafeOperatorDashboardRequest,
+    build_safe_operator_dashboard,
+)
+from rie.domain.operator_approval_audit_history import (
+    OperatorApprovalAuditHistory,
+    OperatorApprovalAuditRecord,
+)
+from rie.domain.operator_approval_decision import OperatorApprovalDecision
+from rie.domain.operator_role_authority import (
+    OperatorRoleBinding,
+    RoleActionTargetPermission,
+)
 from rie.ui.product_completion_models import (
     ProductConstraint,
     ProductContextSnapshot,
@@ -948,6 +971,215 @@ def test_pc3_pyside_source_has_no_direct_storage_access_and_keeps_visuals_disabl
         "persisted_evidence",
         "sqlite3",
         "database_connection",
+    ):
+        assert forbidden not in lowered
+
+def _gate16_dashboard_builder():
+    decision = OperatorApprovalDecision(
+        decision_id="decision-current",
+        operator_reference="operator-1",
+        role_reference="reviewer",
+        target_type="KNOWLEDGE",
+        target_reference="knowledge-1",
+        action="APPROVE",
+        reason_reference="reason-1",
+        audit_context_reference="audit-context-1",
+    )
+    bindings = (
+        OperatorRoleBinding(
+            operator_reference="operator-1",
+            role_reference="reviewer",
+            binding_reference="binding-1",
+            reason_reference="reason-1",
+            audit_context_reference="audit-context-1",
+        ),
+    )
+    permissions = (
+        RoleActionTargetPermission(
+            role_reference="reviewer",
+            target_type="KNOWLEDGE",
+            action="APPROVE",
+            permission_reference="permission-1",
+            reason_reference="reason-1",
+            audit_context_reference="audit-context-1",
+        ),
+    )
+    context = TargetApprovalContext(
+        target_type="KNOWLEDGE",
+        target_reference="knowledge-1",
+        lifecycle_state="REVIEW_READY",
+        lifecycle_eligibility=LIFECYCLE_ELIGIBLE,
+        lifecycle_reason_reference="lifecycle-1",
+        provenance_status=PROVENANCE_VERIFIED,
+        provenance_reference="provenance-1",
+        rights_status=RIGHTS_CLEARED,
+        rights_reference="rights-1",
+        idempotency_status=IDEMPOTENCY_NEW,
+        idempotency_reference="idempotency-1",
+        conflict_status=CONFLICT_CLEAR,
+        conflict_reference="conflict-1",
+        reason_reference="reason-1",
+        audit_context_reference="audit-context-1",
+    )
+    history = OperatorApprovalAuditHistory(
+        records=(
+            OperatorApprovalAuditRecord(
+                audit_record_id="audit-record-prior",
+                decision_id="decision-prior",
+                operator_reference="operator-1",
+                role_reference="reviewer",
+                permission_reference="permission-1",
+                target_type="KNOWLEDGE",
+                target_reference="knowledge-1",
+                action="APPROVE",
+                assessment_outcome="ELIGIBLE",
+                assessment_reason_code=(
+                    REASON_ELIGIBLE_FOR_SEPARATELY_AUTHORIZED_EXECUTION
+                ),
+                reason_reference="reason-1",
+                audit_context_reference="audit-context-prior",
+                lifecycle_reason_reference="lifecycle-1",
+                provenance_reference="provenance-1",
+                rights_reference="rights-1",
+                idempotency_reference="idempotency-1",
+                conflict_reference="conflict-1",
+            ),
+        )
+    )
+    calls = []
+
+    def builder(request):
+        calls.append(request)
+        return build_safe_operator_dashboard(
+            request,
+            decision,
+            bindings,
+            permissions,
+            context,
+            history,
+        )
+
+    return builder, calls
+
+
+def _fill_gate16_request(shell: ProductCompletionShell) -> None:
+    shell.approvals_request_id.setText("request-1")
+    shell.approvals_operator_reference.setText("operator-1")
+    shell.approvals_role_reference.setText("reviewer")
+    shell.approvals_target_type.setText("KNOWLEDGE")
+    shell.approvals_target_reference.setText("knowledge-1")
+    shell.approvals_action.setText("APPROVE")
+    shell.approvals_reason_reference.setText("reason-1")
+    shell.approvals_audit_context_reference.setText("audit-context-1")
+    shell.approvals_audit_limit.setText("10")
+
+
+def test_approvals_navigation_is_real_workspace_and_safe_when_disconnected(
+    qt_app,
+) -> None:
+    shell = ProductCompletionShell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Approvals"))
+        qt_app.processEvents()
+
+        assert shell.pages.currentWidget().objectName() == "approvalsWorkspace"
+        assert not shell.approvals_refresh_button.isEnabled()
+        assert "unavailable" in shell.approvals_status.text()
+        assert "no storage fallback" in shell.approvals_status.text()
+        assert shell.approvals_summary.isReadOnly()
+        assert shell.approvals_audit_history.isReadOnly()
+    finally:
+        shell.close()
+
+
+def test_approvals_workspace_renders_existing_gate16_dashboard_projection(
+    qt_app,
+) -> None:
+    builder, calls = _gate16_dashboard_builder()
+    shell = ProductCompletionShell(operator_dashboard_builder=builder)
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Approvals"))
+        _fill_gate16_request(shell)
+        shell.approvals_refresh_button.click()
+        qt_app.processEvents()
+
+        assert len(calls) == 1
+        assert isinstance(calls[0], SafeOperatorDashboardRequest)
+        assert calls[0].request_id == "request-1"
+        assert calls[0].audit_limit == 10
+        assert "projection ready" in shell.approvals_status.text()
+        assert "No approval mutation has been executed" in (
+            shell.approvals_status.text()
+        )
+        assert f"Status: {STATUS_READY}" in shell.approvals_summary.toPlainText()
+        assert "Permission: permission-1" in shell.approvals_summary.toPlainText()
+        assert (
+            REASON_ELIGIBLE_FOR_SEPARATELY_AUTHORIZED_EXECUTION
+            in shell.approvals_summary.toPlainText()
+        )
+        assert "audit-record-prior" in shell.approvals_audit_history.toPlainText()
+    finally:
+        shell.close()
+
+
+def test_approvals_workspace_invalid_input_does_not_call_dashboard_builder(
+    qt_app,
+) -> None:
+    builder, calls = _gate16_dashboard_builder()
+    shell = ProductCompletionShell(operator_dashboard_builder=builder)
+    try:
+        _fill_gate16_request(shell)
+        shell.approvals_audit_limit.setText("not-an-integer")
+        shell.approvals_refresh_button.click()
+        qt_app.processEvents()
+
+        assert calls == []
+        assert "audit limit must be an integer" in shell.approvals_status.text()
+        assert shell.approvals_summary.toPlainText() == ""
+        assert shell.approvals_audit_history.toPlainText() == ""
+    finally:
+        shell.close()
+
+
+def test_approvals_workspace_rejects_invalid_dashboard_result(qt_app) -> None:
+    shell = ProductCompletionShell(
+        operator_dashboard_builder=lambda _request: SimpleNamespace(
+            status="READY"
+        )
+    )
+    try:
+        _fill_gate16_request(shell)
+        shell.approvals_refresh_button.click()
+        qt_app.processEvents()
+
+        assert "returned an invalid result" in shell.approvals_status.text()
+        assert shell.approvals_summary.toPlainText() == ""
+    finally:
+        shell.close()
+
+
+def test_gate16_pyside_source_has_no_direct_storage_or_approval_mutation() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "rie"
+        / "ui"
+        / "pyside_product_shell.py"
+    )
+    text = source.read_text(encoding="utf-8")
+    lowered = text.lower()
+    assert "SafeOperatorDashboardRequest" in text
+    assert "SafeOperatorDashboardResult" in text
+    assert "operator_dashboard_builder: Any | None" in text
+    assert "No approval mutation has been executed" in text
+    for forbidden in (
+        "evidence_repository",
+        "knowledge_repository",
+        "governed_asset_library_registry",
+        "persisted_evidence",
+        "sqlite3",
+        "database_connection",
+        "append_operator_approval_audit",
     ):
         assert forbidden not in lowered
 
