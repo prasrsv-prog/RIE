@@ -11,6 +11,9 @@ from PySide6.QtWidgets import QApplication, QScrollArea, QSplitter
 
 import rie.ui.pyside_product_shell as shell_module
 
+from rie.application.governed_creative_workflow_application_service import (
+    assess_governed_creative_workflow,
+)
 from rie.application.operator_approval_application_service import (
     CONFLICT_CLEAR,
     IDEMPOTENCY_NEW,
@@ -1183,3 +1186,183 @@ def test_gate16_pyside_source_has_no_direct_storage_or_approval_mutation() -> No
     ):
         assert forbidden not in lowered
 
+
+
+def _fill_gate18_workflow_request(shell: ProductCompletionShell) -> None:
+    shell.workflow_request_id.setText("workflow-request-1")
+    shell.workflow_idempotency_key.setText("workflow-idempotency-1")
+    shell.workflow_project_reference.setText("project-1")
+    shell.workflow_campaign_reference.setText("campaign-1")
+    shell.workflow_creative_brief_reference.setText("brief-1")
+    shell.workflow_knowledge_references.setText("knowledge-1")
+    shell.workflow_governed_asset_references.setText("asset-context-1")
+    shell.workflow_instruction_reference.setText("instruction-1")
+    shell.workflow_instruction_authority.setText("APPROVED_INSTRUCTION")
+    shell.workflow_requesting_actor.setText("operator-1")
+    shell.workflow_request_timestamp.setText(
+        "2026-09-27T00:00:00+00:00"
+    )
+    shell.workflow_contract_name.setText("GATE_18_CREATIVE_WORKFLOW")
+    shell.workflow_contract_version.setText("1.0")
+    shell.workflow_output_purpose.setText("CREATIVE_WORKFLOW_ASSESSMENT")
+    shell.workflow_review_policy.setText("LOCAL_SINGLE_OPERATOR_REVIEW")
+    shell.workflow_manual_handoff_declared.setChecked(False)
+
+    shell.workflow_current_state.setText("REQUESTED")
+    shell.workflow_requested_state.setText("INPUTS_VALIDATED")
+    shell.workflow_responsible_kind.setText("ACTOR")
+    shell.workflow_responsible_reference.setText("operator-1")
+    shell.workflow_assessment_timestamp.setText(
+        "2026-09-27T00:01:00+00:00"
+    )
+    shell.workflow_evidence_references.setText("evidence-1")
+    shell.workflow_reason_codes.setText("INPUTS_VALIDATED")
+    shell.workflow_handoff_reference.setText("")
+    shell.workflow_candidate_reference.setText("")
+    shell.workflow_gate16_reference.setText("decision-1")
+    shell.workflow_gate15_reference.setText("governed-asset-1")
+
+
+def test_gate18_workflow_navigation_is_real_workspace_and_safe_when_disconnected(
+    qt_app,
+) -> None:
+    shell = ProductCompletionShell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Workflow"))
+        qt_app.processEvents()
+
+        assert shell.pages.currentWidget().objectName() == (
+            "creativeWorkflowWorkspace"
+        )
+        assert not shell.workflow_assess_button.isEnabled()
+        assert "unavailable" in shell.workflow_status.text()
+        assert "no storage or authority fallback" in shell.workflow_status.text()
+        assert shell.workflow_summary.isReadOnly()
+    finally:
+        shell.close()
+
+
+def test_gate18_workflow_workspace_reuses_existing_application_service(
+    qt_app,
+) -> None:
+    shell = ProductCompletionShell(
+        governed_workflow_assessor=assess_governed_creative_workflow
+    )
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Workflow"))
+        _fill_gate18_workflow_request(shell)
+        shell.workflow_assess_button.click()
+        qt_app.processEvents()
+
+        summary = shell.workflow_summary.toPlainText()
+        assert "Governed workflow assessment ready" in (
+            shell.workflow_status.text()
+        )
+        assert "Disposition: ACCEPTED" in summary
+        assert "Current State: REQUESTED" in summary
+        assert "Requested State: INPUTS_VALIDATED" in summary
+        assert "Resulting State: INPUTS_VALIDATED" in summary
+        assert (
+            "Gate 16 Decision: project-1 / campaign-1 / decision-1"
+            in summary
+        )
+        assert (
+            "Gate 15 Asset: project-1 / campaign-1 / governed-asset-1"
+            in summary
+        )
+        assert "Production Release Claimed: False" in summary
+        assert "production release has been executed" in (
+            shell.workflow_status.text()
+        )
+    finally:
+        shell.close()
+
+
+def test_gate18_workflow_invalid_input_does_not_fabricate_assessment(
+    qt_app,
+) -> None:
+    calls = []
+
+    def assessor(**kwargs):
+        calls.append(kwargs)
+        return assess_governed_creative_workflow(**kwargs)
+
+    shell = ProductCompletionShell(governed_workflow_assessor=assessor)
+    try:
+        _fill_gate18_workflow_request(shell)
+        shell.workflow_assessment_timestamp.setText("not-a-timestamp")
+        shell.workflow_assess_button.click()
+        qt_app.processEvents()
+
+        assert calls == []
+        assert "ISO-8601 timestamp" in shell.workflow_status.text()
+        assert shell.workflow_summary.toPlainText() == ""
+    finally:
+        shell.close()
+
+
+def test_gate18_workflow_rejects_invalid_assessor_result(qt_app) -> None:
+    shell = ProductCompletionShell(
+        governed_workflow_assessor=lambda **_kwargs: SimpleNamespace(
+            production_release_claimed=False
+        )
+    )
+    try:
+        _fill_gate18_workflow_request(shell)
+        shell.workflow_assess_button.click()
+        qt_app.processEvents()
+
+        assert "returned an invalid result" in shell.workflow_status.text()
+        assert shell.workflow_summary.toPlainText() == ""
+    finally:
+        shell.close()
+
+
+def test_gate18_normal_launch_remains_disconnected_without_authority(
+    qt_app,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        shell_module,
+        "load_remembered_intake_root",
+        lambda: None,
+    )
+    shell = build_normal_product_completion_shell()
+    try:
+        assert shell._governed_workflow_assessor is None
+        assert not shell.workflow_assess_button.isEnabled()
+        assert "no storage or authority fallback" in (
+            shell.workflow_status.text()
+        )
+    finally:
+        shell.close()
+
+
+def test_gate18_pyside_source_reuses_backend_without_release_execution() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "rie"
+        / "ui"
+        / "pyside_product_shell.py"
+    )
+    text = source.read_text(encoding="utf-8")
+    lowered = text.lower()
+
+    assert "GovernedCreativeWorkflowRequest" in text
+    assert "GovernedCreativeWorkflowApplicationAssessment" in text
+    assert "governed_workflow_assessor: Any | None" in text
+    assert "creativeWorkflowWorkspace" in text
+    assert "Production Release Claimed" in text
+    assert "production_release_requested" not in text
+    assert "local_operator_runtime" not in lowered
+
+    for forbidden in (
+        "evidence_repository",
+        "knowledge_repository",
+        "governed_asset_library_registry",
+        "persisted_evidence",
+        "sqlite3",
+        "database_connection",
+    ):
+        assert forbidden not in lowered

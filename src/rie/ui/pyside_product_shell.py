@@ -7,6 +7,7 @@ production entrypoint and does not access governed storage directly.
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QFrame,
@@ -39,6 +41,9 @@ from rie.application.creative_prompt_composer import (
     CreativePromptBrief,
     CreativePromptComposer,
 )
+from rie.application.governed_creative_workflow_application_service import (
+    GovernedCreativeWorkflowApplicationAssessment,
+)
 from rie.application.product_intelligence_query import ProductIntelligenceQuery
 from rie.application.safe_operator_dashboard_adapter import (
     STATUS_DENIED,
@@ -51,6 +56,9 @@ from rie.application.visual_reference_asset_query import VisualReferenceAssetQue
 from rie.application.visual_generation_provider import (
     VisualGenerationRequest,
     VisualGenerationResult,
+)
+from rie.domain.governed_creative_workflow_request import (
+    GovernedCreativeWorkflowRequest,
 )
 
 from rie.ui.local_operator_settings import load_remembered_intake_root
@@ -69,6 +77,7 @@ NAVIGATION = (
     "Products",
     "Assets",
     "Approvals",
+    "Workflow",
     "Projects",
     "History",
     "Presets",
@@ -270,6 +279,7 @@ class ProductCompletionShell(QMainWindow):
         visual_reference_asset_query: Any | None = None,
         visual_generation_provider: Any | None = None,
         operator_dashboard_builder: Any | None = None,
+        governed_workflow_assessor: Any | None = None,
     ) -> None:
         super().__init__()
         self._adapter = adapter
@@ -295,6 +305,11 @@ class ProductCompletionShell(QMainWindow):
         ):
             raise TypeError("operator_dashboard_builder must be callable")
         self._operator_dashboard_builder = operator_dashboard_builder
+        if governed_workflow_assessor is not None and not callable(
+            governed_workflow_assessor
+        ):
+            raise TypeError("governed_workflow_assessor must be callable")
+        self._governed_workflow_assessor = governed_workflow_assessor
 
         self._visual_reference_assets = (
             VisualReferenceAssetPresentationAdapter(visual_reference_asset_query)
@@ -331,7 +346,9 @@ class ProductCompletionShell(QMainWindow):
         self.pages.addWidget(self._assets_page)
         self._approvals_page = self._build_approvals_page()
         self.pages.addWidget(self._approvals_page)
-        for name in NAVIGATION[4:]:
+        self._workflow_page = self._build_workflow_page()
+        self.pages.addWidget(self._workflow_page)
+        for name in NAVIGATION[5:]:
             self.pages.addWidget(self._placeholder_page(name))
 
         self.product_context_panel = self._build_product_context_panel()
@@ -982,6 +999,510 @@ class ProductCompletionShell(QMainWindow):
                 "Operator dashboard projection invalid: "
                 f"{result.error_code}. No approval mutation has been executed."
             )
+
+
+    def _build_workflow_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("creativeWorkflowWorkspace")
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(24, 20, 24, 20)
+        outer_layout.setSpacing(12)
+
+        heading = QLabel("Workflow")
+        heading.setObjectName("creativeWorkflowHeading")
+        heading.setStyleSheet("font-size: 22px; font-weight: 600;")
+        outer_layout.addWidget(heading)
+
+        intro = QLabel(
+            "Assess one explicit Gate 18 creative-workflow transition through "
+            "the existing governed application service. This workspace does "
+            "not execute approval, asset-admission, lifecycle, external-tool, "
+            "or production-release authority."
+        )
+        intro.setObjectName("creativeWorkflowIntro")
+        intro.setWordWrap(True)
+        outer_layout.addWidget(intro)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("creativeWorkflowScrollArea")
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(12)
+
+        request_group = QGroupBox("Governed Workflow Request")
+        request_form = QFormLayout(request_group)
+
+        self.workflow_request_id = QLineEdit()
+        self.workflow_request_id.setObjectName("workflowRequestId")
+        self.workflow_idempotency_key = QLineEdit()
+        self.workflow_idempotency_key.setObjectName("workflowIdempotencyKey")
+        self.workflow_project_reference = QLineEdit()
+        self.workflow_project_reference.setObjectName("workflowProjectReference")
+        self.workflow_campaign_reference = QLineEdit()
+        self.workflow_campaign_reference.setObjectName("workflowCampaignReference")
+        self.workflow_creative_brief_reference = QLineEdit()
+        self.workflow_creative_brief_reference.setObjectName(
+            "workflowCreativeBriefReference"
+        )
+        self.workflow_knowledge_references = QLineEdit()
+        self.workflow_knowledge_references.setObjectName(
+            "workflowApprovedKnowledgeReferences"
+        )
+        self.workflow_knowledge_references.setPlaceholderText(
+            "Comma-separated references; optional"
+        )
+        self.workflow_governed_asset_references = QLineEdit()
+        self.workflow_governed_asset_references.setObjectName(
+            "workflowGovernedAssetReferences"
+        )
+        self.workflow_governed_asset_references.setPlaceholderText(
+            "Comma-separated references; optional"
+        )
+        self.workflow_instruction_reference = QLineEdit()
+        self.workflow_instruction_reference.setObjectName(
+            "workflowInstructionReference"
+        )
+        self.workflow_instruction_authority = QLineEdit()
+        self.workflow_instruction_authority.setObjectName(
+            "workflowInstructionAuthority"
+        )
+        self.workflow_instruction_authority.setPlaceholderText(
+            "PROMPT_CANDIDATE or APPROVED_INSTRUCTION"
+        )
+        self.workflow_requesting_actor = QLineEdit()
+        self.workflow_requesting_actor.setObjectName("workflowRequestingActor")
+        self.workflow_request_timestamp = QLineEdit()
+        self.workflow_request_timestamp.setObjectName("workflowRequestTimestamp")
+        self.workflow_request_timestamp.setPlaceholderText(
+            "ISO-8601 timezone-aware timestamp"
+        )
+        self.workflow_contract_name = QLineEdit()
+        self.workflow_contract_name.setObjectName("workflowContractName")
+        self.workflow_contract_version = QLineEdit()
+        self.workflow_contract_version.setObjectName("workflowContractVersion")
+        self.workflow_output_purpose = QLineEdit()
+        self.workflow_output_purpose.setObjectName("workflowOutputPurpose")
+        self.workflow_review_policy = QLineEdit()
+        self.workflow_review_policy.setObjectName("workflowReviewPolicy")
+        self.workflow_manual_handoff_declared = QCheckBox(
+            "Manual external-tool handoff is explicitly declared"
+        )
+        self.workflow_manual_handoff_declared.setObjectName(
+            "workflowManualExternalHandoffDeclared"
+        )
+
+        request_form.addRow("Request ID", self.workflow_request_id)
+        request_form.addRow("Idempotency Key", self.workflow_idempotency_key)
+        request_form.addRow("Project Reference", self.workflow_project_reference)
+        request_form.addRow("Campaign Reference", self.workflow_campaign_reference)
+        request_form.addRow(
+            "Creative Brief Reference",
+            self.workflow_creative_brief_reference,
+        )
+        request_form.addRow(
+            "Approved Knowledge",
+            self.workflow_knowledge_references,
+        )
+        request_form.addRow(
+            "Governed Assets",
+            self.workflow_governed_asset_references,
+        )
+        request_form.addRow(
+            "Instruction Reference",
+            self.workflow_instruction_reference,
+        )
+        request_form.addRow(
+            "Instruction Authority",
+            self.workflow_instruction_authority,
+        )
+        request_form.addRow("Requesting Actor", self.workflow_requesting_actor)
+        request_form.addRow(
+            "Request Timestamp",
+            self.workflow_request_timestamp,
+        )
+        request_form.addRow("Contract Name", self.workflow_contract_name)
+        request_form.addRow("Contract Version", self.workflow_contract_version)
+        request_form.addRow("Output Purpose", self.workflow_output_purpose)
+        request_form.addRow("Review Policy", self.workflow_review_policy)
+        request_form.addRow(
+            "External Handoff",
+            self.workflow_manual_handoff_declared,
+        )
+        layout.addWidget(request_group)
+
+        transition_group = QGroupBox("Transition Assessment")
+        transition_form = QFormLayout(transition_group)
+
+        self.workflow_current_state = QLineEdit()
+        self.workflow_current_state.setObjectName("workflowCurrentState")
+        self.workflow_requested_state = QLineEdit()
+        self.workflow_requested_state.setObjectName("workflowRequestedState")
+        self.workflow_responsible_kind = QLineEdit()
+        self.workflow_responsible_kind.setObjectName("workflowResponsibleKind")
+        self.workflow_responsible_kind.setPlaceholderText(
+            "ACTOR or ACCEPTED_SERVICE"
+        )
+        self.workflow_responsible_reference = QLineEdit()
+        self.workflow_responsible_reference.setObjectName(
+            "workflowResponsibleReference"
+        )
+        self.workflow_assessment_timestamp = QLineEdit()
+        self.workflow_assessment_timestamp.setObjectName(
+            "workflowAssessmentTimestamp"
+        )
+        self.workflow_assessment_timestamp.setPlaceholderText(
+            "ISO-8601 timezone-aware timestamp"
+        )
+        self.workflow_evidence_references = QLineEdit()
+        self.workflow_evidence_references.setObjectName(
+            "workflowEvidenceReferences"
+        )
+        self.workflow_evidence_references.setPlaceholderText(
+            "Comma-separated evidence identities in deterministic order"
+        )
+        self.workflow_reason_codes = QLineEdit()
+        self.workflow_reason_codes.setObjectName("workflowReasonCodes")
+        self.workflow_reason_codes.setPlaceholderText(
+            "Comma-separated uppercase reason codes in deterministic order"
+        )
+        self.workflow_handoff_reference = QLineEdit()
+        self.workflow_handoff_reference.setObjectName("workflowHandoffReference")
+        self.workflow_handoff_reference.setPlaceholderText(
+            "Identity within the explicit project/campaign; optional"
+        )
+        self.workflow_candidate_reference = QLineEdit()
+        self.workflow_candidate_reference.setObjectName(
+            "workflowCreativeResultCandidateReference"
+        )
+        self.workflow_candidate_reference.setPlaceholderText(
+            "Identity within the explicit project/campaign; optional"
+        )
+        self.workflow_gate16_reference = QLineEdit()
+        self.workflow_gate16_reference.setObjectName(
+            "workflowAcceptedGate16DecisionReference"
+        )
+        self.workflow_gate16_reference.setPlaceholderText(
+            "Accepted decision identity; optional"
+        )
+        self.workflow_gate15_reference = QLineEdit()
+        self.workflow_gate15_reference.setObjectName(
+            "workflowAcceptedGate15AssetReference"
+        )
+        self.workflow_gate15_reference.setPlaceholderText(
+            "Accepted governed-asset identity; optional"
+        )
+
+        transition_form.addRow("Current State", self.workflow_current_state)
+        transition_form.addRow("Requested State", self.workflow_requested_state)
+        transition_form.addRow(
+            "Responsible Kind",
+            self.workflow_responsible_kind,
+        )
+        transition_form.addRow(
+            "Responsible Reference",
+            self.workflow_responsible_reference,
+        )
+        transition_form.addRow(
+            "Assessment Timestamp",
+            self.workflow_assessment_timestamp,
+        )
+        transition_form.addRow(
+            "Evidence References",
+            self.workflow_evidence_references,
+        )
+        transition_form.addRow("Reason Codes", self.workflow_reason_codes)
+        transition_form.addRow(
+            "Manual Handoff Reference",
+            self.workflow_handoff_reference,
+        )
+        transition_form.addRow(
+            "Creative Result Candidate",
+            self.workflow_candidate_reference,
+        )
+        transition_form.addRow(
+            "Accepted Gate 16 Decision",
+            self.workflow_gate16_reference,
+        )
+        transition_form.addRow(
+            "Accepted Gate 15 Asset",
+            self.workflow_gate15_reference,
+        )
+        layout.addWidget(transition_group)
+
+        self.workflow_assess_button = QPushButton("Assess Workflow Transition")
+        self.workflow_assess_button.setObjectName("workflowAssessTransition")
+        layout.addWidget(self.workflow_assess_button)
+
+        self.workflow_status = QLabel("")
+        self.workflow_status.setObjectName("creativeWorkflowStatus")
+        self.workflow_status.setWordWrap(True)
+        layout.addWidget(self.workflow_status)
+
+        self.workflow_summary = QPlainTextEdit()
+        self.workflow_summary.setObjectName("creativeWorkflowAssessmentSummary")
+        self.workflow_summary.setReadOnly(True)
+        self.workflow_summary.setMinimumHeight(220)
+        self.workflow_summary.setPlaceholderText(
+            "Governed workflow assessment will appear here."
+        )
+        layout.addWidget(self.workflow_summary)
+
+        connected = self._governed_workflow_assessor is not None
+        self.workflow_assess_button.setEnabled(connected)
+        if connected:
+            self.workflow_status.setText(
+                "Gate 18 assessment boundary connected. Enter explicit "
+                "workflow inputs and authority references."
+            )
+        else:
+            self.workflow_status.setText(
+                "Gate 18 assessment boundary is unavailable; no storage or "
+                "authority fallback is used."
+            )
+
+        self.workflow_assess_button.clicked.connect(
+            self._assess_governed_workflow
+        )
+        scroll.setWidget(content)
+        outer_layout.addWidget(scroll, 1)
+        return page
+
+    @staticmethod
+    def _workflow_items(value: str) -> tuple[str, ...]:
+        return tuple(
+            item.strip()
+            for item in value.split(",")
+            if item.strip()
+        )
+
+    @staticmethod
+    def _workflow_timestamp(value: str, field_name: str) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(value.strip())
+        except ValueError as exc:
+            raise ValueError(
+                f"{field_name} must be an ISO-8601 timestamp"
+            ) from exc
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError(f"{field_name} must be timezone-aware")
+        return parsed
+
+    @staticmethod
+    def _workflow_bound_reference(
+        identity: str,
+        *,
+        project_reference: str,
+        campaign_reference: str,
+    ) -> tuple[str, str, str] | None:
+        value = identity.strip()
+        if not value:
+            return None
+        return (project_reference, campaign_reference, value)
+
+    def _workflow_request_from_inputs(self) -> GovernedCreativeWorkflowRequest:
+        project_reference = self.workflow_project_reference.text()
+        campaign_reference = self.workflow_campaign_reference.text()
+        return GovernedCreativeWorkflowRequest(
+            workflow_request_id=self.workflow_request_id.text(),
+            idempotency_key=self.workflow_idempotency_key.text(),
+            project_context_reference=project_reference,
+            campaign_context_reference=(
+                project_reference,
+                campaign_reference,
+            ),
+            creative_brief_reference=(
+                self.workflow_creative_brief_reference.text()
+            ),
+            approved_knowledge_references=self._workflow_items(
+                self.workflow_knowledge_references.text()
+            ),
+            governed_asset_references=self._workflow_items(
+                self.workflow_governed_asset_references.text()
+            ),
+            instruction_reference=(
+                self.workflow_instruction_reference.text(),
+                self.workflow_instruction_authority.text(),
+            ),
+            requesting_actor_reference=self.workflow_requesting_actor.text(),
+            request_timestamp=self._workflow_timestamp(
+                self.workflow_request_timestamp.text(),
+                "request timestamp",
+            ),
+            workflow_contract_reference=(
+                self.workflow_contract_name.text(),
+                self.workflow_contract_version.text(),
+            ),
+            requested_output_purpose_code=self.workflow_output_purpose.text(),
+            requested_review_policy_reference=self.workflow_review_policy.text(),
+            manual_external_tool_handoff_declared=(
+                self.workflow_manual_handoff_declared.isChecked()
+            ),
+        )
+
+    @staticmethod
+    def _workflow_reference_text(reference: Any) -> str:
+        if reference is None:
+            return "none"
+        return " / ".join(str(item) for item in reference)
+
+    @classmethod
+    def _workflow_assessment_summary(
+        cls,
+        result: GovernedCreativeWorkflowApplicationAssessment,
+    ) -> str:
+        evaluation = result.transition_evaluation
+        event = result.creative_workflow_event
+        workflow_result = result.governed_creative_workflow_result
+        diagnostics = (
+            "; ".join(
+                f"{code}: {message}"
+                for code, message in evaluation.diagnostics
+            )
+            or "none"
+        )
+        lines = [
+            f"Assessment Fingerprint: {result.assessment_fingerprint}",
+            f"Request: {result.workflow_request_reference}",
+            f"Current State: {result.current_workflow_state}",
+            f"Requested State: {result.requested_workflow_state}",
+            f"Disposition: {evaluation.disposition}",
+            f"Resulting State: {evaluation.resulting_workflow_state}",
+            f"Reason Codes: {', '.join(evaluation.reason_codes)}",
+            f"Diagnostics: {diagnostics}",
+            (
+                "Gate 16 Decision: "
+                + cls._workflow_reference_text(
+                    result.accepted_gate_16_operator_decision_reference
+                )
+            ),
+            (
+                "Gate 15 Asset: "
+                + cls._workflow_reference_text(
+                    result.accepted_gate_15_governed_asset_reference
+                )
+            ),
+            (
+                "Workflow Event: "
+                + (
+                    event.creative_workflow_event_id
+                    if event is not None
+                    else "none"
+                )
+            ),
+            (
+                "Workflow Result: "
+                + (
+                    str(workflow_result.final_workflow_state)
+                    if workflow_result is not None
+                    else "none"
+                )
+            ),
+            f"Production Release Claimed: {result.production_release_claimed}",
+        ]
+        return "\n".join(lines)
+
+    def _assess_governed_workflow(self, _checked: bool = False) -> None:
+        assessor = self._governed_workflow_assessor
+        self.workflow_summary.clear()
+
+        if assessor is None:
+            self.workflow_status.setText(
+                "Gate 18 assessment boundary is unavailable; no storage or "
+                "authority fallback is used."
+            )
+            return
+
+        try:
+            request = self._workflow_request_from_inputs()
+            project_reference = request.project_context_reference
+            campaign_reference = request.campaign_context_reference[1]
+            result = assessor(
+                workflow_request=request,
+                current_workflow_state=self.workflow_current_state.text(),
+                requested_next_workflow_state=(
+                    self.workflow_requested_state.text()
+                ),
+                responsible_actor_or_service_reference=(
+                    self.workflow_responsible_kind.text(),
+                    self.workflow_responsible_reference.text(),
+                ),
+                assessment_timestamp=self._workflow_timestamp(
+                    self.workflow_assessment_timestamp.text(),
+                    "assessment timestamp",
+                ),
+                evidence_references=tuple(
+                    (
+                        project_reference,
+                        campaign_reference,
+                        identity,
+                    )
+                    for identity in self._workflow_items(
+                        self.workflow_evidence_references.text()
+                    )
+                ),
+                reason_codes=self._workflow_items(
+                    self.workflow_reason_codes.text()
+                ),
+                workflow_contract_reference=(
+                    request.workflow_contract_reference
+                ),
+                manual_external_tool_handoff_reference=(
+                    self._workflow_bound_reference(
+                        self.workflow_handoff_reference.text(),
+                        project_reference=project_reference,
+                        campaign_reference=campaign_reference,
+                    )
+                ),
+                creative_result_candidate_reference=(
+                    self._workflow_bound_reference(
+                        self.workflow_candidate_reference.text(),
+                        project_reference=project_reference,
+                        campaign_reference=campaign_reference,
+                    )
+                ),
+                accepted_gate_16_operator_decision_reference=(
+                    self._workflow_bound_reference(
+                        self.workflow_gate16_reference.text(),
+                        project_reference=project_reference,
+                        campaign_reference=campaign_reference,
+                    )
+                ),
+                accepted_gate_15_governed_asset_reference=(
+                    self._workflow_bound_reference(
+                        self.workflow_gate15_reference.text(),
+                        project_reference=project_reference,
+                        campaign_reference=campaign_reference,
+                    )
+                ),
+            )
+            if not isinstance(
+                result,
+                GovernedCreativeWorkflowApplicationAssessment,
+            ):
+                raise TypeError(
+                    "governed workflow assessor returned an invalid result"
+                )
+            if result.production_release_claimed:
+                raise ValueError(
+                    "governed workflow assessment must not claim "
+                    "production release"
+                )
+        except Exception as exc:
+            self.workflow_status.setText(
+                f"Could not assess governed workflow: {exc}"
+            )
+            return
+
+        self.workflow_summary.setPlainText(
+            self._workflow_assessment_summary(result)
+        )
+        self.workflow_status.setText(
+            "Governed workflow assessment ready. No approval execution, "
+            "asset admission execution, lifecycle mutation, external-tool "
+            "execution, or production release has been executed."
+        )
 
     def _build_product_context_panel(self) -> QWidget:
         content = QWidget()
