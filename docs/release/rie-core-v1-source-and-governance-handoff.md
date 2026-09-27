@@ -1,165 +1,191 @@
-# RIE Core v1 - Source and Governance Handoff
+# RCIS v1 / RIE 0.1.0 - Source and Governance Handoff
 
-## Handoff status
+## Handoff state
 
-- Handoff type: `PRE_RELEASE_CANDIDATE`
-- Product label: `RIE Core v1`
-- Release title: `RIE Core v1 - Governed PDF Operator Workflow`
+- Handoff type: `FINAL_RELEASE_HANDOFF_CANDIDATE`
+- Product label: `RCIS v1`
+- Package: `rie`
+- Package version: `0.1.0`
+- Release title: `RCIS v1 - Governed Creative Knowledge, Asset, Approval, and Workflow`
 - Release mode: `SOURCE_AND_GOVERNANCE_WITHOUT_BINARY_ATTACHMENT`
-- Binary wheel attached: `False`
-- Dependency wheel attached: `False`
-- Installation claim included: `False`
+- Final required-gate checkpoint before release-document finalization: `3a8cb5c0f34c26c86d2c1a68b77b983bc9f1f511`
+- Candidate annotated product release tag: `v0.1.0`
+- Binary attachment inventory: empty
 - Release authorized: `False`
-- Real RSV asset use authorized: `False`
+- Release published: `False`
 
-## Current candidate checkpoint
+## Repository and gate handoff
 
-- Repository: `D:\PROJECT\RIE`
-- Candidate phase branch: `phase-056-end-to-end-cli-audit-packaging-release`
-- Current candidate phase commit: `90e769029bf55482edb3169ae3ec9895b79126f8`
-- Current local `main`: `b348506541584d3b420a59af167a957834744801`
-- Candidate annotated tag: `v0.56.0-rcis-end-to-end-cli-audit-packaging-release-phase`
+At the accepted final required-gate checkpoint:
 
-The current candidate phase commit is not yet the final release commit.
+- branch: `main`;
+- HEAD, local `main`, origin tracking `main`, and live remote `main` all resolve to `3a8cb5c0f34c26c86d2c1a68b77b983bc9f1f511`;
+- worktree is clean;
+- index is empty;
+- Gate 14 is closed;
+- Gate 15 is closed;
+- Gate 16 is closed;
+- Gate 17 is deferred optional post-v1;
+- Gate 18 is closed;
+- all required RCIS v1 gates are closed.
 
-The final release commit, final `main` commit, annotated tag object, and peeled tag target must be filled only by a later authorized release operation.
+The controlling final Gate 18 closure evidence is PR-125H.
 
-## Included handoff scope
+## Current capability handoff
 
-This handoff candidate covers:
+The source-and-governance handoff represents the accepted RCIS v1 capability boundary:
 
-- repository source state after final authorization;
-- committed architecture and governance records;
-- committed governed PDF operator-workflow documentation;
-- source-and-governance release notes;
-- repository identity verification commands;
-- support boundary;
-- rollback and withdrawal boundary;
-- real-asset pilot separation.
+1. governed official-source, ingestion, evidence, knowledge, and prompt foundations;
+2. Gate 14 multimodal evidence and knowledge;
+3. Gate 15 governed master asset-library runtime;
+4. Gate 16 operator dashboard and approval workflow;
+5. Gate 18 governed creative-workflow assessment and operator-facing Workflow workspace;
+6. explicit authority boundaries between evidence, knowledge, assets, approvals, workflow assessment, and any later production-release action;
+7. fail-closed evidence preservation and forward-only repository governance.
 
-This handoff candidate does not include installation instructions or runtime execution instructions.
+Gate 17 local generator integration is not required for this release.
 
-## Excluded artifacts
+## Gate 18 implementation identity
 
-The following are not release attachments:
+The final required-gate checkpoint is:
 
-- `rie-0.1.0-py3-none-any.whl`;
-- `pypdf-6.14.2-py3-none-any.whl`;
-- any source distribution archive;
-- any rebuilt, rematerialized, copied, or substituted wheel;
-- any virtual environment;
-- any wheelhouse or cache;
-- any acceptance sandbox;
-- any real RSV PDF, JPEG, PNG, extracted knowledge, prompt candidate, or pilot output.
+`3a8cb5c0f34c26c86d2c1a68b77b983bc9f1f511`
+
+Its subject is:
+
+`Add Gate 18 governed workflow workspace`
+
+Its parent is:
+
+`c0ddc4ad7cca662e3679cd2ef63d01fd07c9e42f`
+
+The Gate 18 publication changed exactly:
+
+- `src/rie/ui/pyside_product_shell.py`;
+- `tests/ui/test_pyside_product_shell.py`.
+
+PR-125H independently verified the published tree/blob identities, remote `main`, clean repository state, 867 targeted tests, and packaging smoke.
+
+## Validation handoff
+
+PR-125F remains the controlling full-validation evidence:
+
+- `3 failed, 5813 passed`;
+- residual failed-node set exactly matches the accepted Gate 16 baseline residual set;
+- no new Gate 18 regression observed;
+- clean acceptance reaches `ingest pdf`;
+- clean acceptance residual class is `parser_failure`, exit `7`;
+- packaging smoke passes.
+
+The three disclosed residual nodes are:
+
+- `tests/acceptance/test_rie_core_v1_fresh_environment.py::test_fresh_environment_installed_end_to_end_workflow`;
+- `tests/evidence_materialization/test_evidence_materialization_boundary.py::test_package_contains_exact_reviewed_python_files`;
+- `tests/test_persisted_evidence_knowledge_construction_public_api.py::test_package_contains_exact_four_python_files`.
+
+These are release disclosures, not hidden or silently reclassified as passing.
+
+## Release document provenance
+
+The final product release operation must preserve and verify the committed Git blob identities of:
+
+- `docs/release/rie-core-v1-release-notes.md`;
+- `docs/release/rie-core-v1-source-and-governance-handoff.md`.
+
+The exact commit produced by publishing these finalized documents becomes the release commit only after an independent post-publication verification accepts it.
+
+## Product tag boundary
+
+The proposed product release tag is:
+
+`v0.1.0`
+
+It corresponds to the package version declared in `pyproject.toml`.
+
+The final checkpoint currently has no tag pointing at it.
+
+The `v0.1.0` product release tag is separate from phase tags. Existing phase tag `v0.76.0-rcis-creative-workflow-and-production-release-gate-18-phase` must not be moved, deleted, or repurposed.
+
+The product tag remains unauthorized until a later exact proposal is approved.
+
+## Binary and installation boundary
 
 The release attachment inventory is empty.
 
-## Historical artifact evidence
+The release does not attach:
 
-The accepted historical RIE wheel identity is:
+- `rie-0.1.0-py3-none-any.whl`;
+- dependency wheels;
+- source-distribution archives;
+- virtual environments;
+- wheelhouses or caches;
+- acceptance sandboxes;
+- real RSV PDFs, JPEGs, PNGs, extracted content, or pilot outputs.
 
-- filename: `rie-0.1.0-py3-none-any.whl`;
-- SHA-256: `7a276511d4bbc4cbdbcba32d459ae8f7cb106f1423832be65945d2f5a8226362`;
-- bytes: `301685`.
+Historical binary fingerprints remain provenance only.
 
-The accepted historical pypdf wheel identity is:
-
-- filename: `pypdf-6.14.2-py3-none-any.whl`;
-- SHA-256: `3f07891af76dc002657e04993ab9b4de81de29f9013b9761d0b7968bff12e946`;
-- bytes: `349514`.
-
-These identities are provenance references only.
-
-They do not represent current binary custody, release attachment availability, or an installation promise.
+No binary-installation-bundle or offline-installation claim is made by this release mode.
 
 ## Operator verification boundary
 
-After a separately authorized merge and tag operation, the operator must verify repository identities only.
-
-The final handoff must provide exact resolved values for:
+After final release publication, the handoff evidence must record and verify:
 
 - final release commit;
-- live remote `main` commit;
+- local `main`;
+- origin tracking `main`;
+- live remote `main`;
+- annotated product tag name;
 - annotated tag object;
 - peeled tag target;
 - release-note Git blob identity;
 - handoff Git blob identity;
-- clean repository status;
-- empty binary attachment inventory.
+- clean worktree;
+- empty index;
+- disclosed baseline validation debt.
 
-The verification must not execute package installation or process real assets.
-
-## Repository verification command template
-
-The following command categories are permitted only after final values are resolved:
-
-```powershell
-git -C D:\PROJECT\RIE rev-parse refs/heads/main
-git -C D:\PROJECT\RIE ls-remote origin refs/heads/main
-git -C D:\PROJECT\RIE rev-parse <FINAL_TAG_NAME>
-git -C D:\PROJECT\RIE rev-parse <FINAL_TAG_NAME>^{}
-git -C D:\PROJECT\RIE status --porcelain=v1 --untracked-files=all
-```
-
-The placeholders must not be executed as literal values.
-
-No installation command belongs in this handoff.
+Repository verification must not mutate source, history, tags, or real assets.
 
 ## Support boundary
 
-The release supports the governed repository source and documentation boundary for the accepted PDF workflow.
+This release supports the accepted source-and-governance state for RCIS v1.
 
-The release does not claim support for:
+It does not claim or authorize:
 
-- binary installation;
-- offline installation;
-- dependency artifact delivery;
-- unsupported Python versions;
-- OCR expansion;
-- JPEG or PNG extraction;
-- automated full-library ingestion;
-- local AI generator integration;
-- production deployment;
-- external publication;
-- real RSV asset processing without separate authorization.
+- Gate 17 local generator integration;
+- automatic model orchestration;
+- new production-release semantics;
+- binary attachment delivery;
+- offline installation support;
+- real RSV asset processing without separate authority;
+- force-push or history rewriting.
 
 ## Rollback and withdrawal
 
-Published repository history must not be reset or force-pushed.
+Corrections must use a separately reviewed forward commit or revert commit.
 
-A repository correction must use a separately reviewed forward commit or revert commit.
+Published tags are immutable.
 
-A published annotated tag must not be moved, recreated, or silently repointed.
+A withdrawal must preserve:
 
-A release withdrawal must preserve:
-
-- tag identity;
-- release notes;
-- governance decision records;
-- historical artifact references;
+- final release commit identity;
+- product tag object and peeled target;
+- release documents;
+- governance evidence;
+- validation-debt disclosure;
 - withdrawal reason;
 - corrective next step.
 
-Because no binary is attached, binary rollback is outside this release mode.
-
-## Real-asset pilot separation
-
-This handoff does not authorize selecting, copying, hashing, opening, registering, ingesting, or processing a real RSV PDF.
-
-The first real-asset pilot requires a separate committed authorization record after release publication.
-
-JPEG and PNG assets remain excluded.
-
 ## Finalization requirements
 
-Before this handoff can become final:
+This handoff becomes final only after:
 
-- this handoff candidate and the release notes must be reviewed and committed;
-- an updated readiness review must pass for the selected release mode;
-- a final Gate 12 release authorization record must be committed and published;
-- the final release commit must be identified;
-- fast-forward merge must be separately authorized and verified;
-- the annotated tag must be separately authorized, created, pushed, and verified;
-- the final resolved identities must be recorded.
+1. this exact handoff and release notes are committed and published;
+2. that publication is independently verified;
+3. an exact annotated `v0.1.0` tag proposal is separately approved;
+4. the tag is created on the verified release commit and pushed non-force;
+5. post-tag verification records the exact tag object, peeled target, remote identities, release-document blobs, and clean repository state.
 
-Until then, this document remains a pre-release handoff candidate.
+Until then:
+
+- `RCIS_V1_RELEASE_AUTHORIZED=False`;
+- `RCIS_V1_RELEASED=False`.
