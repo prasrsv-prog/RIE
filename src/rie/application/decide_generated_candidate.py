@@ -13,13 +13,13 @@ from rie.domain.generated_candidate_evaluation import GeneratedCandidateEvaluati
 
 _REQUIRED_EVALUATION_FIELDS = (
     "evaluation_id",
-    "candidate_id",
+    "creative_result_candidate_id",
     "workflow_request_reference",
     "project_context_reference",
     "campaign_context_reference",
     "creative_brief_reference",
     "instruction_reference",
-    "candidate_checksum",
+    "candidate_content_checksum",
     "artifact_type",
     "aggregate_outcome",
     "deterministic_provenance",
@@ -30,6 +30,61 @@ def _evaluation_value(evaluation: GeneratedCandidateEvaluation, name: str) -> ob
     if not hasattr(evaluation, name):
         raise ValueError(f"evaluation missing required field: {name}")
     return getattr(evaluation, name)
+
+
+def _require_ascii_text(value: object, field_name: str) -> str:
+    if type(value) is not str:
+        raise ValueError(f"{field_name} must be an exact str")
+    if not value or value.strip() != value:
+        raise ValueError(
+            f"{field_name} must be nonempty without surrounding whitespace"
+        )
+    try:
+        value.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{field_name} must be ASCII") from exc
+    return value
+
+
+def _canonical_campaign_id(evaluation: GeneratedCandidateEvaluation) -> str:
+    value = _evaluation_value(evaluation, "campaign_context_reference")
+    if type(value) is not tuple or len(value) != 2:
+        raise ValueError(
+            "evaluation campaign_context_reference must contain exactly two values"
+        )
+
+    project_id = _require_ascii_text(
+        _evaluation_value(evaluation, "project_context_reference"),
+        "evaluation.project_context_reference",
+    )
+    campaign_project_id = _require_ascii_text(
+        value[0],
+        "evaluation.campaign_context_reference[0]",
+    )
+    campaign_id = _require_ascii_text(
+        value[1],
+        "evaluation.campaign_context_reference[1]",
+    )
+    if campaign_project_id != project_id:
+        raise ValueError("evaluation campaign project binding mismatch")
+    return campaign_id
+
+
+def _canonical_instruction_id(evaluation: GeneratedCandidateEvaluation) -> str:
+    value = _evaluation_value(evaluation, "instruction_reference")
+    if type(value) is not tuple or len(value) != 2:
+        raise ValueError(
+            "evaluation instruction_reference must contain exactly two values"
+        )
+    instruction_id = _require_ascii_text(
+        value[0],
+        "evaluation.instruction_reference[0]",
+    )
+    _require_ascii_text(
+        value[1],
+        "evaluation.instruction_reference[1]",
+    )
+    return instruction_id
 
 
 def _canonical_timestamp(value: datetime) -> str:
@@ -68,11 +123,13 @@ def decide_generated_candidate(
     timestamp_text = _canonical_timestamp(decision_timestamp)
     identity_payload = {
         "artifact_type": _evaluation_value(evaluation, "artifact_type"),
-        "campaign_context_reference": _evaluation_value(
-            evaluation, "campaign_context_reference"
+        "campaign_context_reference": _canonical_campaign_id(evaluation),
+        "candidate_checksum": _evaluation_value(
+            evaluation, "candidate_content_checksum"
         ),
-        "candidate_checksum": _evaluation_value(evaluation, "candidate_checksum"),
-        "candidate_id": _evaluation_value(evaluation, "candidate_id"),
+        "candidate_id": _evaluation_value(
+            evaluation, "creative_result_candidate_id"
+        ),
         "creative_brief_reference": _evaluation_value(
             evaluation, "creative_brief_reference"
         ),
@@ -85,9 +142,7 @@ def decide_generated_candidate(
         ),
         "evaluation_deterministic_provenance": list(evaluation_provenance),
         "evaluation_id": _evaluation_value(evaluation, "evaluation_id"),
-        "instruction_reference": _evaluation_value(
-            evaluation, "instruction_reference"
-        ),
+        "instruction_reference": _canonical_instruction_id(evaluation),
         "project_context_reference": _evaluation_value(
             evaluation, "project_context_reference"
         ),
