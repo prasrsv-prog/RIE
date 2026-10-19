@@ -111,6 +111,30 @@ def test_shell_has_three_pane_layout_and_product_context(qt_app) -> None:
         shell.close()
 
 
+def test_create_page_scrolls_instead_of_crushing_required_brief_rows(qt_app) -> None:
+    shell = _shell()
+    try:
+        page = shell.findChild(QScrollArea, "createPageScrollArea")
+        assert page is not None
+        assert shell.pages.widget(0) is page
+        assert page.widget() is not None
+        assert shell.deliverable_edit.objectName() == "creativeBriefRequiredOutput"
+        assert "required" in shell.deliverable_edit.placeholderText().lower()
+        assert shell.deliverable_edit.parentWidget() is not None
+
+        shell.show()
+        qt_app.processEvents()
+        assert page.verticalScrollBar().maximum() > 0
+        page.ensureWidgetVisible(shell.deliverable_edit)
+        qt_app.processEvents()
+        assert shell.deliverable_edit.isVisible()
+        shell.deliverable_edit.setText("Ecommerce product hero visual")
+        assert shell.current_brief().deliverable == "Ecommerce product hero visual"
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
 def test_product_selection_scopes_variant_and_updates_context(qt_app) -> None:
     shell = _shell()
     try:

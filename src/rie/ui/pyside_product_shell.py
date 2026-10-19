@@ -382,8 +382,14 @@ class ProductCompletionShell(QMainWindow):
         self._load_assets_workspace()
 
     def _build_create_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        # The full brief contains fourteen input rows.  Scrolling prevents Qt
+        # from compressing editable rows into overlapping controls on laptops.
+        page = QScrollArea()
+        page.setObjectName("createPageScrollArea")
+        page.setWidgetResizable(True)
+        page.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(14)
 
@@ -454,7 +460,10 @@ class ProductCompletionShell(QMainWindow):
         self.notes_edit.setPlaceholderText("Optional creative notes")
         self.notes_edit.setMaximumHeight(72)
         self.deliverable_edit = QLineEdit()
-        self.deliverable_edit.setPlaceholderText("Example: grounded product prompt")
+        self.deliverable_edit.setObjectName("creativeBriefRequiredOutput")
+        self.deliverable_edit.setPlaceholderText(
+            "Required: e.g. ecommerce product hero visual"
+        )
         brief_form.addRow("Purpose", self.objective_edit)
         brief_form.addRow("Scene / Environment", self.environment_edit)
         brief_form.addRow("Camera", self.camera_edit)
@@ -468,7 +477,7 @@ class ProductCompletionShell(QMainWindow):
         brief_form.addRow("User Preserve", self.preserve_edit)
         brief_form.addRow("User Avoid", self.avoid_edit)
         brief_form.addRow("Notes", self.notes_edit)
-        brief_form.addRow("Output", self.deliverable_edit)
+        brief_form.addRow("Output (required)", self.deliverable_edit)
         layout.addWidget(brief_group)
 
         reference_group = QGroupBox("3. Reference Assets")
@@ -550,6 +559,7 @@ class ProductCompletionShell(QMainWindow):
         )
         self.prompt_button.clicked.connect(self._build_grounded_prompt)
 
+        page.setWidget(content)
         return page
 
     def _build_products_page(self) -> QWidget:
