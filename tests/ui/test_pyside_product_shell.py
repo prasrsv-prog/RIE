@@ -1390,3 +1390,161 @@ def test_gate18_pyside_source_reuses_backend_without_release_execution() -> None
         "database_connection",
     ):
         assert forbidden not in lowered
+
+
+def test_c20_a_create_visual_first_four_step_layout(qt_app) -> None:
+    from PySide6.QtWidgets import QGroupBox, QLabel
+
+    shell = _shell()
+    try:
+        page = shell.findChild(QScrollArea, "createPageScrollArea")
+        assert page is shell.pages.widget(0)
+        assert shell.findChild(QLabel, "createHeading").text() == "Buat Visual Produk"
+        for name in (
+            "createStepProduct", "createStepConcept",
+            "createStepReferences", "createStepReview",
+        ):
+            assert shell.findChild(QLabel, name) is not None
+        for name in (
+            "createProductCard", "createConceptCard",
+            "createReferenceCard", "createReviewCard",
+        ):
+            assert shell.findChild(QGroupBox, name) is not None
+        assert shell.deliverable_edit.objectName() == "creativeBriefRequiredOutput"
+        assert shell.deliverable_edit.text() == ""
+        assert shell.objective_edit.text() == ""
+        assert shell.environment_edit.text() == ""
+        assert not shell.advanced_brief_panel.isAncestorOf(shell.environment_edit)
+        assert not shell.advanced_brief_panel.isAncestorOf(shell.camera_edit)
+        assert not shell.advanced_brief_panel.isAncestorOf(shell.deliverable_edit)
+        assert shell.prompt_button.objectName() == "buildGroundedPrompt"
+        assert not shell.visual_button.isEnabled()
+        assert "provider" in shell.create_safety_note.text().lower()
+    finally:
+        shell.close()
+
+
+def test_c20_a_advanced_brief_disclosure_preserves_model_values(qt_app) -> None:
+    shell = _shell()
+    try:
+        shell.show()
+        qt_app.processEvents()
+        assert not shell.advanced_brief_toggle.isChecked()
+        assert not shell.advanced_brief_panel.isVisible()
+        shell.advanced_brief_toggle.click()
+        qt_app.processEvents()
+        assert shell.advanced_brief_panel.isVisible()
+        shell.environment_edit.setText("professional studio")
+        shell.camera_edit.setText("front three-quarter")
+        shell.lighting_edit.setText("soft studio lighting")
+        shell.deliverable_edit.setText("ecommerce hero visual")
+        brief = shell.current_brief()
+        assert brief.environment == "professional studio"
+        assert brief.camera_angle == "front three-quarter"
+        assert brief.lighting_style == "soft studio lighting"
+        assert brief.deliverable == "ecommerce hero visual"
+        shell.advanced_brief_toggle.click()
+        qt_app.processEvents()
+        assert not shell.advanced_brief_panel.isVisible()
+        assert shell.current_brief().environment == "professional studio"
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
+def test_c20_a_normal_shell_has_no_hidden_provider_or_auto_selection(qt_app) -> None:
+    shell = ProductCompletionShell()
+    try:
+        assert shell.product_combo.currentText() == "Choose product..."
+        assert shell.variant_combo.currentText() == "Choose variant..."
+        assert shell.reference_asset_list.selectedItems() == []
+        assert shell.visual_button.isEnabled() is False
+        assert shell.prompt_preview.toPlainText() == ""
+    finally:
+        shell.close()
+
+
+def test_c20_b_reference_gallery_has_actual_local_thumbnails(qt_app) -> None:
+    import io
+    from PIL import Image
+    from PySide6.QtWidgets import QListView
+
+    visual_query = _FakeVisualReferenceAssetQuery()
+    output = io.BytesIO()
+    Image.new("RGB", (50, 32), (77, 130, 188)).save(output, format="PNG")
+    png = output.getvalue()
+    visual_query.load_preview_bytes = lambda asset_id: png
+    shell = ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(_FakeController()),
+        visual_reference_asset_query=visual_query,
+    )
+    try:
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.variant_combo.setCurrentText("White Glossy")
+        qt_app.processEvents()
+        assert shell.reference_asset_list.viewMode() == QListView.ViewMode.IconMode
+        assert shell.reference_asset_list.count() == 1
+        item = shell.reference_asset_list.item(0)
+        assert not item.icon().isNull()
+        item.setSelected(True)
+        qt_app.processEvents()
+        assert shell.current_brief().selected_reference_asset_ids == (
+            "asset-photo-front",
+        )
+        assert "bukan izin" in shell.reference_asset_detail.text().lower()
+        assert shell.visual_button.isEnabled() is False
+    finally:
+        shell.close()
+
+
+def test_c20_b_product_summary_hides_technical_detail_by_default(qt_app) -> None:
+    shell = _shell()
+    try:
+        shell.show()
+        qt_app.processEvents()
+        assert not shell.context_technical_panel.isVisible()
+        assert "izin" in shell.context_governance_note.text().lower()
+        assert shell.constraints_label.isVisible()
+        shell.context_technical_toggle.click()
+        qt_app.processEvents()
+        assert shell.context_technical_panel.isVisible()
+        assert shell.facts_label is not None
+        assert shell.references_label is not None
+        assert shell.unknowns_label is not None
+        shell.context_technical_toggle.click()
+        qt_app.processEvents()
+        assert not shell.context_technical_panel.isVisible()
+    finally:
+        shell.close()
+
+
+def test_c20_b_prompt_review_distinguishes_grounding_from_provider_rights(qt_app) -> None:
+    shell = _shell()
+    try:
+        shell.show()
+        qt_app.processEvents()
+        assert not shell.prompt_grounding_metadata.isVisible()
+        assert "Belum ada prompt" in shell.create_grounding_status.text()
+        shell.prompt_preview.setPlainText("Example grounded prompt")
+        shell.prompt_grounding_metadata.setText(
+            "Grounding: PASSED | Knowledge: knowledge-fixture | "
+            "Grounded Assets: none | Selected References: reference-fixture | "
+            "Missing: none | Conflicts: none"
+        )
+        shell._refresh_create_grounding_status()
+        assert "grounding lulus" in shell.create_grounding_status.text().lower()
+        assert not shell.visual_button.isEnabled()
+        shell.create_grounding_details_toggle.click()
+        qt_app.processEvents()
+        assert shell.prompt_grounding_metadata.isVisible()
+        assert "Grounded Assets: none" in shell.prompt_grounding_metadata.text()
+        shell.prompt_preview.clear()
+        shell.prompt_grounding_metadata.setText("No grounded prompt built yet.")
+        shell.create_feedback.setText(
+            "Could not build prompt: deliverable must be a nonempty string"
+        )
+        shell._refresh_create_grounding_status()
+        assert "wajib" in shell.create_grounding_status.text().lower()
+    finally:
+        shell.close()

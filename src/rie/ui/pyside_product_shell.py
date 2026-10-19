@@ -11,8 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -381,33 +382,82 @@ class ProductCompletionShell(QMainWindow):
         self._load_products_workspace()
         self._load_assets_workspace()
 
+
+
     def _build_create_page(self) -> QWidget:
-        # The full brief contains fourteen input rows.  Scrolling prevents Qt
-        # from compressing editable rows into overlapping controls on laptops.
+        """C20-A visual-first composition; existing contracts and signals unchanged."""
         page = QScrollArea()
         page.setObjectName("createPageScrollArea")
         page.setWidgetResizable(True)
         page.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
+        content.setObjectName("visualFirstCreateContent")
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(22, 18, 22, 22)
+        layout.setSpacing(16)
+        page.setStyleSheet("""
+            QWidget#visualFirstCreateContent { background-color: #111820; }
+            QLabel#createHeading { color: #f3f6fc; font-size: 24px; font-weight: 700; }
+            QLabel#createIntro { color: #aebdcc; font-size: 12px; }
+            QLabel#createStepProduct, QLabel#createStepConcept,
+            QLabel#createStepReferences, QLabel#createStepReview {
+                border: 1px solid #344357; border-radius: 9px;
+                padding: 12px 6px; background: #1c2633;
+                color: #d6e0ee; font-weight: 600;
+            }
+            QLabel#createStepProduct { background: #163a6e; border-color: #367de2; }
+            QGroupBox#createProductCard, QGroupBox#createConceptCard,
+            QGroupBox#createReferenceCard, QGroupBox#createReviewCard {
+                background-color: #19232e; border: 1px solid #334152;
+                border-radius: 12px; margin-top: 15px;
+                padding: 12px;
+                color: #edf2fa; font-size: 12px; font-weight: 600;
+            }
+            QGroupBox#createProductCard::title, QGroupBox#createConceptCard::title,
+            QGroupBox#createReferenceCard::title, QGroupBox#createReviewCard::title {
+                subcontrol-origin: margin; left: 14px;
+                padding: 0 6px; color: #eff5ff;
+            }
+            QPushButton#createAdvancedToggle {
+                background: #273649; color: #dbe8f6; border: 1px solid #42546d;
+                border-radius: 7px; padding: 8px 10px; text-align: left;
+            }
+            QLabel#createSafetyNote { color: #b7a9e9; }
+        """)
 
-        heading = QLabel("Create")
+        heading = QLabel("Buat Visual Produk")
         heading.setObjectName("createHeading")
-        heading.setStyleSheet("font-size: 22px; font-weight: 600;")
         layout.addWidget(heading)
 
         intro = QLabel(
-            "Choose a product, shape the creative brief, build a grounded prompt, "
-            "then continue to visual generation."
+            "Pilih produk, tentukan konsep, pilih foto, lalu tinjau prompt Anda."
         )
         intro.setWordWrap(True)
         intro.setObjectName("createIntro")
         layout.addWidget(intro)
 
-        product_group = QGroupBox("1. Product")
+        steps = QHBoxLayout()
+        steps.setSpacing(8)
+        for name, label_text in (
+            ("createStepProduct", "1  Produk"),
+            ("createStepConcept", "2  Konsep"),
+            ("createStepReferences", "3  Foto referensi"),
+            ("createStepReview", "4  Tinjau prompt"),
+        ):
+            step = QLabel(label_text)
+            step.setObjectName(name)
+            step.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            step.setToolTip("Panduan urutan kerja, bukan status penyelesaian")
+            steps.addWidget(step, 1)
+        layout.addLayout(steps)
+
+        top_cards = QHBoxLayout()
+        top_cards.setSpacing(14)
+
+        product_group = QGroupBox("1. Pilih Produk")
+        product_group.setObjectName("createProductCard")
         product_form = QFormLayout(product_group)
+        product_form.setVerticalSpacing(13)
         self.product_combo = QComboBox()
         self.product_combo.setObjectName("productSelector")
         self.product_combo.addItem("Choose product...")
@@ -415,18 +465,47 @@ class ProductCompletionShell(QMainWindow):
         self.variant_combo.setObjectName("variantSelector")
         self.variant_combo.addItem("Choose variant...")
         self.variant_combo.setEnabled(False)
-        product_form.addRow("Product", self.product_combo)
-        product_form.addRow("Variant", self.variant_combo)
-        layout.addWidget(product_group)
+        product_form.addRow("Produk", self.product_combo)
+        product_form.addRow("Varian", self.variant_combo)
+        top_cards.addWidget(product_group, 1)
 
-        brief_group = QGroupBox("2. Creative Brief")
-        brief_form = QFormLayout(brief_group)
+        brief_group = QGroupBox("2. Tentukan Konsep Visual")
+        brief_group.setObjectName("createConceptCard")
+        brief_layout = QVBoxLayout(brief_group)
+        brief_layout.setSpacing(9)
+        brief_form = QFormLayout()
+        brief_form.setVerticalSpacing(10)
         self.objective_edit = QLineEdit()
-        self.objective_edit.setPlaceholderText("Example: ecommerce hero visual")
+        self.objective_edit.setPlaceholderText("Contoh: foto hero untuk katalog produk")
         self.environment_edit = QLineEdit()
-        self.environment_edit.setPlaceholderText("Example: dark studio")
+        self.environment_edit.setPlaceholderText("Contoh: studio profesional")
         self.camera_edit = QLineEdit()
-        self.camera_edit.setPlaceholderText("Example: front")
+        self.camera_edit.setPlaceholderText("Contoh: tampak depan tiga perempat")
+        self.deliverable_edit = QLineEdit()
+        self.deliverable_edit.setObjectName("creativeBriefRequiredOutput")
+        self.deliverable_edit.setPlaceholderText(
+            "Required: e.g. ecommerce product hero visual"
+        )
+        self.notes_edit = QPlainTextEdit()
+        self.notes_edit.setObjectName("creativeBriefFreeformNotes")
+        self.notes_edit.setPlaceholderText("Ceritakan ide visual Anda (opsional)")
+        self.notes_edit.setMaximumHeight(64)
+        brief_form.addRow("Tujuan", self.objective_edit)
+        brief_form.addRow("Suasana (wajib)", self.environment_edit)
+        brief_form.addRow("Sudut pandang (wajib)", self.camera_edit)
+        brief_form.addRow("Output (required)", self.deliverable_edit)
+        brief_form.addRow("Ide tambahan", self.notes_edit)
+        brief_layout.addLayout(brief_form)
+
+        self.advanced_brief_toggle = QPushButton("Pengaturan Lanjutan  ▸")
+        self.advanced_brief_toggle.setObjectName("createAdvancedToggle")
+        self.advanced_brief_toggle.setCheckable(True)
+        self.advanced_brief_toggle.setChecked(False)
+        brief_layout.addWidget(self.advanced_brief_toggle)
+        self.advanced_brief_panel = QWidget()
+        self.advanced_brief_panel.setObjectName("createAdvancedPanel")
+        advanced_form = QFormLayout(self.advanced_brief_panel)
+        advanced_form.setVerticalSpacing(9)
         self.shot_type_edit = QLineEdit()
         self.shot_type_edit.setObjectName("creativeBriefShotType")
         self.shot_type_edit.setPlaceholderText("Example: medium product shot")
@@ -455,61 +534,111 @@ class ProductCompletionShell(QMainWindow):
         self.avoid_edit.setPlaceholderText(
             "User creative avoid notes; separate multiple items with ;"
         )
-        self.notes_edit = QPlainTextEdit()
-        self.notes_edit.setObjectName("creativeBriefFreeformNotes")
-        self.notes_edit.setPlaceholderText("Optional creative notes")
-        self.notes_edit.setMaximumHeight(72)
-        self.deliverable_edit = QLineEdit()
-        self.deliverable_edit.setObjectName("creativeBriefRequiredOutput")
-        self.deliverable_edit.setPlaceholderText(
-            "Required: e.g. ecommerce product hero visual"
+        advanced_form.addRow("Jenis shot", self.shot_type_edit)
+        advanced_form.addRow("Pencahayaan", self.lighting_edit)
+        advanced_form.addRow("Komposisi", self.composition_edit)
+        advanced_form.addRow("Gaya / suasana", self.mood_edit)
+        advanced_form.addRow("Rasio aspek", self.aspect_ratio_edit)
+        advanced_form.addRow("Orientasi", self.orientation_edit)
+        advanced_form.addRow("Fokus produk", self.product_emphasis_edit)
+        advanced_form.addRow("Harus dipertahankan", self.preserve_edit)
+        advanced_form.addRow("Hindari", self.avoid_edit)
+        self.advanced_brief_panel.setVisible(False)
+        brief_layout.addWidget(self.advanced_brief_panel)
+        self.advanced_brief_toggle.toggled.connect(
+            self.advanced_brief_panel.setVisible
         )
-        brief_form.addRow("Purpose", self.objective_edit)
-        brief_form.addRow("Scene / Environment", self.environment_edit)
-        brief_form.addRow("Camera", self.camera_edit)
-        brief_form.addRow("Shot Type", self.shot_type_edit)
-        brief_form.addRow("Lighting", self.lighting_edit)
-        brief_form.addRow("Composition", self.composition_edit)
-        brief_form.addRow("Mood / Style", self.mood_edit)
-        brief_form.addRow("Aspect Ratio", self.aspect_ratio_edit)
-        brief_form.addRow("Orientation", self.orientation_edit)
-        brief_form.addRow("Product Emphasis", self.product_emphasis_edit)
-        brief_form.addRow("User Preserve", self.preserve_edit)
-        brief_form.addRow("User Avoid", self.avoid_edit)
-        brief_form.addRow("Notes", self.notes_edit)
-        brief_form.addRow("Output (required)", self.deliverable_edit)
-        layout.addWidget(brief_group)
+        self.advanced_brief_toggle.toggled.connect(
+            lambda checked: self.advanced_brief_toggle.setText(
+                "Pengaturan Lanjutan  ▾" if checked else "Pengaturan Lanjutan  ▸"
+            )
+        )
+        top_cards.addWidget(brief_group, 2)
+        layout.addLayout(top_cards)
 
-        reference_group = QGroupBox("3. Reference Assets")
+        reference_group = QGroupBox("3. Pilih Foto Referensi")
+        reference_group.setObjectName("createReferenceCard")
         reference_layout = QHBoxLayout(reference_group)
+        reference_layout.setSpacing(14)
         self.reference_asset_list = QListWidget()
         self.reference_asset_list.setObjectName("createReferenceAssetList")
         self.reference_asset_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
-        self.reference_asset_list.setMinimumHeight(120)
-        reference_layout.addWidget(self.reference_asset_list, 1)
-
+        self.reference_asset_list.setViewMode(QListView.ViewMode.IconMode)
+        self.reference_asset_list.setResizeMode(QListView.ResizeMode.Adjust)
+        self.reference_asset_list.setMovement(QListView.Movement.Static)
+        self.reference_asset_list.setWrapping(True)
+        self.reference_asset_list.setWordWrap(True)
+        self.reference_asset_list.setUniformItemSizes(True)
+        self.reference_asset_list.setIconSize(QSize(100, 78))
+        self.reference_asset_list.setGridSize(QSize(132, 117))
+        self.reference_asset_list.setSpacing(6)
+        self.reference_asset_list.setMinimumHeight(235)
+        self.reference_asset_list.setMaximumHeight(264)
+        self.reference_asset_list.setToolTip(
+            "Klik foto untuk memilih. Tekan Ctrl untuk memilih beberapa referensi."
+        )
+        reference_layout.addWidget(self.reference_asset_list, 3)
         reference_detail_layout = QVBoxLayout()
         self.reference_asset_preview = QLabel("No reference selected.")
         self.reference_asset_preview.setObjectName("createReferenceAssetPreview")
         self.reference_asset_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.reference_asset_preview.setMinimumSize(220, 150)
+        self.reference_asset_preview.setMinimumSize(235, 190)
         self.reference_asset_preview.setWordWrap(True)
-        reference_detail_layout.addWidget(self.reference_asset_preview)
+        reference_detail_layout.addWidget(self.reference_asset_preview, 1)
         self.reference_asset_detail = QLabel(
-            "Select one or more approved product photos. "
-            "Selections are carried forward as reference IDs; visual generation "
-            "uses only an explicitly injected PC5 provider."
+            "Pilih foto untuk melihat pratinjau. Foto lokal belum berarti "
+            "diizinkan untuk layanan AI eksternal."
         )
         self.reference_asset_detail.setObjectName("createReferenceAssetDetail")
         self.reference_asset_detail.setWordWrap(True)
         reference_detail_layout.addWidget(self.reference_asset_detail)
-        reference_layout.addLayout(reference_detail_layout, 1)
+        reference_layout.addLayout(reference_detail_layout, 2)
         layout.addWidget(reference_group)
 
+        review_group = QGroupBox("4. Tinjau Prompt")
+        review_group.setObjectName("createReviewCard")
+        review_layout = QVBoxLayout(review_group)
+        review_layout.setSpacing(10)
+        self.prompt_preview = QPlainTextEdit()
+        self.prompt_preview.setObjectName("promptPreview")
+        self.prompt_preview.setReadOnly(True)
+        self.prompt_preview.setPlaceholderText(
+            "Prompt Anda akan tampil di sini setelah memilih Buat Prompt."
+        )
+        self.prompt_preview.setMinimumHeight(135)
+        self.prompt_preview.setMinimumHeight(105)
+        self.prompt_preview.setMaximumHeight(155)
+        review_layout.addWidget(self.prompt_preview)
+        self.create_grounding_status = QLabel(
+            "Belum ada prompt. Isi konsep lalu pilih Buat Prompt."
+        )
+        self.create_grounding_status.setObjectName("createGroundingStatus")
+        self.create_grounding_status.setWordWrap(True)
+        review_layout.addWidget(self.create_grounding_status)
+        self.create_grounding_details_toggle = QPushButton("Lihat detail grounding  ▸")
+        self.create_grounding_details_toggle.setObjectName(
+            "createGroundingDetailsToggle"
+        )
+        self.create_grounding_details_toggle.setCheckable(True)
+        review_layout.addWidget(self.create_grounding_details_toggle)
+        self.prompt_grounding_metadata = QLabel("No grounded prompt built yet.")
+        self.prompt_grounding_metadata.setObjectName("promptGroundingMetadata")
+        self.prompt_grounding_metadata.setWordWrap(True)
+        self.prompt_grounding_metadata.setVisible(False)
+        review_layout.addWidget(self.prompt_grounding_metadata)
+        self.create_grounding_details_toggle.toggled.connect(
+            self.prompt_grounding_metadata.setVisible
+        )
+        self.create_grounding_details_toggle.toggled.connect(
+            lambda checked: self.create_grounding_details_toggle.setText(
+                "Sembunyikan detail grounding  ▾" if checked
+                else "Lihat detail grounding  ▸"
+            )
+        )
         action_row = QHBoxLayout()
-        self.prompt_button = QPushButton("Build Grounded Prompt")
+        self.prompt_button = QPushButton("Buat Prompt")
         self.prompt_button.setObjectName("buildGroundedPrompt")
         self.visual_button = QPushButton("Generate Visuals")
         self.visual_button.setObjectName("generateVisuals")
@@ -524,30 +653,16 @@ class ProductCompletionShell(QMainWindow):
         action_row.addWidget(self.prompt_button)
         action_row.addWidget(self.visual_button)
         action_row.addStretch(1)
-        layout.addLayout(action_row)
+        review_layout.addLayout(action_row)
+        self.create_safety_note = QLabel(
+            "Generasi AI belum tersedia tanpa provider dan hak penggunaan aset yang sah."
+        )
+        self.create_safety_note.setObjectName("createSafetyNote")
+        self.create_safety_note.setWordWrap(True)
+        review_layout.addWidget(self.create_safety_note)
+        layout.addWidget(review_group)
 
-        prompt_group = QGroupBox("4. Prompt")
-        prompt_layout = QVBoxLayout(prompt_group)
-        self.prompt_preview = QPlainTextEdit()
-        self.prompt_preview.setObjectName("promptPreview")
-        self.prompt_preview.setReadOnly(True)
-        self.prompt_preview.setPlaceholderText(
-            "Your grounded prompt will appear here."
-        )
-        prompt_layout.addWidget(self.prompt_preview)
-        self.prompt_grounding_metadata = QLabel(
-            "No grounded prompt built yet."
-        )
-        self.prompt_grounding_metadata.setObjectName(
-            "promptGroundingMetadata"
-        )
-        self.prompt_grounding_metadata.setWordWrap(True)
-        prompt_layout.addWidget(self.prompt_grounding_metadata)
-        layout.addWidget(prompt_group, 1)
-
-        self.create_feedback = QLabel(
-            "Select a product and variant to begin."
-        )
+        self.create_feedback = QLabel("Select a product and variant to begin.")
         self.create_feedback.setObjectName("createFeedback")
         self.create_feedback.setWordWrap(True)
         layout.addWidget(self.create_feedback)
@@ -558,9 +673,63 @@ class ProductCompletionShell(QMainWindow):
             self._create_reference_selection_changed
         )
         self.prompt_button.clicked.connect(self._build_grounded_prompt)
+        self.prompt_button.clicked.connect(self._refresh_create_grounding_status)
 
         page.setWidget(content)
         return page
+
+
+    def _populate_create_thumbnail_icons(self) -> int:
+        """Preview up to 16 local manifest images; never perform provider calls.
+
+        Original asset IDs and list ordering are not changed. Missing thumbnail
+        bytes produce an empty icon rather than a forged or guessed image.
+        """
+        if self._visual_reference_assets is None:
+            return 0
+        rendered = 0
+        for row in range(min(self.reference_asset_list.count(), 16)):
+            item = self.reference_asset_list.item(row)
+            reference_id = item.data(Qt.ItemDataRole.UserRole)
+            asset = self._create_reference_assets_by_ref.get(reference_id)
+            if asset is None or not asset.available or asset.asset_id is None:
+                continue
+            try:
+                payload = self._visual_reference_assets.preview_bytes(asset.asset_id)
+                thumbnail = QPixmap()
+                if not thumbnail.loadFromData(payload):
+                    continue
+            except Exception:
+                # The separate preview pane still exposes the precise read error.
+                continue
+            item.setIcon(QIcon(thumbnail.scaled(
+                QSize(100, 78),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )))
+            rendered += 1
+        return rendered
+
+    def _refresh_create_grounding_status(self, _checked: bool = False) -> None:
+        """Show a human-readable UI state, not rights/provider authorization."""
+        meta = self.prompt_grounding_metadata.text()
+        feedback = self.create_feedback.text()
+        if (
+            "Grounding: PASSED" in meta
+            and bool(self.prompt_preview.toPlainText().strip())
+            and "Missing: none" in meta
+            and "Conflicts: none" in meta
+        ):
+            status = "Prompt siap ditinjau — grounding lulus."
+        elif "Grounding: FAILED" in meta:
+            status = "Prompt belum siap — periksa detail grounding."
+        elif feedback.startswith("Could not build prompt:"):
+            status = "Periksa isian wajib sebelum membuat prompt."
+        elif not self.prompt_preview.toPlainText().strip():
+            status = "Belum ada prompt. Isi konsep lalu pilih Buat Prompt."
+        else:
+            status = "Prompt tersedia. Periksa rincian sebelum melanjutkan."
+        self.create_grounding_status.setText(status)
 
     def _build_products_page(self) -> QWidget:
         page = QWidget()
@@ -1535,25 +1704,42 @@ class ProductCompletionShell(QMainWindow):
         self.context_summary.setObjectName("productContextSummary")
         layout.addWidget(self.context_summary)
 
-        self.facts_label = self._add_context_section(
-            layout,
-            "Product Facts",
-            "No facts loaded.",
-        )
         self.constraints_label = self._add_context_section(
             layout,
-            "Creative Constraints",
-            "No constraints loaded.",
+            "Hal yang harus dipertahankan",
+            "Belum ada ketentuan produk.",
         )
+        self.context_governance_note = QLabel(
+            "Foto bisa dipratinjau secara lokal. Pemakaian pada layanan AI "
+            "eksternal tetap memerlukan izin yang sah."
+        )
+        self.context_governance_note.setObjectName("productContextGovernanceNote")
+        self.context_governance_note.setWordWrap(True)
+        layout.addWidget(self.context_governance_note)
+        self.context_technical_toggle = QPushButton("Lihat detail teknis  ▸")
+        self.context_technical_toggle.setObjectName("productContextTechnicalToggle")
+        self.context_technical_toggle.setCheckable(True)
+        layout.addWidget(self.context_technical_toggle)
+        self.context_technical_panel = QWidget()
+        self.context_technical_panel.setObjectName("productContextTechnicalPanel")
+        technical_layout = QVBoxLayout(self.context_technical_panel)
+        technical_layout.setContentsMargins(0, 0, 0, 0)
+        self.facts_label = self._add_context_section(
+            technical_layout, "Fakta produk (rinci)", "No facts loaded.")
         self.references_label = self._add_context_section(
-            layout,
-            "References",
-            "No authorized references loaded.",
-        )
+            technical_layout, "Hak penggunaan referensi", "No authorized references loaded.")
         self.unknowns_label = self._add_context_section(
-            layout,
-            "Unknown / Conflict",
-            "No product context loaded.",
+            technical_layout, "Unknown / Conflict", "No product context loaded.")
+        self.context_technical_panel.setVisible(False)
+        layout.addWidget(self.context_technical_panel)
+        self.context_technical_toggle.toggled.connect(
+            self.context_technical_panel.setVisible
+        )
+        self.context_technical_toggle.toggled.connect(
+            lambda checked: self.context_technical_toggle.setText(
+                "Sembunyikan detail teknis  ▾" if checked
+                else "Lihat detail teknis  ▸"
+            )
         )
         layout.addStretch(1)
 
@@ -1695,14 +1881,16 @@ class ProductCompletionShell(QMainWindow):
             assets,
             self._create_reference_assets_by_ref,
         )
+        thumbnail_count = self._populate_create_thumbnail_icons()
         available_count = sum(
             1 for asset in assets if asset.available and asset.asset_id is not None
         )
         unavailable_count = len(assets) - available_count
         self.reference_asset_detail.setText(
-            f"{available_count} selectable approved reference(s); "
-            f"{unavailable_count} unavailable. Select any references to carry "
-            "their canonical asset IDs into the creative brief."
+            f"{available_count} foto tersedia, "
+            f"{thumbnail_count} thumbnail ditampilkan; "
+            f"{unavailable_count} tidak tersedia. "
+            "Pratinjau lokal bukan izin layanan AI eksternal."
         )
 
     def _create_reference_selection_changed(self) -> None:
@@ -1725,9 +1913,11 @@ class ProductCompletionShell(QMainWindow):
             label=self.reference_asset_preview,
             asset=selected_assets[0],
         )
+        selected = selected_assets[0]
         self.reference_asset_detail.setText(
-            f"Selected {len(selected_assets)} reference(s).\n\n"
-            + self._asset_detail_text(selected_assets[0])
+            f"{len(selected_assets)} foto dipilih.\n"
+            f"Pratinjau: {selected.filename}\n"
+            "Pemilihan lokal bukan izin penggunaan di layanan AI eksternal."
         )
 
     def _selected_create_reference_asset_ids(self) -> tuple[str, ...]:
