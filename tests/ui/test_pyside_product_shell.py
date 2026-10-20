@@ -46,6 +46,7 @@ from rie.ui.product_completion_models import (
 from rie.ui.pyside_product_shell import (
     GroundedPromptCompatibilityAdapter,
     NAVIGATION,
+    NAVIGATION_LABELS,
     ProductCompletionShell,
     WINDOW_TITLE,
     build_normal_product_completion_shell,
@@ -95,7 +96,7 @@ def test_shell_has_product_completion_title_and_navigation(qt_app) -> None:
     shell = _shell()
     try:
         assert shell.windowTitle() == WINDOW_TITLE
-        assert [shell.navigation.item(i).text() for i in range(shell.navigation.count())] == list(NAVIGATION)
+        assert [shell.navigation.item(i).text() for i in range(shell.navigation.count())] == list(NAVIGATION_LABELS)
     finally:
         shell.close()
 
@@ -119,7 +120,7 @@ def test_create_page_scrolls_instead_of_crushing_required_brief_rows(qt_app) -> 
         assert shell.pages.widget(0) is page
         assert page.widget() is not None
         assert shell.deliverable_edit.objectName() == "creativeBriefRequiredOutput"
-        assert "required" in shell.deliverable_edit.placeholderText().lower()
+        assert "wajib" in shell.deliverable_edit.placeholderText().lower()
         assert shell.deliverable_edit.parentWidget() is not None
 
         shell.show()
@@ -1546,5 +1547,66 @@ def test_c20_b_prompt_review_distinguishes_grounding_from_provider_rights(qt_app
         )
         shell._refresh_create_grounding_status()
         assert "wajib" in shell.create_grounding_status.text().lower()
+    finally:
+        shell.close()
+
+
+def test_c20_e_primary_navigation_is_localized_and_secondary_routes_are_reachable(qt_app) -> None:
+    from rie.ui.pyside_product_shell import NAVIGATION_LABELS
+    shell = _shell()
+    try:
+        assert shell.navigation.count() == len(NAVIGATION) == len(NAVIGATION_LABELS)
+        assert shell.navigation.item(0).text() == "Buat Visual"
+        assert shell.navigation.item(2).text() == "Foto Produk"
+        assert shell.navigation.isRowHidden(3)
+        shell.nav_more_button.click()
+        qt_app.processEvents()
+        assert not shell.navigation.isRowHidden(3)
+        assert not shell.navigation.isRowHidden(8)
+        shell.navigation.setCurrentRow(NAVIGATION.index("Approvals"))
+        qt_app.processEvents()
+        assert shell.pages.currentWidget().objectName() == "approvalsWorkspace"
+        shell.nav_more_button.click()
+        qt_app.processEvents()
+        assert shell.navigation.isRowHidden(3)
+    finally:
+        shell.close()
+
+
+def test_c20_e_create_ui_is_readable_without_changing_required_contract(qt_app) -> None:
+    shell = _shell()
+    try:
+        assert shell.deliverable_edit.objectName() == "creativeBriefRequiredOutput"
+        assert "wajib" in shell.deliverable_edit.placeholderText().lower()
+        assert "Contoh:" in shell.lighting_edit.placeholderText()
+        assert "visualFirstCreateContent" in shell._create_page.styleSheet()
+        assert "font-size: 14px" in shell._create_page.styleSheet()
+        assert shell.prompt_preview.minimumHeight() == 154
+        assert shell.visual_button.isEnabled() is False
+        assert "belum tersedia" in shell.visual_button.text().lower()
+        shell.environment_edit.setText("studio profesional")
+        shell.camera_edit.setText("tampak depan")
+        shell.deliverable_edit.setText("prompt produk katalog")
+        assert shell.current_brief().environment == "studio profesional"
+        assert shell.current_brief().camera_angle == "tampak depan"
+        assert shell.current_brief().deliverable == "prompt produk katalog"
+    finally:
+        shell.close()
+
+
+def test_c20_e_secondary_navigation_preserves_internal_route_identity(qt_app) -> None:
+    shell = _shell()
+    try:
+        for route, workspace in (
+            ("Products", "productsWorkspace"),
+            ("Assets", "assetsWorkspace"),
+            ("Workflow", "creativeWorkflowWorkspace"),
+        ):
+            shell.navigation.setCurrentRow(NAVIGATION.index(route))
+            qt_app.processEvents()
+            assert shell.pages.currentWidget().objectName() == workspace
+        assert shell.nav_more_button.isChecked()
+        assert shell._visual_generation_provider is None
+        assert not shell.visual_button.isEnabled()
     finally:
         shell.close()

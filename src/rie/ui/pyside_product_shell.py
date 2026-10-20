@@ -85,6 +85,13 @@ NAVIGATION = (
     "Settings",
 )
 
+# Stable English identities continue to index nine existing workspace pages.
+# Only the user-facing labels are localized; routes and backend stay unchanged.
+NAVIGATION_LABELS = (
+    "Buat Visual", "Produk", "Foto Produk", "Persetujuan", "Alur Kerja",
+    "Proyek", "Riwayat", "Preset", "Pengaturan",
+)
+
 
 class GroundedPromptCompatibilityAdapter:
     """Thin adapter over the existing toolkit-independent grounded prompt UI."""
@@ -333,8 +340,39 @@ class ProductCompletionShell(QMainWindow):
 
         self.navigation = QListWidget()
         self.navigation.setObjectName("primaryNavigation")
-        self.navigation.addItems(list(NAVIGATION))
-        self.navigation.setFixedWidth(150)
+        self.navigation.addItems(list(NAVIGATION_LABELS))
+        self.navigation.setSpacing(5)
+        self.navigation.setStyleSheet("""
+            QListWidget#primaryNavigation {
+                background: #19222e; border: 0; font-size: 14px;
+                color: #e4ebf5; padding: 5px;
+            }
+            QListWidget#primaryNavigation::item {
+                padding: 11px 9px; border-radius: 7px;
+            }
+            QListWidget#primaryNavigation::item:selected {
+                background: #2058a1; color: #ffffff;
+            }
+        """)
+        self.navigation.setMinimumWidth(174)
+        for row in range(3, len(NAVIGATION)):
+            self.navigation.setRowHidden(row, True)
+        self.nav_more_button = QPushButton("Lainnya (6)  ▸")
+        self.nav_more_button.setObjectName("studioMoreNavigation")
+        self.nav_more_button.setCheckable(True)
+        self.nav_more_button.toggled.connect(self._toggle_extra_navigation)
+        nav_panel = QWidget()
+        nav_panel.setObjectName("studioNavigationPanel")
+        nav_panel.setFixedWidth(191)
+        nav_layout = QVBoxLayout(nav_panel)
+        nav_layout.setContentsMargins(7, 13, 7, 11)
+        nav_layout.setSpacing(8)
+        nav_label = QLabel("STUDIO KREATIF")
+        nav_label.setObjectName("studioNavigationHeading")
+        nav_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #b5c5d8;")
+        nav_layout.addWidget(nav_label)
+        nav_layout.addWidget(self.navigation, 1)
+        nav_layout.addWidget(self.nav_more_button)
 
         self.pages = QStackedWidget()
         self.pages.setObjectName("workspacePages")
@@ -356,7 +394,7 @@ class ProductCompletionShell(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setObjectName("mainThreePaneSplitter")
-        splitter.addWidget(self.navigation)
+        splitter.addWidget(nav_panel)
         splitter.addWidget(self.pages)
         splitter.addWidget(self.product_context_panel)
         splitter.setStretchFactor(0, 0)
@@ -371,10 +409,11 @@ class ProductCompletionShell(QMainWindow):
         self.setCentralWidget(root)
 
         status = QStatusBar()
-        status.showMessage("Foundation shell - provider not connected")
+        status.showMessage("Mode lokal — layanan AI eksternal belum diaktifkan")
         self.setStatusBar(status)
 
         self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
+        self.navigation.currentRowChanged.connect(self._reveal_selected_navigation)
         self.navigation.setCurrentRow(0)
 
         if self._adapter is not None or self._product_intelligence is not None:
@@ -383,6 +422,19 @@ class ProductCompletionShell(QMainWindow):
         self._load_assets_workspace()
 
 
+
+    def _toggle_extra_navigation(self, expanded: bool) -> None:
+        """Display all existing secondary pages; never remove or reindex routes."""
+        for row in range(3, len(NAVIGATION)):
+            self.navigation.setRowHidden(row, not expanded)
+        self.nav_more_button.setText(
+            "Sembunyikan menu tambahan  ▾" if expanded else "Lainnya (6)  ▸"
+        )
+
+    def _reveal_selected_navigation(self, row: int) -> None:
+        # Existing workflow tests and deep navigation retain their exact row IDs.
+        if row >= 3 and not self.nav_more_button.isChecked():
+            self.nav_more_button.setChecked(True)
 
     def _build_create_page(self) -> QWidget:
         """C20-A visual-first composition; existing contracts and signals unchanged."""
@@ -422,7 +474,20 @@ class ProductCompletionShell(QMainWindow):
                 background: #273649; color: #dbe8f6; border: 1px solid #42546d;
                 border-radius: 7px; padding: 8px 10px; text-align: left;
             }
-            QLabel#createSafetyNote { color: #b7a9e9; }
+            QLabel#createSafetyNote { color: #c9bdf5; font-size: 14px; }
+            QWidget#visualFirstCreateContent QLabel { font-size: 14px; }
+            QWidget#visualFirstCreateContent QLineEdit,
+            QWidget#visualFirstCreateContent QComboBox {
+                font-size: 14px; min-height: 24px; padding: 4px 7px;
+            }
+            QWidget#visualFirstCreateContent QPlainTextEdit {
+                font-size: 14px; padding: 8px;
+            }
+            QWidget#visualFirstCreateContent QPushButton {
+                font-size: 14px; min-height: 26px;
+            }
+            QListWidget#createReferenceAssetList { font-size: 13px; }
+            QLabel#createGroundingStatus { color: #b9edce; font-size: 14px; }
         """)
 
         heading = QLabel("Buat Visual Produk")
@@ -484,7 +549,7 @@ class ProductCompletionShell(QMainWindow):
         self.deliverable_edit = QLineEdit()
         self.deliverable_edit.setObjectName("creativeBriefRequiredOutput")
         self.deliverable_edit.setPlaceholderText(
-            "Required: e.g. ecommerce product hero visual"
+            "Wajib: contoh foto produk untuk katalog daring"
         )
         self.notes_edit = QPlainTextEdit()
         self.notes_edit.setObjectName("creativeBriefFreeformNotes")
@@ -493,7 +558,7 @@ class ProductCompletionShell(QMainWindow):
         brief_form.addRow("Tujuan", self.objective_edit)
         brief_form.addRow("Suasana (wajib)", self.environment_edit)
         brief_form.addRow("Sudut pandang (wajib)", self.camera_edit)
-        brief_form.addRow("Output (required)", self.deliverable_edit)
+        brief_form.addRow("Hasil (wajib)", self.deliverable_edit)
         brief_form.addRow("Ide tambahan", self.notes_edit)
         brief_layout.addLayout(brief_form)
 
@@ -508,31 +573,31 @@ class ProductCompletionShell(QMainWindow):
         advanced_form.setVerticalSpacing(9)
         self.shot_type_edit = QLineEdit()
         self.shot_type_edit.setObjectName("creativeBriefShotType")
-        self.shot_type_edit.setPlaceholderText("Example: medium product shot")
+        self.shot_type_edit.setPlaceholderText("Contoh: foto produk tampak sedang")
         self.lighting_edit = QLineEdit()
-        self.lighting_edit.setPlaceholderText("Example: soft directional light")
+        self.lighting_edit.setPlaceholderText("Contoh: cahaya studio lembut dari samping")
         self.composition_edit = QLineEdit()
-        self.composition_edit.setPlaceholderText("Example: centered product, clean negative space")
+        self.composition_edit.setPlaceholderText("Contoh: produk di tengah dengan latar sederhana")
         self.mood_edit = QLineEdit()
-        self.mood_edit.setPlaceholderText("Example: premium, technical")
+        self.mood_edit.setPlaceholderText("Contoh: premium dan profesional")
         self.aspect_ratio_edit = QLineEdit()
         self.aspect_ratio_edit.setObjectName("creativeBriefAspectRatio")
         self.aspect_ratio_edit.setPlaceholderText("Example: 4:5")
         self.orientation_edit = QLineEdit()
         self.orientation_edit.setObjectName("creativeBriefOrientation")
-        self.orientation_edit.setPlaceholderText("Example: portrait")
+        self.orientation_edit.setPlaceholderText("Contoh: vertikal")
         self.product_emphasis_edit = QLineEdit()
         self.product_emphasis_edit.setObjectName("creativeBriefProductEmphasis")
-        self.product_emphasis_edit.setPlaceholderText("Example: product dominant")
+        self.product_emphasis_edit.setPlaceholderText("Contoh: produk memenuhi sebagian besar bingkai")
         self.preserve_edit = QLineEdit()
         self.preserve_edit.setObjectName("creativeBriefUserPreserve")
         self.preserve_edit.setPlaceholderText(
-            "User creative preserve notes; separate multiple items with ;"
+            "Hal yang harus dipertahankan, pisahkan dengan ;"
         )
         self.avoid_edit = QLineEdit()
         self.avoid_edit.setObjectName("creativeBriefUserAvoid")
         self.avoid_edit.setPlaceholderText(
-            "User creative avoid notes; separate multiple items with ;"
+            "Hal yang perlu dihindari, pisahkan dengan ;"
         )
         advanced_form.addRow("Jenis shot", self.shot_type_edit)
         advanced_form.addRow("Pencahayaan", self.lighting_edit)
@@ -607,9 +672,8 @@ class ProductCompletionShell(QMainWindow):
         self.prompt_preview.setPlaceholderText(
             "Prompt Anda akan tampil di sini setelah memilih Buat Prompt."
         )
-        self.prompt_preview.setMinimumHeight(135)
-        self.prompt_preview.setMinimumHeight(105)
-        self.prompt_preview.setMaximumHeight(155)
+        self.prompt_preview.setMinimumHeight(154)
+        self.prompt_preview.setMaximumHeight(215)
         review_layout.addWidget(self.prompt_preview)
         self.create_grounding_status = QLabel(
             "Belum ada prompt. Isi konsep lalu pilih Buat Prompt."
@@ -640,7 +704,7 @@ class ProductCompletionShell(QMainWindow):
         action_row = QHBoxLayout()
         self.prompt_button = QPushButton("Buat Prompt")
         self.prompt_button.setObjectName("buildGroundedPrompt")
-        self.visual_button = QPushButton("Generate Visuals")
+        self.visual_button = QPushButton("Buat Visual (belum tersedia)")
         self.visual_button.setObjectName("generateVisuals")
         self.visual_button.setEnabled(False)
         if self._visual_generation_provider is not None:
@@ -1688,7 +1752,7 @@ class ProductCompletionShell(QMainWindow):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(16, 18, 16, 18)
 
-        heading = QLabel("Product Context")
+        heading = QLabel("Ringkasan Produk")
         heading.setStyleSheet("font-size: 18px; font-weight: 600;")
         layout.addWidget(heading)
 
@@ -1745,6 +1809,10 @@ class ProductCompletionShell(QMainWindow):
 
         scroll = QScrollArea()
         scroll.setObjectName("productContextPanel")
+        scroll.setStyleSheet("""
+            QScrollArea#productContextPanel QLabel { font-size: 14px; color: #e7edf5; }
+            QScrollArea#productContextPanel QPushButton { font-size: 14px; padding: 8px; }
+        """)
         scroll.setWidgetResizable(True)
         scroll.setMinimumWidth(300)
         scroll.setWidget(content)
