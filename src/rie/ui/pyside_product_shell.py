@@ -533,6 +533,9 @@ class ProductCompletionShell(QMainWindow):
         self._h2_update_advanced_toggle_text(self.advanced_brief_toggle.isChecked())
         self._h2_update_grounding_toggle_text(self.create_grounding_details_toggle.isChecked())
         self.prompt_button.setText(tr("prompt.build"))
+        self.copy_prompt_button.setText(tr("prompt.copy"))
+        if self._copy_prompt_feedback_active:
+            self.copy_prompt_feedback.setText(tr("prompt.copy_success"))
         self.prompt_preview.setPlaceholderText(tr("prompt.empty"))
         if self._visual_generation_provider is None:
             self.visual_button.setText(tr("provider.generate_disabled"))
@@ -946,6 +949,9 @@ class ProductCompletionShell(QMainWindow):
         action_row = QHBoxLayout()
         self.prompt_button = QPushButton("Buat Prompt")
         self.prompt_button.setObjectName("buildGroundedPrompt")
+        self.copy_prompt_button = QPushButton("Salin Prompt")
+        self.copy_prompt_button.setObjectName("copyGroundedPrompt")
+        self.copy_prompt_button.setEnabled(False)
         self.visual_button = QPushButton("Buat Visual (belum tersedia)")
         self.visual_button.setObjectName("generateVisuals")
         self.visual_button.setEnabled(False)
@@ -957,9 +963,15 @@ class ProductCompletionShell(QMainWindow):
         )
         self.visual_button.clicked.connect(self._generate_visuals)
         action_row.addWidget(self.prompt_button)
+        action_row.addWidget(self.copy_prompt_button)
         action_row.addWidget(self.visual_button)
         action_row.addStretch(1)
         review_layout.addLayout(action_row)
+        self.copy_prompt_feedback = QLabel("")
+        self.copy_prompt_feedback.setObjectName("promptCopyFeedback")
+        self.copy_prompt_feedback.setWordWrap(True)
+        self._copy_prompt_feedback_active = False
+        review_layout.addWidget(self.copy_prompt_feedback)
         self.create_safety_note = QLabel(
             "Generasi AI belum tersedia tanpa provider dan hak penggunaan aset yang sah."
         )
@@ -980,10 +992,27 @@ class ProductCompletionShell(QMainWindow):
         )
         self.prompt_button.clicked.connect(self._build_grounded_prompt)
         self.prompt_button.clicked.connect(self._refresh_create_grounding_status)
+        self.prompt_preview.textChanged.connect(self._update_copy_prompt_availability)
+        self.copy_prompt_button.clicked.connect(self._copy_existing_prompt)
 
         page.setWidget(content)
         return page
 
+
+    def _update_copy_prompt_availability(self) -> None:
+        """Enable local copy only for nonblank existing prompt text."""
+        self.copy_prompt_button.setEnabled(bool(self.prompt_preview.toPlainText().strip()))
+        self._copy_prompt_feedback_active = False
+        self.copy_prompt_feedback.clear()
+
+    def _copy_existing_prompt(self, _checked: bool = False) -> None:
+        """Copy exact preview text to local clipboard; no translation or provider."""
+        prompt = self.prompt_preview.toPlainText()
+        if not prompt.strip():
+            return
+        QApplication.clipboard().setText(prompt)
+        self._copy_prompt_feedback_active = True
+        self.copy_prompt_feedback.setText(self._localizer.tr("prompt.copy_success"))
 
     def _populate_create_thumbnail_icons(self) -> int:
         """Preview up to 16 local manifest images; never perform provider calls.

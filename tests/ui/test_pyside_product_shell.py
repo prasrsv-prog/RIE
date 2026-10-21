@@ -1926,3 +1926,89 @@ def test_c20_h3d_status_translation_never_replaces_opaque_service_message(qt_app
         assert not shell.visual_button.isEnabled()
     finally:
         shell.close()
+
+
+def test_c20_i2_copy_button_empty_guard_and_enablement(qt_app) -> None:
+    shell = _shell()
+    try:
+        assert shell.copy_prompt_button.objectName() == "copyGroundedPrompt"
+        assert shell.copy_prompt_button.text() == "Salin Prompt"
+        assert not shell.copy_prompt_button.isEnabled()
+        shell.prompt_preview.setPlainText("  \n ")
+        assert not shell.copy_prompt_button.isEnabled()
+        shell.prompt_preview.setPlainText("Grounded exact text")
+        assert shell.copy_prompt_button.isEnabled()
+        assert shell.prompt_preview.isReadOnly()
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
+def test_c20_i2_copy_exact_prompt_preserves_metadata_and_input(qt_app) -> None:
+    shell = _shell()
+    board = qt_app.clipboard()
+    previous = board.text()
+    try:
+        payload = "PRODUCT LOCKS: preserve FFS21.\nCreative variables:  studio  \nEnd"
+        shell.prompt_preview.setPlainText(payload)
+        shell.prompt_grounding_metadata.setText("Grounding: PASSED | Missing: none | Conflicts: none")
+        before_meta = shell.prompt_grounding_metadata.text()
+        before_brief = shell.current_brief()
+        shell.copy_prompt_button.click()
+        assert board.text() == payload
+        assert shell.copy_prompt_feedback.text() == "Prompt berhasil disalin."
+        assert shell.prompt_preview.toPlainText() == payload
+        assert shell.prompt_grounding_metadata.text() == before_meta
+        assert shell.current_brief() == before_brief
+        assert not shell.visual_button.isEnabled()
+    finally:
+        board.setText(previous)
+        shell.close()
+
+
+def test_c20_i2_copy_feedback_localizes_without_recopy(qt_app) -> None:
+    shell = _shell()
+    board = qt_app.clipboard()
+    previous = board.text()
+    try:
+        payload = "DO NOT TRANSLATE: exact source prompt"
+        shell.prompt_preview.setPlainText(payload)
+        shell.copy_prompt_button.click()
+        assert board.text() == payload
+        shell._localizer.set_locale("en-US")
+        shell._h2_apply_language()
+        assert shell.copy_prompt_button.text() == "Copy Prompt"
+        assert shell.copy_prompt_feedback.text() == "Prompt copied."
+        assert board.text() == payload
+        shell._localizer.set_locale("id-ID")
+        shell._h2_apply_language()
+        assert shell.copy_prompt_button.text() == "Salin Prompt"
+        assert shell.copy_prompt_feedback.text() == "Prompt berhasil disalin."
+        assert shell.prompt_preview.toPlainText() == payload
+        assert not shell.visual_button.isEnabled()
+    finally:
+        board.setText(previous)
+        shell.close()
+
+
+def test_c20_i2_copy_feedback_resets_on_new_prompt_and_clear(qt_app) -> None:
+    shell = _shell()
+    board = qt_app.clipboard()
+    previous = board.text()
+    try:
+        shell.prompt_preview.setPlainText("old prompt")
+        shell.copy_prompt_button.click()
+        assert shell.copy_prompt_feedback.text() == "Prompt berhasil disalin."
+        shell.prompt_preview.setPlainText("new prompt")
+        assert shell.copy_prompt_feedback.text() == ""
+        assert shell.copy_prompt_button.isEnabled()
+        assert board.text() == "old prompt"
+        shell.prompt_preview.clear()
+        assert not shell.copy_prompt_button.isEnabled()
+        assert shell.copy_prompt_feedback.text() == ""
+        shell._copy_existing_prompt()
+        assert board.text() == "old prompt"
+        assert not shell.visual_button.isEnabled()
+    finally:
+        board.setText(previous)
+        shell.close()
