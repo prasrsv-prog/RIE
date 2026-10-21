@@ -49,7 +49,8 @@ def test_pc5_provider_absent_keeps_generate_visuals_disabled(qt_app) -> None:
     shell = ProductCompletionShell()
     try:
         assert shell.visual_button.isEnabled() is False
-        assert "No provider is connected" in shell.visual_button.toolTip()
+        assert shell._visual_generation_provider is None
+        assert shell.visual_button.toolTip() == shell._localizer.tr("provider.rights_warning")
     finally:
         shell.close()
 

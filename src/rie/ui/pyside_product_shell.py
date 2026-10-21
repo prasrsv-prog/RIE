@@ -63,6 +63,8 @@ from rie.domain.governed_creative_workflow_request import (
 )
 
 from rie.ui.local_operator_settings import load_remembered_intake_root
+from rie.ui.studio_localization import Localizer, SUPPORTED_LOCALES
+from rie.ui.studio_ui_preferences import load_preferred_locale, save_preferred_locale
 from rie.ui.product_completion_models import (
     CreativeBrief,
     ProductConstraint,
@@ -334,6 +336,8 @@ class ProductCompletionShell(QMainWindow):
         self._assets_workspace_variant_ids_by_label: dict[str, str] = {}
         self._assets_workspace_assets_by_ref: dict[str, Any] = {}
 
+        self._localizer = Localizer(load_preferred_locale())
+        self._h3d_live_status: dict[QLabel, tuple[str, str]] = {}
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1360, 840)
         self.setMinimumSize(1040, 680)
@@ -370,9 +374,20 @@ class ProductCompletionShell(QMainWindow):
         nav_label = QLabel("STUDIO KREATIF")
         nav_label.setObjectName("studioNavigationHeading")
         nav_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #b5c5d8;")
+        self._h2_nav_heading = nav_label
         nav_layout.addWidget(nav_label)
         nav_layout.addWidget(self.navigation, 1)
         nav_layout.addWidget(self.nav_more_button)
+        self._h2_language_label = QLabel("Bahasa antarmuka")
+        self._h2_language_label.setObjectName("studioLanguageLabel")
+        nav_layout.addWidget(self._h2_language_label)
+        self.language_combo = QComboBox()
+        self.language_combo.setObjectName("studioLanguageSelector")
+        self.language_combo.addItem("Bahasa Indonesia", "id-ID")
+        self.language_combo.addItem("English", "en-US")
+        self.language_combo.setCurrentIndex(self.language_combo.findData(self._localizer.locale))
+        self.language_combo.currentIndexChanged.connect(self._h2_language_changed)
+        nav_layout.addWidget(self.language_combo)
 
         self.pages = QStackedWidget()
         self.pages.setObjectName("workspacePages")
@@ -420,16 +435,245 @@ class ProductCompletionShell(QMainWindow):
             self._load_products()
         self._load_products_workspace()
         self._load_assets_workspace()
+        self._h3b_bind_workspace_chrome()
+        self._h2_apply_language()
 
 
+
+    def _h2_update_more_navigation_text(self) -> None:
+        expanded = self.nav_more_button.isChecked()
+        key = "nav.hide_more" if expanded else "nav.more"
+        value = self._localizer.tr(key, **({"count": len(NAVIGATION) - 3} if not expanded else {}))
+        self.nav_more_button.setText(value + ("  ▾" if expanded else "  ▸"))
+
+    def _h2_update_advanced_toggle_text(self, expanded: bool) -> None:
+        key = "create.advanced_hide" if expanded else "create.advanced_show"
+        self.advanced_brief_toggle.setText(self._localizer.tr(key) + ("  ▾" if expanded else "  ▸"))
+
+    def _h2_update_grounding_toggle_text(self, expanded: bool) -> None:
+        key = "prompt.details_hide" if expanded else "prompt.details_show"
+        self.create_grounding_details_toggle.setText(self._localizer.tr(key) + ("  ▾" if expanded else "  ▸"))
+
+    def _h2_language_changed(self, index: int) -> None:
+        locale = self.language_combo.itemData(index)
+        if locale not in SUPPORTED_LOCALES or locale == self._localizer.locale:
+            return
+        # Persistence commits first; in-memory state is untouched on failure.
+        try:
+            save_preferred_locale(locale)
+        except (OSError, ValueError) as exc:
+            self.language_combo.blockSignals(True)
+            self.language_combo.setCurrentIndex(self.language_combo.findData(self._localizer.locale))
+            self.language_combo.blockSignals(False)
+            self.statusBar().showMessage("Cannot save interface language: " + str(exc))
+            return
+        self._localizer.set_locale(locale)
+        self._h2_apply_language()
+
+    def _h2_apply_language(self) -> None:
+        # Change display strings only; never rebuild controls or payloads.
+        tr = self._localizer.tr
+        nav_keys = (
+            "nav.create", "nav.products", "nav.assets", "nav.approvals",
+            "nav.workflow", "nav.projects", "nav.history", "nav.presets", "nav.settings",
+        )
+        for row, key in enumerate(nav_keys):
+            self.navigation.item(row).setText(tr(key))
+        self._h2_nav_heading.setText(tr("nav.heading"))
+        self._h2_language_label.setText(tr("language.label"))
+        self._h2_update_more_navigation_text()
+        self.statusBar().showMessage(tr("provider.local_mode"))
+        groups = (
+            ("createProductCard", "create.step.product"),
+            ("createConceptCard", "create.step.concept"),
+            ("createReferenceCard", "create.step.reference"),
+            ("createReviewCard", "create.step.review"),
+        )
+        for name, key in groups:
+            self._create_page.findChild(QGroupBox, name).setTitle(tr(key))
+        self._create_page.findChild(QLabel, "createHeading").setText(
+            "Buat Visual Produk" if self._localizer.locale == "id-ID"
+            else "Create Product Visual"
+        )
+        self._create_page.findChild(QLabel, "createIntro").setText(tr("create.instruction"))
+        for name, key in (
+            ("createStepProduct", "create.step.product"),
+            ("createStepConcept", "create.step.concept"),
+            ("createStepReferences", "create.step.reference"),
+            ("createStepReview", "create.step.review"),
+        ):
+            self._create_page.findChild(QLabel, name).setText(tr(key))
+        for form, entries in (
+            (self._h2_product_form, ((self.product_combo, "create.product"), (self.variant_combo, "create.variant"))),
+            (self._h2_brief_form, (
+                (self.objective_edit,"create.objective"), (self.environment_edit,"create.environment"),
+                (self.camera_edit,"create.camera"), (self.deliverable_edit,"create.output"),
+                (self.notes_edit,"create.notes"))),
+            (self._h2_advanced_form, (
+                (self.shot_type_edit,"create.shot_type"),(self.lighting_edit,"create.lighting"),
+                (self.composition_edit,"create.composition"),(self.mood_edit,"create.mood"),
+                (self.aspect_ratio_edit,"create.aspect_ratio"),(self.orientation_edit,"create.orientation"),
+                (self.product_emphasis_edit,"create.product_emphasis"),
+                (self.preserve_edit,"create.preserve"),(self.avoid_edit,"create.avoid"))),
+        ):
+            for widget, key in entries:
+                form.labelForField(widget).setText(tr(key))
+        for widget, key in (
+            (self.objective_edit,"create.objective_hint"),
+            (self.environment_edit,"create.environment_hint"),
+            (self.camera_edit,"create.camera_hint"),
+            (self.deliverable_edit,"create.output_hint"),
+            (self.notes_edit,"create.notes_hint"),
+        ):
+            if widget is self.deliverable_edit and self._localizer.locale == "id-ID":
+                # Preserve the existing required-field hint during this staged rollout.
+                widget.setPlaceholderText("Wajib: contoh foto produk untuk katalog daring")
+            else:
+                widget.setPlaceholderText(tr(key))
+        self._h2_update_advanced_toggle_text(self.advanced_brief_toggle.isChecked())
+        self._h2_update_grounding_toggle_text(self.create_grounding_details_toggle.isChecked())
+        self.prompt_button.setText(tr("prompt.build"))
+        self.prompt_preview.setPlaceholderText(tr("prompt.empty"))
+        if self._visual_generation_provider is None:
+            self.visual_button.setText(tr("provider.generate_disabled"))
+            self.visual_button.setToolTip(tr("provider.rights_warning"))
+        self.create_safety_note.setText(tr("provider.rights_warning"))
+        self._refresh_create_grounding_status()
+        self._h3_context_chrome()
+        self._h3_reference_status()
+        self._h3b_apply_workspace_chrome()
+        self._h3d_apply_live_status()
+
+
+    def _h3_context_chrome(self) -> None:
+        """Translate only chrome, never product facts, rights evidence or payloads."""
+        tr = self._localizer.tr
+        self._h3_context_heading.setText(tr("context.title"))
+        for original, key in (
+            ("Hal yang harus dipertahankan", "context.constraints"),
+            ("Fakta produk (rinci)", "context.facts"),
+            ("Hak penggunaan referensi", "context.reference_rights"),
+            ("Unknown / Conflict", "context.conflicts"),
+        ):
+            self._h3_context_section_titles[original].setText(tr(key))
+        self.context_governance_note.setText(tr("reference.local_only"))
+        self._h3_technical_toggle_text(self.context_technical_toggle.isChecked())
+
+    def _h3_technical_toggle_text(self, expanded: bool) -> None:
+        key = "context.details_hide" if expanded else "context.details_show"
+        self.context_technical_toggle.setText(
+            self._localizer.tr(key) + ("  ▾" if expanded else "  ▸")
+        )
+
+    def _h3_reference_status(self) -> None:
+        """Re-render selection text without re-querying images or modifying IDs."""
+        tr = self._localizer.tr
+        selected = []
+        for row in range(self.reference_asset_list.count()):
+            item = self.reference_asset_list.item(row)
+            if not item.isSelected():
+                continue
+            ref = item.data(Qt.ItemDataRole.UserRole)
+            asset = self._create_reference_assets_by_ref.get(ref)
+            if asset is not None and asset.available and asset.asset_id is not None:
+                selected.append(asset)
+        if selected:
+            self.reference_asset_detail.setText(
+                tr("reference.selected_count", count=len(selected)) + "\n"
+                + tr("reference.preview", filename=selected[0].filename) + "\n"
+                + tr("reference.local_only")
+            )
+        elif self.reference_asset_list.count() > 0:
+            self.reference_asset_detail.setText(
+                tr("reference.none") + " " + tr("reference.local_only")
+            )
+        picture = self.reference_asset_preview.pixmap()
+        if picture is None or picture.isNull():
+            if self.reference_asset_preview.text() in (
+                "No reference selected.",
+                "Belum ada foto referensi yang dipilih.",
+                "No reference photo selected yet.",
+            ):
+                self.reference_asset_preview.setText(tr("reference.none"))
+
+
+    def _h3b_bind_workspace_chrome(self) -> None:
+        """Capture *only* static presentation widgets, never business data fields."""
+        from PySide6.QtWidgets import QFormLayout
+        self._h3b_term_keys = {'Products': 'workspace.products_title', 'Assets': 'workspace.assets_title', 'Approvals': 'workspace.approvals_title', 'Workflow': 'workspace.workflow_title', 'Product / Variant': 'workspace.product_variant', 'Grounded Product Intelligence': 'workspace.grounded_intelligence', 'Search Grounded Facts': 'workspace.search_facts', 'Provenance': 'workspace.provenance', 'Approved Visual References': 'workspace.approved_references', 'Approval Request': 'workspace.approval_request', 'Safe Dashboard Projection': 'workspace.safe_dashboard', 'Governed Workflow Request': 'workspace.workflow_request', 'Transition Assessment': 'workspace.transition_assessment', 'Search': 'workspace.search', 'Inspect': 'workspace.inspect', 'Evaluate Approval Request': 'workspace.evaluate_approval', 'Assess Workflow Transition': 'workspace.assess_transition', 'Product': 'workspace.product', 'Variant': 'workspace.variant', 'Request ID': 'workspace.request_id', 'Operator': 'workspace.operator', 'Role': 'workspace.role', 'Target Type': 'workspace.target_type', 'Target Reference': 'workspace.target_reference', 'Action': 'workspace.action', 'Reason Reference': 'workspace.reason_reference', 'Audit Context': 'workspace.audit_context', 'Audit Limit': 'workspace.audit_limit', 'Idempotency Key': 'workspace.idempotency_key', 'Project Reference': 'workspace.project_reference', 'Campaign Reference': 'workspace.campaign_reference', 'Creative Brief Reference': 'workspace.brief_reference', 'Approved Knowledge': 'workspace.approved_knowledge', 'Governed Assets': 'workspace.governed_assets', 'Instruction Reference': 'workspace.instruction_reference', 'Instruction Authority': 'workspace.instruction_authority', 'Requesting Actor': 'workspace.requesting_actor', 'Request Timestamp': 'workspace.request_timestamp', 'Contract Name': 'workspace.contract_name', 'Contract Version': 'workspace.contract_version', 'Output Purpose': 'workspace.output_purpose', 'Review Policy': 'workspace.review_policy', 'External Handoff': 'workspace.external_handoff', 'Current State': 'workspace.current_state', 'Requested State': 'workspace.requested_state', 'Responsible Kind': 'workspace.responsible_kind', 'Responsible Reference': 'workspace.responsible_reference', 'Assessment Timestamp': 'workspace.assessment_timestamp', 'Evidence References': 'workspace.evidence_references', 'Reason Codes': 'workspace.reason_codes', 'Manual Handoff Reference': 'workspace.manual_handoff_reference', 'Creative Result Candidate': 'workspace.creative_candidate', 'Accepted Gate 16 Decision': 'workspace.gate16_decision', 'Accepted Gate 15 Asset': 'workspace.gate15_asset', 'Manual external-tool handoff is explicitly declared': 'workspace.manual_handoff_declared'}
+        labels = {
+            'Products': 'workspace.products_title',
+            'Assets': 'workspace.assets_title',
+            'Approvals': 'workspace.approvals_title',
+            'Workflow': 'workspace.workflow_title',
+        }
+        names = ('productsHeading', 'assetsHeading', 'approvalsHeading',
+                 'creativeWorkflowHeading')
+        self._h3b_bindings = []
+        pages = (self._products_page, self._assets_page,
+                 self._approvals_page, self._workflow_page)
+        for page, name in zip(pages, names):
+            heading = page.findChild(QLabel, name)
+            if heading is None or heading.text() not in labels:
+                raise RuntimeError('C20-H3B static heading missing: ' + name)
+            self._h3b_bindings.append((heading, 'text', labels[heading.text()]))
+            for group in page.findChildren(QGroupBox):
+                key = self._h3b_term_keys.get(group.title())
+                if key is not None:
+                    self._h3b_bindings.append((group, 'title', key))
+            for button in page.findChildren(QPushButton):
+                key = self._h3b_term_keys.get(button.text())
+                if key is not None:
+                    self._h3b_bindings.append((button, 'text', key))
+            for form in page.findChildren(QFormLayout):
+                for row in range(form.rowCount()):
+                    entry = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                    label = entry.widget() if entry is not None else None
+                    if isinstance(label, QLabel):
+                        key = self._h3b_term_keys.get(label.text())
+                        if key is not None:
+                            self._h3b_bindings.append((label, 'text', key))
+            for check in page.findChildren(QCheckBox):
+                key = self._h3b_term_keys.get(check.text())
+                if key is not None:
+                    self._h3b_bindings.append((check, 'text', key))
+        if len(self._h3b_bindings) < 30:
+            raise RuntimeError('C20-H3B insufficient static chrome bindings')
+
+    def _h3b_apply_workspace_chrome(self) -> None:
+        """Switch chrome in place; do not clear forms or re-run a service."""
+        for widget, kind, key in self._h3b_bindings:
+            label = self._localizer.tr(key)
+            if kind == 'title':
+                widget.setTitle(label)
+            else:
+                widget.setText(label)
+
+
+    def _h3d_set_status(self, widget: QLabel, key: str) -> None:
+        """Mark a human-readable status as locally owned, not domain evidence."""
+        value = self._localizer.tr(key)
+        widget.setText(value)
+        self._h3d_live_status[widget] = (key, value)
+
+    def _h3d_apply_live_status(self) -> None:
+        """Translate only unchanged, H3D-owned UI statuses on locale switch.
+
+        A later domain/service message must never be overwritten by an old key.
+        """
+        for widget, (key, previous_text) in tuple(self._h3d_live_status.items()):
+            if widget.text() != previous_text:
+                del self._h3d_live_status[widget]
+                continue
+            translated = self._localizer.tr(key)
+            widget.setText(translated)
+            self._h3d_live_status[widget] = (key, translated)
 
     def _toggle_extra_navigation(self, expanded: bool) -> None:
         """Display all existing secondary pages; never remove or reindex routes."""
         for row in range(3, len(NAVIGATION)):
             self.navigation.setRowHidden(row, not expanded)
-        self.nav_more_button.setText(
-            "Sembunyikan menu tambahan  ▾" if expanded else "Lainnya (6)  ▸"
-        )
+        self._h2_update_more_navigation_text()
 
     def _reveal_selected_navigation(self, row: int) -> None:
         # Existing workflow tests and deep navigation retain their exact row IDs.
@@ -522,6 +766,7 @@ class ProductCompletionShell(QMainWindow):
         product_group = QGroupBox("1. Pilih Produk")
         product_group.setObjectName("createProductCard")
         product_form = QFormLayout(product_group)
+        self._h2_product_form = product_form
         product_form.setVerticalSpacing(13)
         self.product_combo = QComboBox()
         self.product_combo.setObjectName("productSelector")
@@ -539,6 +784,7 @@ class ProductCompletionShell(QMainWindow):
         brief_layout = QVBoxLayout(brief_group)
         brief_layout.setSpacing(9)
         brief_form = QFormLayout()
+        self._h2_brief_form = brief_form
         brief_form.setVerticalSpacing(10)
         self.objective_edit = QLineEdit()
         self.objective_edit.setPlaceholderText("Contoh: foto hero untuk katalog produk")
@@ -570,6 +816,7 @@ class ProductCompletionShell(QMainWindow):
         self.advanced_brief_panel = QWidget()
         self.advanced_brief_panel.setObjectName("createAdvancedPanel")
         advanced_form = QFormLayout(self.advanced_brief_panel)
+        self._h2_advanced_form = advanced_form
         advanced_form.setVerticalSpacing(9)
         self.shot_type_edit = QLineEdit()
         self.shot_type_edit.setObjectName("creativeBriefShotType")
@@ -614,9 +861,7 @@ class ProductCompletionShell(QMainWindow):
             self.advanced_brief_panel.setVisible
         )
         self.advanced_brief_toggle.toggled.connect(
-            lambda checked: self.advanced_brief_toggle.setText(
-                "Pengaturan Lanjutan  ▾" if checked else "Pengaturan Lanjutan  ▸"
-            )
+            self._h2_update_advanced_toggle_text
         )
         top_cards.addWidget(brief_group, 2)
         layout.addLayout(top_cards)
@@ -696,10 +941,7 @@ class ProductCompletionShell(QMainWindow):
             self.prompt_grounding_metadata.setVisible
         )
         self.create_grounding_details_toggle.toggled.connect(
-            lambda checked: self.create_grounding_details_toggle.setText(
-                "Sembunyikan detail grounding  ▾" if checked
-                else "Lihat detail grounding  ▸"
-            )
+            self._h2_update_grounding_toggle_text
         )
         action_row = QHBoxLayout()
         self.prompt_button = QPushButton("Buat Prompt")
@@ -776,6 +1018,7 @@ class ProductCompletionShell(QMainWindow):
 
     def _refresh_create_grounding_status(self, _checked: bool = False) -> None:
         """Show a human-readable UI state, not rights/provider authorization."""
+        tr = self._localizer.tr
         meta = self.prompt_grounding_metadata.text()
         feedback = self.create_feedback.text()
         if (
@@ -784,15 +1027,15 @@ class ProductCompletionShell(QMainWindow):
             and "Missing: none" in meta
             and "Conflicts: none" in meta
         ):
-            status = "Prompt siap ditinjau — grounding lulus."
+            status = tr("status.prompt_ready")
         elif "Grounding: FAILED" in meta:
-            status = "Prompt belum siap — periksa detail grounding."
+            status = tr("status.prompt_failed")
         elif feedback.startswith("Could not build prompt:"):
-            status = "Periksa isian wajib sebelum membuat prompt."
+            status = tr("status.brief_required")
         elif not self.prompt_preview.toPlainText().strip():
-            status = "Belum ada prompt. Isi konsep lalu pilih Buat Prompt."
+            status = tr("status.prompt_empty")
         else:
-            status = "Prompt tersedia. Periksa rincian sebelum melanjutkan."
+            status = tr("status.prompt_review")
         self.create_grounding_status.setText(status)
 
     def _build_products_page(self) -> QWidget:
@@ -1754,6 +1997,8 @@ class ProductCompletionShell(QMainWindow):
 
         heading = QLabel("Ringkasan Produk")
         heading.setStyleSheet("font-size: 18px; font-weight: 600;")
+        self._h3_context_heading = heading
+        self._h3_context_section_titles = {}
         layout.addWidget(heading)
 
         self.context_title = QLabel("No product selected")
@@ -1800,10 +2045,7 @@ class ProductCompletionShell(QMainWindow):
             self.context_technical_panel.setVisible
         )
         self.context_technical_toggle.toggled.connect(
-            lambda checked: self.context_technical_toggle.setText(
-                "Sembunyikan detail teknis  ▾" if checked
-                else "Lihat detail teknis  ▸"
-            )
+            self._h3_technical_toggle_text
         )
         layout.addStretch(1)
 
@@ -1826,6 +2068,8 @@ class ProductCompletionShell(QMainWindow):
     ) -> QLabel:
         title_label = QLabel(title)
         title_label.setStyleSheet("font-weight: 600; margin-top: 10px;")
+        if hasattr(self, "_h3_context_section_titles"):
+            self._h3_context_section_titles[title] = title_label
         value = QLabel(initial)
         value.setWordWrap(True)
         value.setProperty("sectionTitle", title)
@@ -1975,6 +2219,7 @@ class ProductCompletionShell(QMainWindow):
         if not selected_assets:
             self.reference_asset_preview.setPixmap(QPixmap())
             self.reference_asset_preview.setText("No reference selected.")
+            self._h3_reference_status()
             return
 
         self._set_asset_preview(
@@ -1987,6 +2232,7 @@ class ProductCompletionShell(QMainWindow):
             f"Pratinjau: {selected.filename}\n"
             "Pemilihan lokal bukan izin penggunaan di layanan AI eksternal."
         )
+        self._h3_reference_status()
 
     def _selected_create_reference_asset_ids(self) -> tuple[str, ...]:
         output = []
@@ -2017,10 +2263,7 @@ class ProductCompletionShell(QMainWindow):
             self.assets_product_combo.setEnabled(False)
             self.assets_variant_combo.setEnabled(False)
             self.assets_list.setEnabled(False)
-            self.assets_status.setText(
-                "Visual Reference Asset Query is unavailable. No storage fallback "
-                "is used."
-            )
+            self._h3d_set_status(self.assets_status, "status.assets_unavailable")
             return
 
         self.assets_product_combo.setEnabled(True)
@@ -2028,9 +2271,7 @@ class ProductCompletionShell(QMainWindow):
         for option in self._visual_reference_assets.product_options:
             self._assets_workspace_product_ids_by_label[option.label] = option.product_id
             self.assets_product_combo.addItem(option.label)
-        self.assets_status.setText(
-            "Read-only visual-reference query connected. Choose a product and variant."
-        )
+        self._h3d_set_status(self.assets_status, "status.assets_connected")
 
     def _assets_product_changed(self) -> None:
         label = self.assets_product_combo.currentText()
@@ -2059,7 +2300,7 @@ class ProductCompletionShell(QMainWindow):
             self._assets_workspace_variant_ids_by_label[option.label] = option.variant_id
             self.assets_variant_combo.addItem(option.label)
         self.assets_variant_combo.setEnabled(True)
-        self.assets_status.setText("Choose a variant to browse approved references.")
+        self._h3d_set_status(self.assets_status, "status.assets_variant_needed")
 
     def _assets_variant_changed(self) -> None:
         if self._visual_reference_assets is None:
@@ -2128,10 +2369,7 @@ class ProductCompletionShell(QMainWindow):
             self.products_fact_search_button.setEnabled(False)
             self.products_provenance_combo.setEnabled(False)
             self.products_provenance_button.setEnabled(False)
-            self.products_status.setText(
-                "Product Intelligence is unavailable in this shell session. "
-                "No storage fallback is used."
-            )
+            self._h3d_set_status(self.products_status, "status.products_unavailable")
             return
 
         self.products_product_combo.setEnabled(True)
@@ -2139,9 +2377,7 @@ class ProductCompletionShell(QMainWindow):
         self.products_fact_search_button.setEnabled(True)
         self.products_provenance_combo.setEnabled(True)
         self.products_provenance_button.setEnabled(True)
-        self.products_status.setText(
-            "Product Intelligence connected. Select a product and variant."
-        )
+        self._h3d_set_status(self.products_status, "status.products_connected")
 
         for option in self._product_intelligence.product_options:
             self._workspace_product_ids_by_label[option.label] = option.product_id
@@ -2295,12 +2531,10 @@ class ProductCompletionShell(QMainWindow):
         product_id, variant_id = self._current_workspace_identity()
         query = self.products_fact_search.text().strip()
         if not product_id or not variant_id:
-            self.products_status.setText(
-                "Choose a product and variant before searching facts."
-            )
+            self._h3d_set_status(self.products_status, "status.search_select_product")
             return
         if not query:
-            self.products_status.setText("Enter a fact search term.")
+            self._h3d_set_status(self.products_status, "status.search_empty")
             return
 
         try:

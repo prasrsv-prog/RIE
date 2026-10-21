@@ -206,7 +206,8 @@ def test_visual_generation_is_explicitly_disabled_in_foundation_slice(qt_app) ->
     shell = _shell()
     try:
         assert not shell.visual_button.isEnabled()
-        assert "not connected" in shell.visual_button.toolTip().lower()
+        assert shell._visual_generation_provider is None
+        assert shell.visual_button.toolTip() == shell._localizer.tr("provider.rights_warning")
     finally:
         shell.close()
 
@@ -557,8 +558,8 @@ def test_products_workspace_disconnected_state_has_no_fallback(qt_app) -> None:
         qt_app.processEvents()
         assert not shell.products_product_combo.isEnabled()
         assert not shell.products_fact_search.isEnabled()
-        assert "Product Intelligence is unavailable" in shell.products_status.text()
-        assert "No storage fallback" in shell.products_status.text()
+        assert "tidak tersedia" in shell.products_status.text().lower()
+        assert "penyimpanan cadangan" in shell.products_status.text().lower()
     finally:
         shell.close()
 
@@ -1607,6 +1608,321 @@ def test_c20_e_secondary_navigation_preserves_internal_route_identity(qt_app) ->
             assert shell.pages.currentWidget().objectName() == workspace
         assert shell.nav_more_button.isChecked()
         assert shell._visual_generation_provider is None
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+def test_c20_h2_live_id_en_roundtrip_keeps_brief_prompt_and_routes(qt_app, tmp_path, monkeypatch) -> None:
+    from rie.ui.studio_ui_preferences import load_preferred_locale
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = _shell()
+    try:
+        shell.show()
+        qt_app.processEvents()
+        assert shell.language_combo.currentData() == "id-ID"
+        assert shell.navigation.item(0).text() == "Buat Visual"
+        shell.environment_edit.setText("studio profesional")
+        shell.camera_edit.setText("sisi depan")
+        shell.deliverable_edit.setText("foto katalog")
+        shell.prompt_preview.setPlainText("PRODUCT LOCKS: keep approved variant identity")
+        shell.prompt_grounding_metadata.setText(
+            "Grounding: PASSED | Missing: none | Conflicts: none"
+        )
+        shell._refresh_create_grounding_status()
+        shell.nav_more_button.click()
+        qt_app.processEvents()
+        assert shell.nav_more_button.isChecked()
+        original_route = shell.pages.currentIndex()
+        locale_index = shell.language_combo.findData("en-US")
+        assert locale_index >= 0
+        shell.language_combo.setCurrentIndex(locale_index)
+        qt_app.processEvents()
+        assert shell.navigation.item(0).text() == "Create Visual"
+        assert shell.findChild(shell_module.QLabel, "createHeading").text() == "Create Product Visual"
+        assert shell.visual_button.toolTip() == shell._localizer.tr("provider.rights_warning")
+        assert shell._create_page.findChild(shell_module.QGroupBox, "createConceptCard").title() == "2. Define Visual Concept"
+        assert shell._h2_brief_form.labelForField(shell.camera_edit).text() == "Camera angle (required)"
+        assert shell.prompt_button.text() == "Build Prompt"
+        assert "grounding passed" in shell.create_grounding_status.text().lower()
+        assert shell.nav_more_button.isChecked()
+        assert shell.pages.currentIndex() == original_route
+        assert shell.environment_edit.text() == "studio profesional"
+        assert shell.camera_edit.text() == "sisi depan"
+        assert shell.deliverable_edit.text() == "foto katalog"
+        assert shell.prompt_preview.toPlainText() == "PRODUCT LOCKS: keep approved variant identity"
+        assert load_preferred_locale() == "en-US"
+        assert not shell.visual_button.isEnabled()
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("id-ID"))
+        qt_app.processEvents()
+        assert shell.navigation.item(0).text() == "Buat Visual"
+        assert shell.findChild(shell_module.QLabel, "createHeading").text() == "Buat Visual Produk"
+        assert shell.visual_button.toolTip() == shell._localizer.tr("provider.rights_warning")
+        assert "grounding lulus" in shell.create_grounding_status.text().lower()
+        assert load_preferred_locale() == "id-ID"
+    finally:
+        shell.close()
+
+
+def test_c20_h2_saved_locale_loaded_in_new_shell_without_modifying_intake(qt_app, tmp_path, monkeypatch) -> None:
+    from rie.ui.studio_ui_preferences import save_preferred_locale
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    save_preferred_locale("en-US")
+    shell = _shell()
+    try:
+        assert shell.language_combo.currentData() == "en-US"
+        assert shell.navigation.item(1).text() == "Products"
+        assert shell.prompt_button.text() == "Build Prompt"
+        assert shell.navigation.count() == len(NAVIGATION)
+        assert not (tmp_path / "RCIS" / "settings.json").exists()
+    finally:
+        shell.close()
+
+
+def test_c20_h2_reference_widget_and_model_identity_do_not_reset_on_switch(qt_app, tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = _shell()
+    try:
+        original_widget = shell.reference_asset_list
+        original_model = original_widget.model()
+        original_count = original_widget.count()
+        original_combo = shell.product_combo
+        original_prompt = shell.prompt_preview
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("en-US"))
+        assert shell.reference_asset_list is original_widget
+        assert shell.reference_asset_list.model() is original_model
+        assert shell.reference_asset_list.count() == original_count
+        assert shell.product_combo is original_combo
+        assert shell.prompt_preview is original_prompt
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+def test_c20_h3a_context_headers_switch_both_languages_without_mutating_rights(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = _shell()
+    try:
+        shell.show()
+        qt_app.processEvents()
+        assert shell.language_combo.currentData() == "id-ID"
+        assert shell._h3_context_heading.text() == "Ringkasan Produk"
+        assert "izin" in shell.context_governance_note.text().lower()
+        shell.context_technical_toggle.click()
+        qt_app.processEvents()
+        assert "Sembunyikan" in shell.context_technical_toggle.text()
+        assert shell.context_technical_panel.isVisible()
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("en-US"))
+        qt_app.processEvents()
+        assert shell._h3_context_heading.text() == "Product Summary"
+        assert "Hide technical details" in shell.context_technical_toggle.text()
+        assert "external AI" in shell.context_governance_note.text()
+        assert shell.context_technical_panel.isVisible()
+        assert shell._h3_context_section_titles["Fakta produk (rinci)"].text() == "Product facts (detailed)"
+        shell.context_title.setText("FFS21 / Hustle")
+        shell.context_summary.setText("SOURCE GROUNDED FACT: DO NOT TRANSLATE")
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("id-ID"))
+        assert shell.context_title.text() == "FFS21 / Hustle"
+        assert shell.context_summary.text() == "SOURCE GROUNDED FACT: DO NOT TRANSLATE"
+        assert shell._h3_context_heading.text() == "Ringkasan Produk"
+        assert "Lihat" not in shell.context_technical_toggle.text()
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
+def test_c20_h3a_selected_photo_caption_switch_retains_internal_identity(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QListWidgetItem
+    from types import SimpleNamespace
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = _shell()
+    try:
+        shell.show()
+        qt_app.processEvents()
+        shell.reference_asset_list.setEnabled(True)
+        selected = QListWidgetItem("photo-source-name.png")
+        selected.setData(Qt.ItemDataRole.UserRole, "reference-unchanged")
+        shell.reference_asset_list.addItem(selected)
+        shell._create_reference_assets_by_ref["reference-unchanged"] = SimpleNamespace(
+            available=True, asset_id="asset-unchanged", filename="photo-source-name.png"
+        )
+        selected.setSelected(True)
+        shell._h3_reference_status()
+        assert "1 foto dipilih" in shell.reference_asset_detail.text()
+        assert "photo-source-name.png" in shell.reference_asset_detail.text()
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("en-US"))
+        qt_app.processEvents()
+        assert "1 photo(s) selected" in shell.reference_asset_detail.text()
+        assert "Local preview" in shell.reference_asset_detail.text()
+        assert selected.isSelected()
+        assert selected.data(Qt.ItemDataRole.UserRole) == "reference-unchanged"
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("id-ID"))
+        assert "1 foto dipilih" in shell.reference_asset_detail.text()
+        assert "reference-unchanged" in shell._create_reference_assets_by_ref
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+def test_c20_h3b_four_workspaces_switch_chrome_without_changing_request_fields(qt_app, tmp_path, monkeypatch) -> None:
+    from PySide6.QtWidgets import QGroupBox, QLabel
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+    shell = _shell()
+    try:
+        shell.approvals_request_id.setText('approval-original-123')
+        shell.workflow_request_id.setText('workflow-original-456')
+        shell.workflow_contract_name.setText('GATE_18_CREATIVE_WORKFLOW')
+        shell.show()
+        qt_app.processEvents()
+        assert shell.findChild(QLabel, 'productsHeading').text() == 'Produk'
+        assert shell.findChild(QLabel, 'approvalsHeading').text() == 'Persetujuan'
+        assert shell.findChild(QLabel, 'creativeWorkflowHeading').text() == 'Alur Kerja'
+        original_widget = shell.workflow_request_id
+        original_pages = [shell.pages.widget(i) for i in range(shell.pages.count())]
+        shell.navigation.setCurrentRow(NAVIGATION.index('Workflow'))
+        selected_route = shell.pages.currentIndex()
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData('en-US'))
+        qt_app.processEvents()
+        assert shell.findChild(QLabel, 'productsHeading').text() == 'Products'
+        assert shell.findChild(QLabel, 'assetsHeading').text() == 'Assets'
+        assert shell.findChild(QLabel, 'approvalsHeading').text() == 'Approvals'
+        assert shell.findChild(QLabel, 'creativeWorkflowHeading').text() == 'Workflow'
+        assert shell.workflow_request_id is original_widget
+        assert shell.workflow_request_id.text() == 'workflow-original-456'
+        assert shell.approvals_request_id.text() == 'approval-original-123'
+        assert shell.workflow_contract_name.text() == 'GATE_18_CREATIVE_WORKFLOW'
+        assert shell.pages.currentIndex() == selected_route
+        assert [shell.pages.widget(i) for i in range(shell.pages.count())] == original_pages
+        assert not shell.visual_button.isEnabled()
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData('id-ID'))
+        qt_app.processEvents()
+        assert shell.findChild(QLabel, 'productsHeading').text() == 'Produk'
+        assert shell.findChild(QLabel, 'creativeWorkflowHeading').text() == 'Alur Kerja'
+    finally:
+        shell.close()
+
+
+def test_c20_h3b_form_labels_bilingual_preserves_operator_input(qt_app, tmp_path, monkeypatch) -> None:
+    from PySide6.QtWidgets import QFormLayout, QLabel, QPushButton
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path))
+    shell = _shell()
+    try:
+        shell.workflow_reason_codes.setText('INPUTS_VALIDATED')
+        shell.approvals_target_type.setText('KNOWLEDGE')
+        def bound(key):
+            return [(widget, kind) for widget, kind, k in shell._h3b_bindings if k == key]
+        assert len(bound('workspace.reason_codes')) >= 1
+        assert bound('workspace.reason_codes')[0][0].text() == 'Kode Alasan'
+        assert bound('workspace.search')[0][0].text() == 'Cari'
+        assert bound('workspace.approved_references')[0][0].title() == 'Referensi Visual yang Disetujui'
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData('en-US'))
+        qt_app.processEvents()
+        assert bound('workspace.reason_codes')[0][0].text() == 'Reason Codes'
+        assert bound('workspace.search')[0][0].text() == 'Search'
+        assert bound('workspace.approved_references')[0][0].title() == 'Approved Visual References'
+        assert shell.workflow_reason_codes.text() == 'INPUTS_VALIDATED'
+        assert shell.approvals_target_type.text() == 'KNOWLEDGE'
+        assert shell._visual_generation_provider is None
+    finally:
+        shell.close()
+
+def test_c20_h3c_dynamic_grounding_status_bilingual_preserves_evidence(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = _shell()
+    try:
+        shell.show()
+        qt_app.processEvents()
+        prompt = "Grounded helmet prompt — preserve product silhouette"
+        metadata = (
+            "Grounding: PASSED | Knowledge: knowledge-1 | Grounded Assets: none | "
+            "Selected References: reference-1 | Missing: none | Conflicts: none"
+        )
+        shell.prompt_preview.setPlainText(prompt)
+        shell.prompt_grounding_metadata.setText(metadata)
+        shell._refresh_create_grounding_status()
+        assert shell.create_grounding_status.text() == "Prompt siap ditinjau — grounding lulus."
+        assert shell.visual_button.isEnabled() is False
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("en-US"))
+        qt_app.processEvents()
+        assert shell.create_grounding_status.text() == "Prompt ready for review — grounding passed."
+        assert shell.prompt_preview.toPlainText() == prompt
+        assert shell.prompt_grounding_metadata.text() == metadata
+        assert shell.visual_button.isEnabled() is False
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("id-ID"))
+        qt_app.processEvents()
+        assert shell.create_grounding_status.text() == "Prompt siap ditinjau — grounding lulus."
+    finally:
+        shell.close()
+
+
+def test_c20_h3c_failed_empty_required_status_bilingual_without_mutation(
+    qt_app, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = _shell()
+    try:
+        shell.show()
+        qt_app.processEvents()
+        shell.prompt_grounding_metadata.setText("Grounding: FAILED | Missing: environment")
+        shell._refresh_create_grounding_status()
+        assert shell.create_grounding_status.text() == "Prompt belum siap — periksa detail grounding."
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("en-US"))
+        qt_app.processEvents()
+        assert shell.create_grounding_status.text() == "Prompt not ready — review grounding details."
+        shell.prompt_grounding_metadata.setText("No grounded prompt built yet.")
+        shell.create_feedback.setText("Could not build prompt: deliverable must be a nonempty string")
+        shell._refresh_create_grounding_status()
+        assert shell.create_grounding_status.text() == "Check required fields before building a prompt."
+        shell.create_feedback.setText("No prompt built yet.")
+        shell._refresh_create_grounding_status()
+        assert shell.create_grounding_status.text() == "No prompt yet. Complete the concept, then select Build Prompt."
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("id-ID"))
+        qt_app.processEvents()
+        assert "Belum ada prompt" in shell.create_grounding_status.text()
+        assert shell.visual_button.isEnabled() is False
+    finally:
+        shell.close()
+
+
+def test_c20_h3d_unavailable_read_only_status_switch_preserves_safety(qt_app, tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = ProductCompletionShell()
+    try:
+        assert "tidak tersedia" in shell.products_status.text().lower()
+        assert "tidak tersedia" in shell.assets_status.text().lower()
+        assert "penyimpanan cadangan" in shell.products_status.text().lower()
+        assert not shell.visual_button.isEnabled()
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("en-US"))
+        qt_app.processEvents()
+        assert "unavailable" in shell.products_status.text().lower()
+        assert "No storage fallback" in shell.assets_status.text()
+        assert not shell.visual_button.isEnabled()
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("id-ID"))
+        qt_app.processEvents()
+        assert "tidak tersedia" in shell.products_status.text().lower()
+    finally:
+        shell.close()
+
+
+def test_c20_h3d_status_translation_never_replaces_opaque_service_message(qt_app, tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = _shell()
+    try:
+        old_brief = shell.current_brief()
+        shell._h3d_set_status(shell.products_status, "status.search_empty")
+        assert shell.products_status.text() == "Masukkan istilah pencarian fakta."
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("en-US"))
+        qt_app.processEvents()
+        assert shell.products_status.text() == "Enter a fact search term."
+        shell.products_status.setText("OPAQUE_SERVICE_DIAGNOSTIC_123")
+        shell.language_combo.setCurrentIndex(shell.language_combo.findData("id-ID"))
+        qt_app.processEvents()
+        assert shell.products_status.text() == "OPAQUE_SERVICE_DIAGNOSTIC_123"
+        assert shell.current_brief() == old_brief
         assert not shell.visual_button.isEnabled()
     finally:
         shell.close()
