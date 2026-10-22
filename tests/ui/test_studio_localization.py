@@ -180,7 +180,39 @@ def test_c20_h3d_operational_status_catalog_parity() -> None:
         "status.assets_variant_needed", "status.search_select_product",
         "status.search_empty",
     )
-    assert len(catalogs["id-ID"]) == len(catalogs["en-US"]) == 135
+    assert len(catalogs["id-ID"]) == len(catalogs["en-US"]) >= 151
     for key in keys:
         assert key in catalogs["id-ID"] and key in catalogs["en-US"]
         assert catalogs["id-ID"][key] != catalogs["en-US"][key]
+
+
+def test_c20_i6_history_catalog_parity_and_existing_copy_reuse() -> None:
+    catalogs = load_catalogs()
+    id_messages = catalogs["id-ID"]
+    en_messages = catalogs["en-US"]
+    assert len(id_messages) == len(en_messages) == 151
+    for key in (
+        "history.title", "history.intro", "history.refresh", "history.empty",
+        "history.count", "history.legacy_note", "history.details",
+        "history.preview_placeholder",
+    ):
+        assert id_messages[key] != en_messages[key]
+    assert id_messages["prompt.copy"] == "Salin Prompt"
+    assert en_messages["prompt.copy_success"] == "Prompt copied."
+    assert Localizer("id-ID").tr("history.count", count=2).startswith("2 " )
+    assert Localizer("en-US").tr("history.count", count=2).startswith("2 " )
+
+
+def test_c20_i9_presets_catalog_reuses_existing_workspace_without_persistence() -> None:
+    catalogs = load_catalogs()
+    id_messages = catalogs["id-ID"]
+    en_messages = catalogs["en-US"]
+    assert len(id_messages) == len(en_messages) == 151
+    for key in (
+        "presets.title", "presets.intro", "presets.legacy_note", "presets.refresh",
+        "presets.empty", "presets.count", "presets.selection_hint", "presets.details",
+    ):
+        assert id_messages[key] != en_messages[key]
+    assert Localizer("id-ID").tr("presets.count",count=1).startswith("1 ")
+    assert Localizer("en-US").tr("presets.count",count=1).startswith("1 ")
+    assert "History" == Localizer("en-US").tr("nav.history")

@@ -2012,3 +2012,379 @@ def test_c20_i2_copy_feedback_resets_on_new_prompt_and_clear(qt_app) -> None:
     finally:
         board.setText(previous)
         shell.close()
+
+
+# C20-I6: History is a read-only projection of legacy local workspace v1.
+def _i6_fixture_workspace(tmp_path):
+    from rie.ui.local_operator_workspace import empty_workspace, record_recent_prompt, save_workspace
+    p = tmp_path / "workspace.json"
+    request = {"product_id": "ffs21", "variant_id": "hustle", "background": "studio",
+               "camera_angle": "three-quarter", "requested_output": "catalog"}
+    state = record_recent_prompt(empty_workspace(), request, "PRODUCT LOCKS: exact\n  double spaces  \n<opaque>&")
+    save_workspace(state, p)
+    return p
+
+
+def test_c20_i6_history_readonly_route_and_source_bytes(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    p = _i6_fixture_workspace(tmp_path)
+    original = p.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    shell = _shell()
+    try:
+        brief = shell.current_brief()
+        assert shell.pages.count() == len(NAVIGATION) == 9
+        assert shell.pages.widget(NAVIGATION.index("History")).objectName() == "historyWorkspace"
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        qt_app.processEvents()
+        assert shell.history_list.count() == 1
+        assert "ffs21" in shell.history_list.item(0).text()
+        assert shell.history_preview.isReadOnly()
+        assert shell.history_copy_button.isEnabled() is False
+        shell.history_list.setCurrentRow(0)
+        assert shell.history_preview.toPlainText() == "PRODUCT LOCKS: exact\n  double spaces  \n<opaque>&"
+        assert shell.history_copy_button.isEnabled()
+        assert "studio" in shell.history_details.text()
+        assert shell.current_brief() == brief
+        assert not shell.visual_button.isEnabled()
+        assert p.read_bytes() == original
+        shell.navigation.setCurrentRow(0)
+        assert shell.current_brief() == brief
+        assert p.read_bytes() == original
+    finally:
+        shell.close()
+
+
+def test_c20_i6_history_copy_exact_and_switch_id_en_id(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    p = _i6_fixture_workspace(tmp_path)
+    original = p.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    board = qt_app.clipboard()
+    old_clip = board.text()
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        shell.history_list.setCurrentRow(0)
+        exact = shell.history_preview.toPlainText()
+        shell.history_copy_button.click()
+        assert board.text() == exact
+        assert shell.history_copy_feedback.text() == "Prompt berhasil disalin."
+        original_brief = shell.current_brief()
+        shell._localizer.set_locale("en-US")
+        shell._h2_apply_language()
+        assert shell.history_heading.text() == "Prompt History"
+        assert shell.history_copy_button.text() == "Copy Prompt"
+        assert shell.history_copy_feedback.text() == "Prompt copied."
+        assert shell.history_details.text().startswith("Product: ")
+        assert shell.history_list.currentRow() == 0
+        assert shell.history_preview.toPlainText() == exact
+        assert board.text() == exact
+        shell._localizer.set_locale("id-ID")
+        shell._h2_apply_language()
+        assert shell.history_heading.text() == "Riwayat Prompt"
+        assert shell.history_copy_feedback.text() == "Prompt berhasil disalin."
+        assert shell.history_preview.toPlainText() == exact
+        assert shell.current_brief() == original_brief
+        assert p.read_bytes() == original
+    finally:
+        board.setText(old_clip)
+        shell.close()
+
+
+@pytest.mark.parametrize("mode", ["missing", "bad-json", "unsupported-schema"])
+def test_c20_i6_history_missing_corrupt_or_unknown_is_safe(qt_app, tmp_path, monkeypatch, mode):
+    import rie.ui.local_operator_workspace as storage
+    p = tmp_path / "workspace.json"
+    if mode == "bad-json":
+        p.write_bytes(b'{broken')
+    elif mode == "unsupported-schema":
+        p.write_bytes(b'{"schema_version":99,"recent_prompts":[{"prompt_text":"hidden"}]}')
+    before = p.read_bytes() if p.exists() else None
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        assert shell.history_list.count() == 0
+        assert shell.history_copy_button.isEnabled() is False
+        assert shell.history_preview.toPlainText() == ""
+        assert "belum ada atau tidak terbaca" in shell.history_status.text().lower()
+        assert not shell.visual_button.isEnabled()
+        assert (p.read_bytes() if p.exists() else None) == before
+    finally:
+        shell.close()
+
+
+def test_c20_i6_history_exact_twenty_bound_and_manual_refresh(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    p = tmp_path / "workspace.json"
+    state = storage.empty_workspace()
+    for i in range(25):
+        req = {"product_id": "p", "variant_id": str(i), "background": "b", "camera_angle": "c", "requested_output": "o"}
+        state = storage.record_recent_prompt(state, req, "prompt-"+str(i))
+    storage.save_workspace(state, p)
+    before = p.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        assert shell.history_list.count() == 20
+        shell.history_list.setCurrentRow(0)
+        assert shell.history_preview.toPlainText() == "prompt-24"
+        assert p.read_bytes() == before
+        new = storage.record_recent_prompt(state, {"product_id":"x", "variant_id":"new",
+                          "background":"b", "camera_angle":"c", "requested_output":"o"}, "new\nprompt")
+        storage.save_workspace(new, p)  # fixture writer; UI must not write
+        refreshed_bytes = p.read_bytes()
+        shell.history_refresh_button.click()
+        assert shell.history_list.count() == 20
+        shell.history_list.setCurrentRow(0)
+        assert shell.history_preview.toPlainText() == "new\nprompt"
+        assert p.read_bytes() == refreshed_bytes
+        assert shell._history_loaded
+    finally:
+        shell.close()
+
+
+def test_c20_i6_history_selected_empty_prompt_disables_copy(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    p = tmp_path / "workspace.json"
+    state = storage.record_recent_prompt(storage.empty_workspace(),
+        {"product_id":"ffs21", "variant_id":"hustle", "background":"b",
+         "camera_angle":"c", "requested_output":"o"}, "   ")
+    storage.save_workspace(state, p)
+    original = p.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    shell = _shell()
+    board = qt_app.clipboard()
+    old = board.text()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        shell.history_list.setCurrentRow(0)
+        assert shell.history_copy_button.isEnabled() is False
+        shell._history_copy_prompt()
+        assert board.text() == old
+        assert p.read_bytes() == original
+        assert shell.prompt_preview.toPlainText() == ""
+    finally:
+        shell.close()
+
+
+# C20-I8: empty History preview hint is visible and localized with an existing key.
+def test_c20_i8_empty_history_hint_uses_existing_locale_key(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    path = tmp_path / "workspace.json"
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(path))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        qt_app.processEvents()
+        assert shell.pages.currentWidget().objectName() == "historyWorkspace"
+        assert shell.history_preview_hint.objectName() == "historyPromptEmptyHint"
+        assert not shell.history_preview_hint.isHidden()
+        assert shell.history_preview_hint.text() == "Pilih riwayat untuk melihat prompt asli."
+        assert shell.history_preview.placeholderText() == ""
+        assert shell.history_preview.toPlainText() == ""
+        assert not shell.history_copy_button.isEnabled()
+        shell._localizer.set_locale("en-US")
+        shell._h2_apply_language()
+        assert shell.history_preview_hint.text() == "Select a history entry to view its exact prompt."
+        assert shell.history_preview.toPlainText() == ""
+        shell._localizer.set_locale("id-ID")
+        shell._h2_apply_language()
+        assert shell.history_preview_hint.text() == "Pilih riwayat untuk melihat prompt asli."
+        assert not shell.visual_button.isEnabled()
+        assert not path.exists()
+    finally:
+        shell.close()
+
+
+def test_c20_i8_selected_history_hides_hint_and_does_not_rewrite_data(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    path = tmp_path / "workspace.json"
+    req = {"product_id": "ffs21", "variant_id": "hustle", "background": "studio",
+           "camera_angle": "three-quarter", "requested_output": "catalog"}
+    exact = "PRODUCT LOCKS:\n  preserve  double-space \n<opaque>&"
+    storage.save_workspace(storage.record_recent_prompt(storage.empty_workspace(), req, exact), path)
+    before = path.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(path))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        assert not shell.history_preview_hint.isHidden()
+        shell.history_list.setCurrentRow(0)
+        assert shell.history_preview_hint.isHidden()
+        assert shell.history_preview.toPlainText() == exact
+        assert shell.history_copy_button.isEnabled()
+        shell._localizer.set_locale("en-US")
+        shell._h2_apply_language()
+        assert shell.history_preview_hint.isHidden()
+        assert shell.history_preview.toPlainText() == exact
+        shell.history_list.setCurrentRow(-1)
+        assert not shell.history_preview_hint.isHidden()
+        assert shell.history_preview_hint.text() == "Select a history entry to view its exact prompt."
+        assert shell.history_preview.toPlainText() == ""
+        assert not shell.visual_button.isEnabled()
+        assert path.read_bytes() == before
+    finally:
+        shell.close()
+
+
+# C20-I9: existing schema-v1 Presets projection, read-only and bilingual.
+def _i9_preset_file(tmp_path):
+    import rie.ui.local_operator_workspace as storage
+    path = tmp_path / "workspace.json"
+    req = {"product_id":"ffs21", "variant_id":"hustle", "background":"studio",
+           "camera_angle":"3/4", "requested_output":"catalog"}
+    state = storage.save_preset(storage.empty_workspace(), "Hero <safe> & intact", req)
+    storage.save_workspace(state, path)
+    return path
+
+
+def test_c20_i9_presets_route_reuses_legacy_storage_without_writes(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    from PySide6.QtCore import Qt
+    p = _i9_preset_file(tmp_path)
+    raw = p.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    shell = _shell()
+    try:
+        before_brief = shell.current_brief()
+        before_create_prompt = shell.prompt_preview.toPlainText()
+        assert shell.pages.count() == 9
+        shell.navigation.setCurrentRow(NAVIGATION.index("Presets"))
+        assert shell.pages.currentWidget().objectName() == "presetsWorkspace"
+        assert shell.presets_list.count() == 1
+        assert shell.presets_hint.text().startswith("Pilih preset")
+        assert shell.presets_details.text() == ""
+        shell.presets_list.setCurrentRow(0)
+        assert shell.presets_list.item(0).text() == "Hero <safe> & intact"
+        assert shell.presets_hint.isHidden()
+        assert "Nama: Hero <safe> & intact" in shell.presets_details.text()
+        assert "Latar: studio" in shell.presets_details.text()
+        assert shell.presets_details.textFormat() == Qt.TextFormat.PlainText
+        assert shell.current_brief() == before_brief
+        assert shell.prompt_preview.toPlainText() == before_create_prompt
+        assert not shell.visual_button.isEnabled()
+        assert p.read_bytes() == raw
+    finally:
+        shell.close()
+
+
+def test_c20_i9_presets_switches_locale_without_reloading_or_mutating(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    p = _i9_preset_file(tmp_path)
+    raw = p.read_bytes()
+    calls=[]
+    def safe_load():
+        calls.append(1)
+        return storage.load_workspace(p)
+    monkeypatch.setattr(shell_module, "load_workspace", safe_load)
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Presets"))
+        shell.presets_list.setCurrentRow(0)
+        initial_count = len(calls)
+        source_name = shell.presets_list.currentItem().text()
+        shell._localizer.set_locale("en-US")
+        shell._h2_apply_language()
+        assert shell.presets_heading.text() == "Saved Presets"
+        assert shell.presets_refresh_button.text() == "Refresh"
+        assert "Name: Hero <safe> & intact" in shell.presets_details.text()
+        assert shell.presets_list.currentRow() == 0
+        assert shell.presets_list.currentItem().text() == source_name
+        assert len(calls) == initial_count
+        shell._localizer.set_locale("id-ID")
+        shell._h2_apply_language()
+        assert shell.presets_heading.text() == "Preset Tersimpan"
+        assert shell.presets_list.currentItem().text() == source_name
+        assert len(calls) == initial_count
+        assert p.read_bytes() == raw
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
+@pytest.mark.parametrize("kind", ["missing", "corrupt", "unsupported"])
+def test_c20_i9_presets_missing_corrupt_unsupported_are_safe(qt_app, tmp_path, monkeypatch, kind):
+    import rie.ui.local_operator_workspace as storage
+    p = tmp_path / "workspace.json"
+    if kind == "corrupt":
+        p.write_bytes(b"{invalid")
+    elif kind == "unsupported":
+        p.write_bytes(b'{"schema_version":99,"presets":[{"name":"must-not-appear"}]}')
+    before = p.read_bytes() if p.exists() else None
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Presets"))
+        assert shell.presets_list.count() == 0
+        assert shell.presets_details.text() == ""
+        assert shell.presets_hint.text().startswith("Pilih preset")
+        assert shell.presets_status.text() == "Belum ada preset yang dapat ditampilkan."
+        assert shell._presets_selected_record() is None
+        assert not shell.visual_button.isEnabled()
+        assert (p.read_bytes() if p.exists() else None) == before
+    finally:
+        shell.close()
+
+
+def test_c20_i9_presets_manual_refresh_shows_only_twenty(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    p = tmp_path / "workspace.json"
+    state = storage.empty_workspace()
+    req = {"product_id":"ffs21","variant_id":"hustle","background":"studio",
+           "camera_angle":"front","requested_output":"catalog"}
+    for i in range(25):
+        state = storage.save_preset(state, "Preset "+str(i), req)
+    storage.save_workspace(state, p)
+    before = p.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("Presets"))
+        assert shell.presets_list.count() == 20
+        assert shell.presets_list.item(0).text() == "Preset 24"
+        assert shell.presets_list.item(19).text() == "Preset 5"
+        shell.presets_list.setCurrentRow(0)
+        assert "Nama: Preset 24" in shell.presets_details.text()
+        assert p.read_bytes() == before
+        state = storage.save_preset(state, "Brand New", req)
+        storage.save_workspace(state, p)  # Test fixture writes; the UI must never do so.
+        refreshed = p.read_bytes()
+        shell.presets_refresh_button.click()
+        assert shell.presets_list.count() == 20
+        assert shell.presets_list.item(0).text() == "Brand New"
+        assert shell.presets_details.text() == ""
+        assert p.read_bytes() == refreshed
+    finally:
+        shell.close()
+
+
+def test_c20_i9_presets_keeps_history_and_create_independent(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    p = _i9_preset_file(tmp_path)
+    state=storage.load_workspace(p)
+    req={"product_id":"ffs21","variant_id":"hustle","background":"studio",
+         "camera_angle":"front","requested_output":"catalog"}
+    state=storage.record_recent_prompt(state, req, "NEVER ALTER SOURCE PROMPT")
+    storage.save_workspace(state,p)
+    raw=p.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(p))
+    shell=_shell()
+    try:
+        before=shell.current_brief()
+        shell.navigation.setCurrentRow(NAVIGATION.index("Presets"))
+        shell.presets_list.setCurrentRow(0)
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        assert shell.history_list.count()==1
+        shell.history_list.setCurrentRow(0)
+        assert shell.history_preview.toPlainText()=="NEVER ALTER SOURCE PROMPT"
+        shell.navigation.setCurrentRow(NAVIGATION.index("Presets"))
+        assert shell.presets_list.count()==1
+        assert shell.history_preview.toPlainText()=="NEVER ALTER SOURCE PROMPT"
+        assert shell.current_brief()==before
+        assert p.read_bytes()==raw
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()

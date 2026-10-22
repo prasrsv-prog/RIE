@@ -63,6 +63,7 @@ from rie.domain.governed_creative_workflow_request import (
 )
 
 from rie.ui.local_operator_settings import load_remembered_intake_root
+from rie.ui.local_operator_workspace import load_workspace
 from rie.ui.studio_localization import Localizer, SUPPORTED_LOCALES
 from rie.ui.studio_ui_preferences import load_preferred_locale, save_preferred_locale
 from rie.ui.product_completion_models import (
@@ -335,6 +336,10 @@ class ProductCompletionShell(QMainWindow):
         self._assets_workspace_product_ids_by_label: dict[str, str] = {}
         self._assets_workspace_variant_ids_by_label: dict[str, str] = {}
         self._assets_workspace_assets_by_ref: dict[str, Any] = {}
+        self._history_records: tuple[dict, ...] = ()
+        self._history_loaded = False
+        self._history_copy_feedback_active = False
+        self._presets_records: tuple[dict, ...] = ()
 
         self._localizer = Localizer(load_preferred_locale())
         self._h3d_live_status: dict[QLabel, tuple[str, str]] = {}
@@ -403,7 +408,14 @@ class ProductCompletionShell(QMainWindow):
         self._workflow_page = self._build_workflow_page()
         self.pages.addWidget(self._workflow_page)
         for name in NAVIGATION[5:]:
-            self.pages.addWidget(self._placeholder_page(name))
+            if name == "History":
+                self._history_page = self._build_history_page()
+                self.pages.addWidget(self._history_page)
+            elif name == "Presets":
+                self._presets_page = self._build_presets_page()
+                self.pages.addWidget(self._presets_page)
+            else:
+                self.pages.addWidget(self._placeholder_page(name))
 
         self.product_context_panel = self._build_product_context_panel()
 
@@ -546,6 +558,8 @@ class ProductCompletionShell(QMainWindow):
         self._h3_reference_status()
         self._h3b_apply_workspace_chrome()
         self._h3d_apply_live_status()
+        self._history_apply_language()
+        self._presets_apply_language()
 
 
     def _h3_context_chrome(self) -> None:
@@ -682,6 +696,10 @@ class ProductCompletionShell(QMainWindow):
         # Existing workflow tests and deep navigation retain their exact row IDs.
         if row >= 3 and not self.nav_more_button.isChecked():
             self.nav_more_button.setChecked(True)
+        if row == NAVIGATION.index("History"):
+            self._history_refresh_workspace()
+        elif row == NAVIGATION.index("Presets"):
+            self._presets_refresh_workspace()
 
     def _build_create_page(self) -> QWidget:
         """C20-A visual-first composition; existing contracts and signals unchanged."""
@@ -2626,6 +2644,229 @@ class ProductCompletionShell(QMainWindow):
             lines.append("- none")
         self.products_provenance_detail.setPlainText("\n".join(lines))
         self.products_status.setText("Provenance loaded.")
+
+    def _build_history_page(self) -> QWidget:
+        "Display only legacy v1 history; never restore or persist it."
+        page = QWidget()
+        page.setObjectName("historyWorkspace")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(10)
+        self.history_heading = QLabel("")
+        self.history_heading.setObjectName("historyHeading")
+        self.history_heading.setStyleSheet("font-size: 22px; font-weight: 600;")
+        layout.addWidget(self.history_heading)
+        self.history_intro = QLabel("")
+        self.history_intro.setObjectName("historyIntro")
+        self.history_intro.setWordWrap(True)
+        layout.addWidget(self.history_intro)
+        self.history_legacy_note = QLabel("")
+        self.history_legacy_note.setObjectName("historyLegacyNotice")
+        self.history_legacy_note.setWordWrap(True)
+        layout.addWidget(self.history_legacy_note)
+        control = QHBoxLayout()
+        self.history_status = QLabel("")
+        self.history_status.setObjectName("historyStatus")
+        self.history_status.setWordWrap(True)
+        self.history_refresh_button = QPushButton("")
+        self.history_refresh_button.setObjectName("historyRefresh")
+        control.addWidget(self.history_status, 1)
+        control.addWidget(self.history_refresh_button)
+        layout.addLayout(control)
+        self.history_list = QListWidget()
+        self.history_list.setObjectName("historyList")
+        self.history_list.setMinimumHeight(135)
+        layout.addWidget(self.history_list, 2)
+        self.history_details = QLabel("")
+        self.history_details.setObjectName("historyLegacyFields")
+        self.history_details.setWordWrap(True)
+        self.history_details.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(self.history_details)
+        self.history_preview = QPlainTextEdit()
+        self.history_preview.setObjectName("historyPromptPreview")
+        self.history_preview.setReadOnly(True)
+        self.history_preview.setMinimumHeight(135)
+        self.history_preview_hint = QLabel("")
+        self.history_preview_hint.setObjectName("historyPromptEmptyHint")
+        self.history_preview_hint.setWordWrap(True)
+        layout.addWidget(self.history_preview_hint)
+        layout.addWidget(self.history_preview, 3)
+        copyrow = QHBoxLayout()
+        self.history_copy_button = QPushButton("")
+        self.history_copy_button.setObjectName("historyCopyPrompt")
+        self.history_copy_button.setEnabled(False)
+        self.history_copy_feedback = QLabel("")
+        self.history_copy_feedback.setObjectName("historyCopyFeedback")
+        copyrow.addWidget(self.history_copy_button)
+        copyrow.addWidget(self.history_copy_feedback, 1)
+        layout.addLayout(copyrow)
+        self.history_list.currentRowChanged.connect(self._history_selection_changed)
+        self.history_refresh_button.clicked.connect(self._history_refresh_workspace)
+        self.history_copy_button.clicked.connect(self._history_copy_prompt)
+        return page
+
+    def _history_refresh_workspace(self, _checked: bool = False) -> None:
+        "Read normalized legacy workspace through its existing API only."
+        try:
+            state = load_workspace()
+            records = tuple(state["recent_prompts"][:20])
+        except (OSError, ValueError, TypeError, KeyError):
+            # Do not report specific paths or stored prompt content.
+            records = ()
+        self._history_records = records
+        self._history_loaded = True
+        self.history_list.clear()
+        for index, record in enumerate(records, 1):
+            product = record["product_id"] or "—"
+            variant = record["variant_id"] or "—"
+            marker = "★ " if record["favorite"] else ""
+            self.history_list.addItem(f"{index}. {marker}{product} / {variant}")
+        self._history_selection_changed(-1)
+        self._history_apply_language()
+
+    def _history_selected_record(self) -> dict | None:
+        index = self.history_list.currentRow()
+        if index < 0 or index >= len(self._history_records):
+            return None
+        return self._history_records[index]
+
+    def _history_update_details(self) -> None:
+        record = self._history_selected_record()
+        if record is None:
+            self.history_details.clear()
+            return
+        fields = ("product_id", "variant_id", "background", "camera_angle", "requested_output")
+        self.history_details.setText(self._localizer.tr(
+            "history.details", **{field: record[field] for field in fields}
+        ))
+
+    def _history_selection_changed(self, _row: int) -> None:
+        record = self._history_selected_record()
+        self.history_preview.setPlainText(record["prompt_text"] if record is not None else "")
+        self.history_preview_hint.setVisible(record is None)
+        self.history_copy_button.setEnabled(
+            bool(record is not None and record["prompt_text"].strip())
+        )
+        self._history_copy_feedback_active = False
+        self.history_copy_feedback.clear()
+        self._history_update_details()
+
+    def _history_copy_prompt(self, _checked: bool = False) -> None:
+        record = self._history_selected_record()
+        if record is None or not record["prompt_text"].strip():
+            return
+        QApplication.clipboard().setText(record["prompt_text"])
+        self._history_copy_feedback_active = True
+        self.history_copy_feedback.setText(self._localizer.tr("prompt.copy_success"))
+
+    def _history_apply_language(self) -> None:
+        "Translate presentation only: never re-fetch or mutate history records."
+        tr = self._localizer.tr
+        self.history_heading.setText(tr("history.title"))
+        self.history_intro.setText(tr("history.intro"))
+        self.history_legacy_note.setText(tr("history.legacy_note"))
+        self.history_refresh_button.setText(tr("history.refresh"))
+        self.history_preview.setPlaceholderText("")
+        self.history_preview_hint.setText(tr("history.preview_placeholder"))
+        self.history_copy_button.setText(tr("prompt.copy"))
+        if self._history_copy_feedback_active:
+            self.history_copy_feedback.setText(tr("prompt.copy_success"))
+        self.history_status.setText(
+            tr("history.count", count=len(self._history_records))
+            if self._history_records else tr("history.empty")
+        )
+        self._history_update_details()
+
+    def _build_presets_page(self) -> QWidget:
+        """Read-only projection of existing legacy v1 preset records."""
+        page = QWidget()
+        page.setObjectName("presetsWorkspace")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(10)
+        self.presets_heading = QLabel("")
+        self.presets_heading.setObjectName("presetsHeading")
+        self.presets_heading.setStyleSheet("font-size: 22px; font-weight: 600;")
+        layout.addWidget(self.presets_heading)
+        self.presets_intro = QLabel("")
+        self.presets_intro.setObjectName("presetsIntro")
+        self.presets_intro.setWordWrap(True)
+        layout.addWidget(self.presets_intro)
+        self.presets_legacy_note = QLabel("")
+        self.presets_legacy_note.setObjectName("presetsLegacyNotice")
+        self.presets_legacy_note.setWordWrap(True)
+        layout.addWidget(self.presets_legacy_note)
+        control = QHBoxLayout()
+        self.presets_status = QLabel("")
+        self.presets_status.setObjectName("presetsStatus")
+        self.presets_status.setWordWrap(True)
+        self.presets_refresh_button = QPushButton("")
+        self.presets_refresh_button.setObjectName("presetsRefresh")
+        control.addWidget(self.presets_status, 1)
+        control.addWidget(self.presets_refresh_button)
+        layout.addLayout(control)
+        self.presets_list = QListWidget()
+        self.presets_list.setObjectName("presetsList")
+        self.presets_list.setMinimumHeight(170)
+        layout.addWidget(self.presets_list, 3)
+        self.presets_hint = QLabel("")
+        self.presets_hint.setObjectName("presetsSelectionHint")
+        self.presets_hint.setWordWrap(True)
+        layout.addWidget(self.presets_hint)
+        self.presets_details = QLabel("")
+        self.presets_details.setObjectName("presetsLegacyFields")
+        self.presets_details.setWordWrap(True)
+        self.presets_details.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(self.presets_details)
+        layout.addStretch(1)
+        self.presets_list.currentRowChanged.connect(self._presets_selection_changed)
+        self.presets_refresh_button.clicked.connect(self._presets_refresh_workspace)
+        return page
+
+    def _presets_refresh_workspace(self, _checked: bool = False) -> None:
+        """Reuse existing loader; no writes or legacy-to-Create hydration."""
+        try:
+            state = load_workspace()
+            records = tuple(state["presets"][:20])
+        except (OSError, ValueError, TypeError, KeyError):
+            records = ()
+        self._presets_records = records
+        self.presets_list.clear()
+        for record in records:
+            self.presets_list.addItem(record["name"])
+        self._presets_selection_changed(-1)
+        self._presets_apply_language()
+
+    def _presets_selected_record(self) -> dict | None:
+        index = self.presets_list.currentRow()
+        if index < 0 or index >= len(self._presets_records):
+            return None
+        return self._presets_records[index]
+
+    def _presets_selection_changed(self, _row: int) -> None:
+        record = self._presets_selected_record()
+        self.presets_hint.setVisible(record is None)
+        if record is None:
+            self.presets_details.clear()
+        else:
+            fields = ("name", "product_id", "variant_id", "background", "camera_angle", "requested_output")
+            self.presets_details.setText(self._localizer.tr(
+                "presets.details", **{field: record[field] for field in fields}
+            ))
+
+    def _presets_apply_language(self) -> None:
+        """Retext UI only; never reload, translate, or mutate user data."""
+        tr = self._localizer.tr
+        self.presets_heading.setText(tr("presets.title"))
+        self.presets_intro.setText(tr("presets.intro"))
+        self.presets_legacy_note.setText(tr("presets.legacy_note"))
+        self.presets_refresh_button.setText(tr("presets.refresh"))
+        self.presets_hint.setText(tr("presets.selection_hint"))
+        self.presets_status.setText(
+            tr("presets.count", count=len(self._presets_records))
+            if self._presets_records else tr("presets.empty")
+        )
+        self._presets_selection_changed(self.presets_list.currentRow())
 
     def _placeholder_page(self, name: str) -> QWidget:
         page = QWidget()
