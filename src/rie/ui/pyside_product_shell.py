@@ -6,6 +6,8 @@ production entrypoint and does not access governed storage directly.
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 import os
 from datetime import datetime
 from pathlib import Path
@@ -63,7 +65,7 @@ from rie.domain.governed_creative_workflow_request import (
 )
 
 from rie.ui.local_operator_settings import load_remembered_intake_root
-from rie.ui.local_operator_workspace import load_workspace
+from rie.ui.local_operator_workspace import load_workspace, append_pyside_history_prompt
 from rie.ui.studio_localization import Localizer, SUPPORTED_LOCALES
 from rie.ui.studio_ui_preferences import load_preferred_locale, save_preferred_locale
 from rie.ui.product_completion_models import (
@@ -341,6 +343,8 @@ class ProductCompletionShell(QMainWindow):
         self._history_copy_feedback_active = False
         self._presets_records: tuple[dict, ...] = ()
 
+        self._pyside_history_pending: dict | None = None
+        self._pyside_history_feedback_key = ""
         self._localizer = Localizer(load_preferred_locale())
         self._h3d_live_status: dict[QLabel, tuple[str, str]] = {}
         self.setWindowTitle(WINDOW_TITLE)
@@ -546,6 +550,9 @@ class ProductCompletionShell(QMainWindow):
         self._h2_update_grounding_toggle_text(self.create_grounding_details_toggle.isChecked())
         self.prompt_button.setText(tr("prompt.build"))
         self.copy_prompt_button.setText(tr("prompt.copy"))
+        self.history_save_button.setText(tr("history.save_action"))
+        if self._pyside_history_feedback_key:
+            self.history_save_feedback.setText(tr(self._pyside_history_feedback_key))
         if self._copy_prompt_feedback_active:
             self.copy_prompt_feedback.setText(tr("prompt.copy_success"))
         self.prompt_preview.setPlaceholderText(tr("prompt.empty"))
@@ -970,6 +977,9 @@ class ProductCompletionShell(QMainWindow):
         self.copy_prompt_button = QPushButton("Salin Prompt")
         self.copy_prompt_button.setObjectName("copyGroundedPrompt")
         self.copy_prompt_button.setEnabled(False)
+        self.history_save_button = QPushButton("")
+        self.history_save_button.setObjectName("saveGroundedPromptToHistory")
+        self.history_save_button.setEnabled(False)
         self.visual_button = QPushButton("Buat Visual (belum tersedia)")
         self.visual_button.setObjectName("generateVisuals")
         self.visual_button.setEnabled(False)
@@ -982,6 +992,7 @@ class ProductCompletionShell(QMainWindow):
         self.visual_button.clicked.connect(self._generate_visuals)
         action_row.addWidget(self.prompt_button)
         action_row.addWidget(self.copy_prompt_button)
+        action_row.addWidget(self.history_save_button)
         action_row.addWidget(self.visual_button)
         action_row.addStretch(1)
         review_layout.addLayout(action_row)
@@ -990,6 +1001,10 @@ class ProductCompletionShell(QMainWindow):
         self.copy_prompt_feedback.setWordWrap(True)
         self._copy_prompt_feedback_active = False
         review_layout.addWidget(self.copy_prompt_feedback)
+        self.history_save_feedback = QLabel("")
+        self.history_save_feedback.setObjectName("historySaveFeedback")
+        self.history_save_feedback.setWordWrap(True)
+        review_layout.addWidget(self.history_save_feedback)
         self.create_safety_note = QLabel(
             "Generasi AI belum tersedia tanpa provider dan hak penggunaan aset yang sah."
         )
@@ -1012,6 +1027,8 @@ class ProductCompletionShell(QMainWindow):
         self.prompt_button.clicked.connect(self._refresh_create_grounding_status)
         self.prompt_preview.textChanged.connect(self._update_copy_prompt_availability)
         self.copy_prompt_button.clicked.connect(self._copy_existing_prompt)
+        self.prompt_preview.textChanged.connect(self._history_save_preview_changed)
+        self.history_save_button.clicked.connect(self._save_grounded_prompt_to_history)
 
         page.setWidget(content)
         return page
@@ -1031,6 +1048,34 @@ class ProductCompletionShell(QMainWindow):
         QApplication.clipboard().setText(prompt)
         self._copy_prompt_feedback_active = True
         self.copy_prompt_feedback.setText(self._localizer.tr("prompt.copy_success"))
+
+    def _history_save_preview_changed(self) -> None:
+        """Only the exact successful grounded snapshot is eligible to save."""
+        snap = self._pyside_history_pending
+        if snap is not None and self.prompt_preview.toPlainText() != snap["prompt_text"]:
+            self._pyside_history_pending = None
+            self.history_save_button.setEnabled(False)
+        self._pyside_history_feedback_key = ""
+        self.history_save_feedback.clear()
+
+    def _save_grounded_prompt_to_history(self, _checked: bool = False) -> None:
+        """Opt-in local history write, never a provider call or rights grant."""
+        snapshot = self._pyside_history_pending
+        if snapshot is None or self.prompt_preview.toPlainText() != snapshot["prompt_text"]:
+            return
+        try:
+            append_pyside_history_prompt(
+                snapshot["request"], snapshot["prompt_text"], snapshot["context"],
+            )
+        except (OSError, ValueError, TypeError, RuntimeError):
+            self._pyside_history_feedback_key = "history.save_failed"
+            self.history_save_feedback.setText(self._localizer.tr("history.save_failed"))
+            return
+        self._pyside_history_pending = None
+        self.history_save_button.setEnabled(False)
+        self._pyside_history_feedback_key = "history.save_success"
+        self.history_save_feedback.setText(self._localizer.tr("history.save_success"))
+        self._history_refresh_workspace()
 
     def _populate_create_thumbnail_icons(self) -> int:
         """Preview up to 16 local manifest images; never perform provider calls.
@@ -3053,6 +3098,10 @@ class ProductCompletionShell(QMainWindow):
         )
 
     def _build_grounded_prompt(self) -> None:
+        self._pyside_history_pending = None
+        self.history_save_button.setEnabled(False)
+        self._pyside_history_feedback_key = ""
+        self.history_save_feedback.clear()
         product_label = self.product_combo.currentText()
         variant_label = self.variant_combo.currentText()
         product_id = self._product_ids_by_label.get(product_label)
@@ -3064,11 +3113,12 @@ class ProductCompletionShell(QMainWindow):
             return
 
         if self._creative_prompt_composer is not None:
+            brief = self.current_brief()
             try:
                 result = self._creative_prompt_composer.compose(
                     product_id=product_id,
                     variant_id=variant_id,
-                    brief=self.current_brief(),
+                    brief=brief,
                 )
             except Exception as exc:
                 self.create_feedback.setText(f"Could not build prompt: {exc}")
@@ -3103,6 +3153,27 @@ class ProductCompletionShell(QMainWindow):
                 and not conflicts
             ):
                 self.create_feedback.setText("Grounded prompt ready.")
+                self._pyside_history_pending = {
+                    "request": {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        **brief.legacy_submit_fields(),
+                    },
+                    "prompt_text": result.prompt_text,
+                    "context": {
+                        "schema_version": 1,
+                        "brief": asdict(brief),
+                        "grounding": {
+                            "status": str(result.grounding_status),
+                            "used_knowledge_ids": list(used_knowledge),
+                            "used_asset_ids": list(used_assets),
+                            "selected_reference_asset_ids": list(selected_references),
+                            "missing_knowledge": list(missing),
+                            "conflicts": list(conflicts),
+                        },
+                    },
+                }
+                self.history_save_button.setEnabled(True)
             else:
                 self.create_feedback.setText(
                     "Grounded prompt could not be completed safely; "

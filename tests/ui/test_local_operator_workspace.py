@@ -318,3 +318,69 @@ def test_phase_y_delete_recent_prompt_out_of_range_index_is_deterministic_noop()
 
     assert updated == before
     assert updated is not workspace
+
+
+# C20-I12: preserving richer PySide context through existing v1 workspace APIs.
+def _i12_context():
+    return {
+        "schema_version": 1,
+        "brief": {"objective":"hero", "selected_reference_asset_ids":["asset-A","asset-B"],
+                  "preserve_constraints":["keep logo"], "freeform_notes":"  exact notes  "},
+        "grounding": {"status":"PASSED", "used_knowledge_ids":["fact-A"],
+                      "selected_reference_asset_ids":["asset-A","asset-B"]},
+    }
+
+
+def test_c20_i12_context_survives_tkinter_normalize_clone_and_save(tmp_path):
+    from rie.ui.local_operator_workspace import append_pyside_history_prompt
+    p = tmp_path / "workspace.json"
+    request = _request(3)
+    prompt = "PRODUCT LOCKS:\n  exact  two  spaces\nfinal"
+    append_pyside_history_prompt(request, prompt, _i12_context(), path=p)
+    state = load_workspace(p)
+    assert state["recent_prompts"][0]["prompt_text"] == prompt
+    assert state["recent_prompts"][0]["pyside_context"] == _i12_context()
+    state = set_last_request(state, _request(4))
+    state = toggle_recent_favorite(state, 0)
+    save_workspace(clone_workspace(state), p)
+    second = load_workspace(p)
+    assert second["recent_prompts"][0]["pyside_context"] == _i12_context()
+    assert second["recent_prompts"][0]["favorite"] is True
+    assert second["last_request"] == _request(4)
+
+
+import pytest
+
+@pytest.mark.parametrize("kind", ["invalid-json", "unknown-version", "unrecognized-data", "full"])
+def test_c20_i12_writer_refuses_unsafe_existing_workspace_without_mutation(tmp_path, kind):
+    from rie.ui.local_operator_workspace import append_pyside_history_prompt
+    p = tmp_path / "workspace.json"
+    if kind == "invalid-json":
+        p.write_bytes(b'{bad')
+    elif kind == "unknown-version":
+        p.write_text('{"schema_version":2}', encoding='utf-8')
+    elif kind == "unrecognized-data":
+        state = empty_workspace()
+        state["other_system_key"] = "must preserve"
+        p.write_text(json.dumps(state), encoding='utf-8')
+    else:
+        state = empty_workspace()
+        for i in range(20):
+            state = record_recent_prompt(state, _request(i), "prompt-"+str(i))
+        save_workspace(state, p)
+    before = p.read_bytes()
+    with pytest.raises(ValueError):
+        append_pyside_history_prompt(_request(5), "new", _i12_context(), path=p)
+    assert p.read_bytes() == before
+
+
+def test_c20_i12_writer_refuses_missing_or_nonserializable_context(tmp_path):
+    from rie.ui.local_operator_workspace import append_pyside_history_prompt
+    p = tmp_path / "workspace.json"
+    with pytest.raises(ValueError):
+        append_pyside_history_prompt(_request(1), "text", {"schema_version":1}, path=p)
+    with pytest.raises(TypeError):
+        bad = _i12_context()
+        bad["binary"] = b'NOT_ALLOWED'
+        append_pyside_history_prompt(_request(1), "text", bad, path=p)
+    assert not p.exists()

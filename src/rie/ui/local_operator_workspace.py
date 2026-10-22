@@ -60,11 +60,16 @@ def _recent_entry(value: object) -> dict | None:
     if not isinstance(value, dict):
         return None
     request = _request(value)
-    return {
+    entry = {
         **request,
         "prompt_text": str(value.get("prompt_text", "")),
         "favorite": bool(value.get("favorite", False)),
     }
+    # Treat richer PySide context as opaque local annotation, never as rights.
+    # Keep it through Tkinter clone/save cycles without making it authoritative.
+    if isinstance(value.get("pyside_context"), dict):
+        entry["pyside_context"] = copy.deepcopy(value["pyside_context"])
+    return entry
 
 
 def _preset_entry(value: object) -> dict | None:
@@ -201,6 +206,8 @@ def record_recent_prompt(
     workspace: object,
     request: object,
     prompt_text: str,
+    *,
+    pyside_context: dict | None = None,
 ) -> dict:
     updated = normalize_workspace(workspace)
     entry = {
@@ -208,10 +215,69 @@ def record_recent_prompt(
         "prompt_text": str(prompt_text),
         "favorite": False,
     }
+    if pyside_context is not None:
+        if not isinstance(pyside_context, dict) or pyside_context.get("schema_version") != 1:
+            raise ValueError("unsupported PySide context")
+        entry["pyside_context"] = copy.deepcopy(pyside_context)
     updated["recent_prompts"] = (
         [entry] + updated["recent_prompts"]
     )[:HISTORY_LIMIT]
     return updated
+
+
+def append_pyside_history_prompt(
+    request: dict,
+    prompt_text: str,
+    pyside_context: dict,
+    *,
+    path: Path | str | None = None,
+) -> Path:
+    """Explicit, guarded local save; never discard legacy/future workspace data.
+
+    The existing v1 five-field request remains readable by Tkinter. Full
+    PySide brief/reference IDs are an opaque annotation, not a rights grant.
+    Unknown/malformed workspace data and a full history refuse mutation.
+    """
+    if not isinstance(prompt_text, str) or not prompt_text.strip():
+        raise ValueError("empty prompt; workspace unchanged")
+    if not isinstance(pyside_context, dict) or pyside_context.get("schema_version") != 1:
+        raise ValueError("unsupported PySide context; workspace unchanged")
+    if not isinstance(pyside_context.get("brief"), dict) or not isinstance(pyside_context.get("grounding"), dict):
+        raise ValueError("incomplete PySide context; workspace unchanged")
+    # Reject non-JSON payloads before touching any user file.
+    json.dumps(pyside_context, ensure_ascii=True, allow_nan=False)
+    target = workspace_path() if path is None else Path(path)
+    if target.is_symlink() or (target.exists() and not target.is_file()):
+        raise ValueError("unsafe workspace target")
+    temp = target.with_name(target.name + ".tmp")
+    if temp.exists() or temp.is_symlink():
+        raise ValueError("workspace temporary file already exists")
+    if target.exists():
+        original = target.read_bytes()
+        try:
+            decoded = json.loads(original.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("unreadable workspace; unchanged") from exc
+        if not isinstance(decoded, dict) or decoded.get("schema_version") != SCHEMA_VERSION:
+            raise ValueError("unsupported workspace; unchanged")
+        state = normalize_workspace(decoded)
+        if decoded != state:
+            raise ValueError("noncanonical workspace; refuse lossy rewrite")
+    else:
+        original = None
+        state = empty_workspace()
+    if len(state["recent_prompts"]) >= HISTORY_LIMIT:
+        raise ValueError("history at capacity; refuse eviction")
+    updated = record_recent_prompt(
+        state, request, prompt_text, pyside_context=pyside_context,
+    )
+    # Optimistic guard against another writer during validation.
+    if original is None:
+        if target.exists():
+            raise ValueError("workspace created by another process")
+    elif not target.exists() or target.read_bytes() != original:
+        raise ValueError("workspace changed concurrently")
+    return save_workspace(updated, target)
 
 
 def toggle_recent_favorite(

@@ -2388,3 +2388,71 @@ def test_c20_i9_presets_keeps_history_and_create_independent(qt_app, tmp_path, m
         assert not shell.visual_button.isEnabled()
     finally:
         shell.close()
+
+
+# C20-I12: explicit opt-in only; structured PySide brief is never discarded.
+def test_c20_i12_explicit_history_save_preserves_full_snapshot(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = ProductCompletionShell(
+        product_intelligence_query=_FakeProductIntelligenceQuery(),
+        creative_prompt_composer=_FakeCreativePromptComposer(),
+    )
+    try:
+        assert shell.history_save_button.objectName() == "saveGroundedPromptToHistory"
+        assert not shell.history_save_button.isEnabled()
+        shell.product_combo.setCurrentText("SV300")
+        qt_app.processEvents()
+        shell.variant_combo.setCurrentText("White Glossy")
+        _fill_required_create_fields(shell)
+        shell.objective_edit.setText("product hero")
+        shell.shot_type_edit.setText("medium product shot")
+        shell.aspect_ratio_edit.setText("4:5")
+        shell.preserve_edit.setText("preserve logo; keep visor")
+        shell.notes_edit.setPlainText("  notes  ")
+        monkeypatch.setattr(shell, "_selected_create_reference_asset_ids", lambda: ("asset-photo-front",))
+        shell._build_grounded_prompt()
+        assert shell.history_save_button.isEnabled(), "PASSED grounded prompt must be savable"
+        if shell.history_save_button.isEnabled():
+            original = shell.prompt_preview.toPlainText()
+            path = storage.workspace_path()
+            assert not path.exists()
+            shell.history_save_button.click()
+            assert path.exists()
+            records = storage.load_workspace(path)["recent_prompts"]
+            assert len(records) == 1
+            assert records[0]["prompt_text"] == original
+            brief = records[0]["pyside_context"]["brief"]
+            assert brief["objective"] == "product hero"
+            assert brief["aspect_ratio"] == "4:5"
+            assert brief["preserve_constraints"] == ["preserve logo", "keep visor"]
+            assert brief["freeform_notes"] == "  notes  "
+            assert brief["selected_reference_asset_ids"] == ["asset-photo-front"]
+            assert records[0]["pyside_context"]["grounding"]["status"] == "PASSED"
+            assert not shell.history_save_button.isEnabled()
+            assert not shell.visual_button.isEnabled()
+        else:
+            assert not storage.workspace_path().exists()
+    finally:
+        shell.close()
+
+
+def test_c20_i12_save_is_never_triggered_by_copy_or_language_switch(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    shell = _shell()
+    try:
+        assert not shell.history_save_button.isEnabled()
+        shell.prompt_preview.setPlainText("a manual example prompt")
+        assert not shell.history_save_button.isEnabled()
+        shell.copy_prompt_button.click()
+        shell._localizer.set_locale("en-US")
+        shell._h2_apply_language()
+        assert shell.history_save_button.text() == "Save to History"
+        shell._localizer.set_locale("id-ID")
+        shell._h2_apply_language()
+        assert shell.history_save_button.text() == "Simpan ke Riwayat"
+        assert not storage.workspace_path().exists()
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()

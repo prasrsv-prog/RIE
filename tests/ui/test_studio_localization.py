@@ -190,7 +190,7 @@ def test_c20_i6_history_catalog_parity_and_existing_copy_reuse() -> None:
     catalogs = load_catalogs()
     id_messages = catalogs["id-ID"]
     en_messages = catalogs["en-US"]
-    assert len(id_messages) == len(en_messages) == 151
+    assert len(id_messages) == len(en_messages) == 154
     for key in (
         "history.title", "history.intro", "history.refresh", "history.empty",
         "history.count", "history.legacy_note", "history.details",
@@ -207,7 +207,7 @@ def test_c20_i9_presets_catalog_reuses_existing_workspace_without_persistence() 
     catalogs = load_catalogs()
     id_messages = catalogs["id-ID"]
     en_messages = catalogs["en-US"]
-    assert len(id_messages) == len(en_messages) == 151
+    assert len(id_messages) == len(en_messages) == 154
     for key in (
         "presets.title", "presets.intro", "presets.legacy_note", "presets.refresh",
         "presets.empty", "presets.count", "presets.selection_hint", "presets.details",
@@ -216,3 +216,11 @@ def test_c20_i9_presets_catalog_reuses_existing_workspace_without_persistence() 
     assert Localizer("id-ID").tr("presets.count",count=1).startswith("1 ")
     assert Localizer("en-US").tr("presets.count",count=1).startswith("1 ")
     assert "History" == Localizer("en-US").tr("nav.history")
+
+
+def test_c20_i12_existing_history_save_keys_in_both_languages():
+    from rie.ui.studio_localization import Localizer
+    assert Localizer("id-ID").tr("history.save_action") == "Simpan ke Riwayat"
+    assert Localizer("en-US").tr("history.save_action") == "Save to History"
+    assert Localizer("id-ID").tr("history.save_success") != Localizer("en-US").tr("history.save_success")
+    assert Localizer("id-ID").tr("history.save_failed") != Localizer("en-US").tr("history.save_failed")
