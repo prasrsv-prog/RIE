@@ -190,7 +190,7 @@ def test_c20_i6_history_catalog_parity_and_existing_copy_reuse() -> None:
     catalogs = load_catalogs()
     id_messages = catalogs["id-ID"]
     en_messages = catalogs["en-US"]
-    assert len(id_messages) == len(en_messages) == 154
+    assert len(id_messages) == len(en_messages) == 162
     for key in (
         "history.title", "history.intro", "history.refresh", "history.empty",
         "history.count", "history.legacy_note", "history.details",
@@ -207,7 +207,7 @@ def test_c20_i9_presets_catalog_reuses_existing_workspace_without_persistence() 
     catalogs = load_catalogs()
     id_messages = catalogs["id-ID"]
     en_messages = catalogs["en-US"]
-    assert len(id_messages) == len(en_messages) == 154
+    assert len(id_messages) == len(en_messages) == 162
     for key in (
         "presets.title", "presets.intro", "presets.legacy_note", "presets.refresh",
         "presets.empty", "presets.count", "presets.selection_hint", "presets.details",
@@ -224,3 +224,19 @@ def test_c20_i12_existing_history_save_keys_in_both_languages():
     assert Localizer("en-US").tr("history.save_action") == "Save to History"
     assert Localizer("id-ID").tr("history.save_success") != Localizer("en-US").tr("history.save_success")
     assert Localizer("id-ID").tr("history.save_failed") != Localizer("en-US").tr("history.save_failed")
+
+
+
+def test_c20_i15_history_rich_display_catalog_parity():
+    catalogs = load_catalogs()
+    assert len(catalogs["id-ID"]) == len(catalogs["en-US"]) == 162
+    keys = (
+        "history.rich_note", "history.saved_details_title", "history.saved_references",
+        "history.grounding_status", "history.knowledge_ids", "history.grounded_asset_ids",
+        "history.grounding_reference_ids", "history.grounding_missing",
+    )
+    for key in keys:
+        assert key in catalogs["id-ID"] and key in catalogs["en-US"]
+        assert catalogs["id-ID"][key] != catalogs["en-US"][key]
+    assert "otorisasi" in Localizer("id-ID").tr("history.rich_note")
+    assert "authorization" in Localizer("en-US").tr("history.rich_note")

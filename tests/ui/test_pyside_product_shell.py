@@ -2456,3 +2456,126 @@ def test_c20_i12_save_is_never_triggered_by_copy_or_language_switch(qt_app, tmp_
         assert not shell.visual_button.isEnabled()
     finally:
         shell.close()
+
+
+# C20-I15: full local PySide snapshot projection is read-only and non-authoritative.
+def _i15_workspace(tmp_path):
+    import rie.ui.local_operator_workspace as storage
+    target = tmp_path / "workspace.json"
+    req = {"product_id": "ffs21", "variant_id": "black-glossy", "background": "studio", "camera_angle": "front", "requested_output": "catalog"}
+    context = {
+        "schema_version": 1,
+        "brief": {
+            "objective": "  hero shot  ", "deliverable": "catalog", "environment": "studio",
+            "camera_angle": "front", "shot_type": "close-up", "lighting_style": "soft",
+            "composition": "centered", "mood_style": "bold", "aspect_ratio": "4:5",
+            "orientation": "portrait", "product_emphasis": "helmet",
+            "preserve_constraints": ["D-ring", "helmet shell"],
+            "avoid_constraints": ["no logo changes"],
+            "selected_reference_asset_ids": ["asset/01", "asset/02"],
+            "freeform_notes": "  keep spacing  ",
+        },
+        "grounding": {"status": "PASSED", "used_knowledge_ids": ["k1"],
+                      "used_asset_ids": ["a1"], "selected_reference_asset_ids": ["asset/01"],
+                      "missing_knowledge": [], "conflicts": []},
+    }
+    state = storage.record_recent_prompt(storage.empty_workspace(), req, "PRODUCT LOCKS\n exact prompt", pyside_context=context)
+    storage.save_workspace(state, target)
+    return target
+
+
+def test_c20_i15_history_rich_exact_context_readonly(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    path = _i15_workspace(tmp_path)
+    before = path.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(path))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        shell.history_list.setCurrentRow(0)
+        text = shell.history_rich_details.toPlainText()
+        assert shell.history_rich_details.isReadOnly()
+        assert not shell.history_rich_details.isHidden()
+        assert "asset/01, asset/02" in text
+        assert "  hero shot  " in text
+        assert "  keep spacing  " in text
+        assert "D-ring, helmet shell" in text
+        assert "k1" in text and "PASSED" in text
+        assert shell.history_preview.toPlainText() == "PRODUCT LOCKS\n exact prompt"
+        assert "metadata" in shell.history_legacy_note.text().lower()
+        assert not shell.visual_button.isEnabled()
+        assert path.read_bytes() == before
+    finally:
+        shell.close()
+
+
+def test_c20_i15_history_rich_language_switch_never_reloads_or_rewrites(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    path = _i15_workspace(tmp_path)
+    before = path.read_bytes()
+    calls = []
+    def read():
+        calls.append(1)
+        return storage.load_workspace(path)
+    monkeypatch.setattr(shell_module, "load_workspace", read)
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        shell.history_list.setCurrentRow(0)
+        first = shell.history_rich_details.toPlainText()
+        initial_reads = len(calls)
+        original_brief = shell.current_brief()
+        shell._localizer.set_locale("en-US")
+        shell._h2_apply_language()
+        assert shell.history_rich_heading.text() == "Saved PySide concept details (read-only)"
+        assert "Selected reference photo IDs: asset/01, asset/02" in shell.history_rich_details.toPlainText()
+        assert len(calls) == initial_reads
+        shell._localizer.set_locale("id-ID")
+        shell._h2_apply_language()
+        assert shell.history_rich_heading.text() == "Detail konsep PySide tersimpan (hanya baca)"
+        assert "ID foto referensi terpilih: asset/01, asset/02" in shell.history_rich_details.toPlainText()
+        assert first == shell.history_rich_details.toPlainText()
+        assert shell.current_brief() == original_brief
+        assert path.read_bytes() == before
+    finally:
+        shell.close()
+
+
+def test_c20_i15_history_legacy_record_has_no_rich_panel(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    path = tmp_path / "workspace.json"
+    req = {"product_id": "p", "variant_id": "v", "background": "b", "camera_angle": "c", "requested_output": "o"}
+    storage.save_workspace(storage.record_recent_prompt(storage.empty_workspace(), req, "legacy text"), path)
+    before = path.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(path))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        shell.history_list.setCurrentRow(0)
+        assert shell.history_rich_details.isHidden()
+        assert shell.history_rich_details.toPlainText() == ""
+        assert "5" in shell.history_legacy_note.text()
+        assert shell.history_preview.toPlainText() == "legacy text"
+        assert path.read_bytes() == before
+    finally:
+        shell.close()
+
+
+def test_c20_i15_history_rich_selection_clear_removes_metadata(qt_app, tmp_path, monkeypatch):
+    import rie.ui.local_operator_workspace as storage
+    path = _i15_workspace(tmp_path)
+    before = path.read_bytes()
+    monkeypatch.setattr(shell_module, "load_workspace", lambda: storage.load_workspace(path))
+    shell = _shell()
+    try:
+        shell.navigation.setCurrentRow(NAVIGATION.index("History"))
+        shell.history_list.setCurrentRow(0)
+        assert shell.history_rich_details.toPlainText()
+        shell.history_list.setCurrentRow(-1)
+        assert shell.history_rich_details.isHidden()
+        assert shell.history_rich_details.toPlainText() == ""
+        assert shell.history_rich_heading.isHidden()
+        assert shell.history_preview.toPlainText() == ""
+        assert path.read_bytes() == before
+    finally:
+        shell.close()

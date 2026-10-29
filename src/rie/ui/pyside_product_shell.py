@@ -2727,6 +2727,17 @@ class ProductCompletionShell(QMainWindow):
         self.history_details.setWordWrap(True)
         self.history_details.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.history_details)
+        self.history_rich_heading = QLabel("")
+        self.history_rich_heading.setObjectName("historyRichContextHeading")
+        self.history_rich_heading.setWordWrap(True)
+        self.history_rich_heading.setVisible(False)
+        layout.addWidget(self.history_rich_heading)
+        self.history_rich_details = QPlainTextEdit()
+        self.history_rich_details.setObjectName("historyRichContextDetails")
+        self.history_rich_details.setReadOnly(True)
+        self.history_rich_details.setMaximumHeight(170)
+        self.history_rich_details.setVisible(False)
+        layout.addWidget(self.history_rich_details)
         self.history_preview = QPlainTextEdit()
         self.history_preview.setObjectName("historyPromptPreview")
         self.history_preview.setReadOnly(True)
@@ -2779,11 +2790,70 @@ class ProductCompletionShell(QMainWindow):
         record = self._history_selected_record()
         if record is None:
             self.history_details.clear()
+            self._history_rich_context_update(None)
             return
         fields = ("product_id", "variant_id", "background", "camera_angle", "requested_output")
         self.history_details.setText(self._localizer.tr(
             "history.details", **{field: record[field] for field in fields}
         ))
+        self._history_rich_context_update(record)
+
+    def _history_rich_context_update(self, record: dict | None) -> None:
+        """Render local saved annotation only; never restore it or infer rights."""
+        context = record.get("pyside_context") if isinstance(record, dict) else None
+        has_context = (
+            isinstance(context, dict)
+            and context.get("schema_version") == 1
+            and isinstance(context.get("brief"), dict)
+            and isinstance(context.get("grounding"), dict)
+        )
+        self.history_rich_heading.setVisible(has_context)
+        self.history_rich_details.setVisible(has_context)
+        tr = self._localizer.tr
+        self.history_legacy_note.setText(
+            tr("history.rich_note") if has_context else tr("history.legacy_note")
+        )
+        if not has_context:
+            self.history_rich_heading.clear()
+            self.history_rich_details.clear()
+            return
+        self.history_rich_heading.setText(tr("history.saved_details_title"))
+        brief = context["brief"]
+        grounding = context["grounding"]
+
+        def display(value: object) -> str:
+            if isinstance(value, (list, tuple)):
+                return ", ".join(str(v) for v in value) or "—"
+            return str(value) if value is not None and str(value) else "—"
+
+        fields = (
+            ("objective", "create.objective"),
+            ("deliverable", "create.output"),
+            ("environment", "create.environment"),
+            ("camera_angle", "create.camera"),
+            ("shot_type", "create.shot_type"),
+            ("lighting_style", "create.lighting"),
+            ("composition", "create.composition"),
+            ("mood_style", "create.mood"),
+            ("aspect_ratio", "create.aspect_ratio"),
+            ("orientation", "create.orientation"),
+            ("product_emphasis", "create.product_emphasis"),
+            ("preserve_constraints", "create.preserve"),
+            ("avoid_constraints", "create.avoid"),
+            ("selected_reference_asset_ids", "history.saved_references"),
+            ("freeform_notes", "create.notes"),
+        )
+        grounds = (
+            ("status", "history.grounding_status"),
+            ("used_knowledge_ids", "history.knowledge_ids"),
+            ("used_asset_ids", "history.grounded_asset_ids"),
+            ("selected_reference_asset_ids", "history.grounding_reference_ids"),
+            ("missing_knowledge", "history.grounding_missing"),
+            ("conflicts", "context.conflicts"),
+        )
+        lines = [f"{tr(key)}: {display(brief.get(field))}" for field, key in fields]
+        lines.extend(f"{tr(key)}: {display(grounding.get(field))}" for field, key in grounds)
+        self.history_rich_details.setPlainText("\n".join(lines))
 
     def _history_selection_changed(self, _row: int) -> None:
         record = self._history_selected_record()
