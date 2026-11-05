@@ -89,3 +89,62 @@ def approximate_pixel_change(reference: bytes, output: bytes) -> int | None:
         return max(0, min(100, int(score)))
     except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
         return None
+
+
+def suggest_creative_retry(
+    pixel_change: int | None, scene: str, intensity: str,
+) -> tuple[str, str] | None:
+    """Suggest new *prompt settings*, never initiate another provider call.
+
+    A low pixel-change estimate does not prove that an output was copied or
+    that product identity is correct. A scene switch is a proposed operator
+    choice, not an automatic retry or an external-use authorization.
+    """
+    if not isinstance(pixel_change, int) or isinstance(pixel_change, bool):
+        return None
+    if not (0 <= pixel_change < 10):
+        return None
+    if scene not in SCENES or intensity not in INTENSITIES:
+        return None
+    if scene == "as_brief":
+        return ("premium_studio", "bold")
+    if intensity != "bold":
+        return (scene, "bold")
+    alternative = {
+        "premium_studio": "outdoor_lifestyle",
+        "outdoor_lifestyle": "campaign",
+        "campaign": "premium_studio",
+    }
+    return (alternative[scene], "bold")
+
+
+def visual_difference_feedback(
+    pixel_change: int | None, *, locale: str = "id-ID",
+) -> str:
+    """Give a cautious, localized estimate, never a product-quality verdict."""
+    is_id = locale == "id-ID"
+    if (not isinstance(pixel_change, int) or isinstance(pixel_change, bool)
+            or not 0 <= pixel_change <= 100):
+        return (
+            "Perbandingan belum tersedia; hasil tetap dapat disimpan."
+            if is_id else "Comparison unavailable; the output can still be saved."
+        )
+    base = (
+        f"Indikasi perbedaan piksel: {pixel_change}% (perkiraan kasar; "
+        "bukan pemeriksaan desain, logo, atau identitas produk)."
+        if is_id else
+        f"Approximate pixel change: {pixel_change}% (coarse estimate; "
+        "not a product, logo, or identity verification)."
+    )
+    if pixel_change < 10:
+        return base + (
+            " Sangat mirip dengan referensi. Perkuat/ubah scene dan bangun "
+            "ulang prompt; simpan PNG dahulu jika ingin mempertahankan hasil ini."
+            if is_id else
+            " Very similar to the reference. Strengthen/change the scene and "
+            "rebuild the prompt; save this PNG first if you want to keep it."
+        )
+    return base + (
+        " Periksa secara visual apakah identitas produk tetap benar."
+        if is_id else " Visually check whether product identity remains correct."
+    )

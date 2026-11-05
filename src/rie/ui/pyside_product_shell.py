@@ -71,6 +71,7 @@ from rie.domain.governed_creative_workflow_request import (
 
 from rie.ui.creative_visual_control import (
     SCENES, compose_creative_notes, approximate_pixel_change,
+    suggest_creative_retry, visual_difference_feedback,
 )
 from rie.ui.cloudflare_provider_settings import (
     CredentialStoreError, load_credentials, save_credentials, delete_credentials,
@@ -622,6 +623,11 @@ class ProductCompletionShell(QMainWindow):
             "Simpan PNG Hasil..." if self._localizer.locale == "id-ID"
             else "Save Generated PNG..."
         )
+        self.strengthen_scene_button.setText(
+            "Perkuat / ubah scene & buat ulang prompt (tanpa generate)"
+            if self._localizer.locale == "id-ID"
+            else "Strengthen / change scene & rebuild prompt (no generation)"
+        )
         self._refresh_create_grounding_status()
         self._h3_context_chrome()
         self._h3_reference_status()
@@ -1129,6 +1135,13 @@ class ProductCompletionShell(QMainWindow):
         self.visual_change_hint.setWordWrap(True)
         self.visual_change_hint.setVisible(False)
         review_layout.addWidget(self.visual_change_hint)
+        self.strengthen_scene_button = QPushButton(
+            "Perkuat / ubah scene & buat ulang prompt (tanpa generate)"
+        )
+        self.strengthen_scene_button.setObjectName("strengthenSceneWithoutGeneration")
+        self.strengthen_scene_button.setVisible(False)
+        self.strengthen_scene_button.clicked.connect(self._strengthen_scene_after_similar)
+        review_layout.addWidget(self.strengthen_scene_button)
         self.save_generated_visual_button = QPushButton("Simpan PNG Hasil...")
         self.save_generated_visual_button.setObjectName("saveGeneratedVisualPNG")
         self.save_generated_visual_button.setEnabled(False)
@@ -3600,6 +3613,7 @@ class ProductCompletionShell(QMainWindow):
         self.before_after_result_title.setVisible(False)
         self.visual_change_hint.clear()
         self.visual_change_hint.setVisible(False)
+        self.strengthen_scene_button.setVisible(False)
         self.save_generated_visual_button.setEnabled(False)
         self.save_generated_visual_button.setVisible(False)
 
@@ -3664,11 +3678,12 @@ class ProductCompletionShell(QMainWindow):
     def _show_reference_and_change_hint(
         self, output_png: bytes, request: VisualGenerationRequest,
     ) -> None:
-        """Best-effort local comparison; never authorizes or uploads reference."""
+        """Local approximate feedback; never authorizes or uploads a reference."""
+        self.strengthen_scene_button.setVisible(False)
         self.visual_change_hint.setVisible(True)
-        self.visual_change_hint.setText(
-            "Perbandingan belum tersedia; hasil tetap dapat disimpan."
-        )
+        self.visual_change_hint.setText(visual_difference_feedback(
+            None, locale=self._localizer.locale,
+        ))
         if self._visual_reference_assets is None:
             return
         try:
@@ -3686,16 +3701,64 @@ class ProductCompletionShell(QMainWindow):
             self.generated_original_preview.setVisible(True)
             self.before_after_reference_title.setVisible(True)
             pct = approximate_pixel_change(original, output_png)
-            if pct is None:
-                return
-            warning = " Sangat mirip; coba scene lain jika menginginkan perubahan jelas." if pct < 10 else ""
-            self.visual_change_hint.setText(
-                f"Indikasi perbedaan piksel: {pct}% (estimasi kasar, "
-                f"bukan pengukuran kesesuaian desain atau identitas produk).{warning}"
+            self.visual_change_hint.setText(visual_difference_feedback(
+                pct, locale=self._localizer.locale,
+            ))
+            proposed = suggest_creative_retry(
+                pct, self.creative_scene_combo.currentData(),
+                self.creative_intensity_combo.currentData(),
             )
+            self.strengthen_scene_button.setVisible(proposed is not None)
         except (OSError, ValueError, TypeError, AttributeError, IndexError):
-            # An unavailable local comparison must never invalidate a good output.
+            # No comparison failure may invalidate a valid generated PNG.
             return
+
+    def _confirm_scene_rebrief(self) -> bool:
+        is_id = self._localizer.locale == "id-ID"
+        choice = QMessageBox.question(
+            self,
+            "Ubah konsep?" if is_id else "Change scene?",
+            ("Prompt baru akan menggantikan preview hasil yang belum disimpan. "
+             "Simpan PNG terlebih dahulu bila perlu. Tidak ada generasi AI otomatis."
+             if is_id else
+             "Rebuilding the prompt clears any unsaved result preview. "
+             "Save the PNG first if needed. No AI generation will be triggered."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return choice == QMessageBox.StandardButton.Yes
+
+    def _strengthen_scene_after_similar(self, _checked: bool = False) -> None:
+        """Explicit no-network brief revision; provider requires a separate click."""
+        if self._generated_visual_png is None:
+            return
+        suggested = suggest_creative_retry(
+            0, self.creative_scene_combo.currentData(),
+            self.creative_intensity_combo.currentData(),
+        )
+        if suggested is None or self.strengthen_scene_button.isHidden():
+            return
+        if not self._confirm_scene_rebrief():
+            return
+        is_id = self._localizer.locale == "id-ID"
+        scene, intensity = suggested
+        next_index = self.creative_scene_combo.findData(scene)
+        intensity_index = self.creative_intensity_combo.findData(intensity)
+        if next_index < 0 or intensity_index < 0:
+            return
+        self.creative_scene_combo.setCurrentIndex(next_index)
+        self.creative_intensity_combo.setCurrentIndex(intensity_index)
+        self._build_grounded_prompt()
+        self._refresh_create_grounding_status()
+        self._refresh_visual_generation_availability()
+        if self._ready_visual_generation_request() is not None:
+            self.create_feedback.setText(
+                "Prompt dengan scene lebih kuat siap ditinjau. "
+                "Buat Visual hanya bila Anda menyetujui permintaan baru."
+                if is_id else
+                "Revised, stronger scene prompt is ready. Generate Visual "
+                "only if you approve a new request."
+            )
 
     def _save_generated_visual_png(self, _checked: bool = False) -> None:
         """Save only by direct operator selection; never overwrite an existing file."""

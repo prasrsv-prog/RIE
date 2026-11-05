@@ -3094,3 +3094,55 @@ def test_i42_creative_direction_passed_to_composer_without_external_call(qt_app)
         assert provider.calls == []
     finally:
         shell.close()
+
+
+# C20-I45: automatic cautious similarity feedback and operator-approved re-brief.
+def test_i45_similarity_exposes_safe_rebuild_action(qt_app, monkeypatch):
+    import base64
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell._visual_reference_assets, "preview_bytes",
+                            lambda asset_id: base64.b64decode(_I33_PNG_B64))
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert "Sangat mirip" in shell.visual_change_hint.text()
+        assert not shell.strengthen_scene_button.isHidden()
+        monkeypatch.setattr(shell, "_confirm_scene_rebrief", lambda: True)
+        shell.strengthen_scene_button.click()
+        qt_app.processEvents()
+        assert shell.creative_scene_combo.currentData() == "premium_studio"
+        assert shell.creative_intensity_combo.currentData() == "bold"
+        assert "premium studio advertisement" in shell.current_brief().freeform_notes
+        assert shell._generated_visual_png is None
+        assert shell.strengthen_scene_button.isHidden()
+        assert len(provider.calls) == 1  # no silent billed retry
+        assert shell._ready_visual_generation_request() is not None
+    finally:
+        shell.close()
+
+
+def test_i45_declining_rebrief_preserves_result_and_brief(qt_app, monkeypatch):
+    import base64
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell._visual_reference_assets, "preview_bytes",
+                            lambda asset_id: base64.b64decode(_I33_PNG_B64))
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert not shell.strengthen_scene_button.isHidden()
+        existing_png = shell._generated_visual_png
+        monkeypatch.setattr(shell, "_confirm_scene_rebrief", lambda: False)
+        shell.strengthen_scene_button.click()
+        assert shell._generated_visual_png == existing_png
+        assert shell.creative_scene_combo.currentData() == "as_brief"
+        assert shell.creative_intensity_combo.currentData() == "balanced"
+        assert len(provider.calls) == 1
+    finally:
+        shell.close()
