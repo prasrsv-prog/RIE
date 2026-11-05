@@ -2995,3 +2995,102 @@ def test_i33_decline_does_not_create_preview_or_provider_call(qt_app, monkeypatc
         assert shell._generated_visual_png is None
     finally:
         shell.close()
+
+
+# C20-I42: creative direction and visual comparison, offline fake provider only.
+def test_i42_scene_direction_is_visible_and_sent_to_composer(qt_app):
+    shell = _shell()
+    try:
+        assert shell.creative_scene_combo.currentData() == "as_brief"
+        shell.notes_edit.setPlainText("my custom campaign instructions")
+        assert shell.current_brief().freeform_notes == "my custom campaign instructions"
+        scene_index = shell.creative_scene_combo.findData("outdoor_lifestyle")
+        shell.creative_scene_combo.setCurrentIndex(scene_index)
+        assert "outdoor asphalt" in shell.environment_edit.text()
+        shell.creative_intensity_combo.setCurrentIndex(2)
+        brief = shell.current_brief()
+        assert "my custom campaign instructions" in brief.freeform_notes
+        assert "new outdoor background" in brief.freeform_notes
+        assert "do not redesign or recolor" in brief.freeform_notes
+        assert "exact approved variant" in brief.freeform_notes
+    finally:
+        shell.close()
+
+
+def test_i42_scene_change_blocks_stale_provider_request(qt_app, monkeypatch):
+    provider = _I26OfflineVisualProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        assert shell.visual_button.isEnabled()
+        shell.creative_scene_combo.setCurrentIndex(2)
+        qt_app.processEvents()
+        assert not shell.visual_button.isEnabled()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation",
+                            lambda request: pytest.fail("must not confirm a stale request"))
+        shell._generate_visuals()
+        assert provider.calls == []
+    finally:
+        shell.close()
+
+
+def test_i42_comparison_is_nonblocking_with_missing_local_preview(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert shell.generated_visual_preview.isVisible() or shell.generated_visual_preview.pixmap() is not None
+        assert shell.save_generated_visual_button.isEnabled()
+        assert "Perbandingan belum tersedia" in shell.visual_change_hint.text()
+        shell.creative_intensity_combo.setCurrentIndex(2)
+        qt_app.processEvents()
+        assert shell._generated_visual_png is None
+        assert not shell.save_generated_visual_button.isEnabled()
+        assert not shell.visual_change_hint.isVisible()
+    finally:
+        shell.close()
+
+
+def test_i42_comparison_same_reference_reports_rough_zero_percent(qt_app, monkeypatch):
+    import base64
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(
+            shell._visual_reference_assets, "preview_bytes",
+            lambda asset_id: base64.b64decode(_I33_PNG_B64),
+        )
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert shell.generated_original_preview.pixmap() is not None
+        assert not shell.generated_original_preview.pixmap().isNull()
+        assert "0%" in shell.visual_change_hint.text()
+        assert shell.save_generated_visual_button.isEnabled()
+    finally:
+        shell.close()
+
+
+def test_i42_creative_direction_passed_to_composer_without_external_call(qt_app):
+    provider = _I26OfflineVisualProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.creative_scene_combo.setCurrentIndex(1)
+        shell.creative_intensity_combo.setCurrentIndex(2)
+        shell.prompt_button.click()
+        composer = shell._creative_prompt_composer._composer
+        assert len(composer.calls) == 1
+        brief = composer.calls[0]["brief"]
+        assert "premium studio advertisement" in brief.freeform_notes
+        assert "Do not invent, replace, recolor" in brief.freeform_notes
+        assert provider.calls == []
+    finally:
+        shell.close()

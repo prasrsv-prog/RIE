@@ -69,6 +69,9 @@ from rie.domain.governed_creative_workflow_request import (
     GovernedCreativeWorkflowRequest,
 )
 
+from rie.ui.creative_visual_control import (
+    SCENES, compose_creative_notes, approximate_pixel_change,
+)
 from rie.ui.cloudflare_provider_settings import (
     CredentialStoreError, load_credentials, save_credentials, delete_credentials,
 )
@@ -565,6 +568,36 @@ class ProductCompletionShell(QMainWindow):
                 widget.setPlaceholderText("Wajib: contoh foto produk untuk katalog daring")
             else:
                 widget.setPlaceholderText(tr(key))
+        is_id = self._localizer.locale == "id-ID"
+        self._h2_brief_form.labelForField(self.creative_scene_combo).setText(
+            "Arah scene" if is_id else "Scene direction"
+        )
+        self._h2_brief_form.labelForField(self.creative_intensity_combo).setText(
+            "Tingkat perubahan" if is_id else "Change strength"
+        )
+        scene_names = (
+            ("Sesuai brief", "Studio premium", "Outdoor / lifestyle", "Kampanye dinamis")
+            if is_id else
+            ("As specified", "Premium studio", "Outdoor / lifestyle", "Dynamic campaign")
+        )
+        intensity_names = (
+            ("Halus", "Seimbang", "Berani") if is_id else
+            ("Subtle", "Balanced", "Bold")
+        )
+        for i, title in enumerate(scene_names):
+            self.creative_scene_combo.setItemText(i, title)
+        for i, title in enumerate(intensity_names):
+            self.creative_intensity_combo.setItemText(i, title)
+        self.creative_direction_hint.setText(
+            "Ubah scene dan pencahayaan, bukan identitas helm. Pilihan baru meminta prompt baru."
+            if is_id else "Change the scene and light, not helmet identity. Rebuild prompt after a new choice."
+        )
+        self.before_after_reference_title.setText(
+            "Referensi asli" if is_id else "Original reference"
+        )
+        self.before_after_result_title.setText(
+            "Hasil FLUX.2" if is_id else "FLUX.2 output"
+        )
         self._h2_update_advanced_toggle_text(self.advanced_brief_toggle.isChecked())
         self._h2_update_grounding_toggle_text(self.create_grounding_details_toggle.isChecked())
         self.prompt_button.setText(tr("prompt.build"))
@@ -864,6 +897,31 @@ class ProductCompletionShell(QMainWindow):
         brief_form.addRow("Sudut pandang (wajib)", self.camera_edit)
         brief_form.addRow("Hasil (wajib)", self.deliverable_edit)
         brief_form.addRow("Ide tambahan", self.notes_edit)
+        # Operator-visible scene controls; no provider call or rights mutation.
+        self.creative_scene_combo = QComboBox()
+        self.creative_scene_combo.setObjectName("creativeSceneDirection")
+        for name, key in (
+            ("Sesuai brief", "as_brief"),
+            ("Studio premium", "premium_studio"),
+            ("Outdoor / lifestyle", "outdoor_lifestyle"),
+            ("Kampanye dinamis", "campaign"),
+        ):
+            self.creative_scene_combo.addItem(name, key)
+        self.creative_intensity_combo = QComboBox()
+        self.creative_intensity_combo.setObjectName("creativeChangeIntensity")
+        for name, key in (
+            ("Halus", "subtle"), ("Seimbang", "balanced"), ("Berani", "bold"),
+        ):
+            self.creative_intensity_combo.addItem(name, key)
+        self.creative_intensity_combo.setCurrentIndex(1)
+        brief_form.addRow("Arah scene", self.creative_scene_combo)
+        brief_form.addRow("Tingkat perubahan", self.creative_intensity_combo)
+        self.creative_direction_hint = QLabel(
+            "Pilih scene baru untuk mengubah latar/komposisi, bukan identitas helm."
+        )
+        self.creative_direction_hint.setObjectName("creativeDirectionHint")
+        self.creative_direction_hint.setWordWrap(True)
+        brief_layout.addWidget(self.creative_direction_hint)
         brief_layout.addLayout(brief_form)
 
         self.advanced_brief_toggle = QPushButton("Pengaturan Lanjutan  ▸")
@@ -1046,7 +1104,31 @@ class ProductCompletionShell(QMainWindow):
         self.generated_visual_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.generated_visual_preview.setMinimumHeight(220)
         self.generated_visual_preview.setVisible(False)
-        review_layout.addWidget(self.generated_visual_preview)
+        # Side-by-side in-memory preview; no auto-export of the original photo.
+        self.before_after_row = QHBoxLayout()
+        before_column = QVBoxLayout()
+        self.before_after_reference_title = QLabel("Referensi asli")
+        self.before_after_reference_title.setVisible(False)
+        before_column.addWidget(self.before_after_reference_title)
+        self.generated_original_preview = QLabel()
+        self.generated_original_preview.setObjectName("generatedOriginalComparisonPreview")
+        self.generated_original_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.generated_original_preview.setMinimumHeight(220)
+        self.generated_original_preview.setVisible(False)
+        before_column.addWidget(self.generated_original_preview)
+        after_column = QVBoxLayout()
+        self.before_after_result_title = QLabel("Hasil FLUX.2")
+        self.before_after_result_title.setVisible(False)
+        after_column.addWidget(self.before_after_result_title)
+        after_column.addWidget(self.generated_visual_preview)
+        self.before_after_row.addLayout(before_column, 1)
+        self.before_after_row.addLayout(after_column, 1)
+        review_layout.addLayout(self.before_after_row)
+        self.visual_change_hint = QLabel("")
+        self.visual_change_hint.setObjectName("visualChangeEstimate")
+        self.visual_change_hint.setWordWrap(True)
+        self.visual_change_hint.setVisible(False)
+        review_layout.addWidget(self.visual_change_hint)
         self.save_generated_visual_button = QPushButton("Simpan PNG Hasil...")
         self.save_generated_visual_button.setObjectName("saveGeneratedVisualPNG")
         self.save_generated_visual_button.setEnabled(False)
@@ -1085,6 +1167,8 @@ class ProductCompletionShell(QMainWindow):
         ):
             edit.textChanged.connect(self._refresh_visual_generation_availability)
         self.notes_edit.textChanged.connect(self._refresh_visual_generation_availability)
+        self.creative_scene_combo.currentIndexChanged.connect(self._apply_creative_scene)
+        self.creative_intensity_combo.currentIndexChanged.connect(self._refresh_visual_generation_availability)
 
         page.setWidget(content)
         return page
@@ -3267,6 +3351,20 @@ class ProductCompletionShell(QMainWindow):
             if item.strip()
         )
 
+    def _apply_creative_scene(self, _index: int) -> None:
+        """A scene choice explicitly updates visible brief fields; never product facts."""
+        scene = self.creative_scene_combo.currentData()
+        preset = SCENES.get(scene)
+        if preset is not None:
+            for widget, name in (
+                (self.environment_edit, "environment"),
+                (self.lighting_edit, "lighting"),
+                (self.composition_edit, "composition"),
+                (self.mood_edit, "mood"),
+            ):
+                widget.setText(preset[name])
+        self._refresh_visual_generation_availability()
+
     def current_brief(self) -> CreativeBrief:
         return CreativeBrief(
             objective=self.objective_edit.text(),
@@ -3289,7 +3387,11 @@ class ProductCompletionShell(QMainWindow):
             selected_reference_asset_ids=(
                 self._selected_create_reference_asset_ids()
             ),
-            freeform_notes=self.notes_edit.toPlainText(),
+            freeform_notes=compose_creative_notes(
+                self.notes_edit.toPlainText(),
+                self.creative_scene_combo.currentData(),
+                self.creative_intensity_combo.currentData(),
+            ),
         )
 
     def apply_product_context(
@@ -3492,6 +3594,12 @@ class ProductCompletionShell(QMainWindow):
         self._generated_visual_request = None
         self.generated_visual_preview.clear()
         self.generated_visual_preview.setVisible(False)
+        self.generated_original_preview.clear()
+        self.generated_original_preview.setVisible(False)
+        self.before_after_reference_title.setVisible(False)
+        self.before_after_result_title.setVisible(False)
+        self.visual_change_hint.clear()
+        self.visual_change_hint.setVisible(False)
         self.save_generated_visual_button.setEnabled(False)
         self.save_generated_visual_button.setVisible(False)
 
@@ -3543,13 +3651,51 @@ class ProductCompletionShell(QMainWindow):
         self._generated_visual_request = request
         self.generated_visual_preview.setPixmap(
             pixmap.scaled(
-                QSize(440, 320), Qt.AspectRatioMode.KeepAspectRatio,
+                QSize(330, 270), Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
         self.generated_visual_preview.setVisible(True)
+        self.before_after_result_title.setVisible(True)
+        self._show_reference_and_change_hint(raw, request)
         self.save_generated_visual_button.setEnabled(True)
         self.save_generated_visual_button.setVisible(True)
+
+    def _show_reference_and_change_hint(
+        self, output_png: bytes, request: VisualGenerationRequest,
+    ) -> None:
+        """Best-effort local comparison; never authorizes or uploads reference."""
+        self.visual_change_hint.setVisible(True)
+        self.visual_change_hint.setText(
+            "Perbandingan belum tersedia; hasil tetap dapat disimpan."
+        )
+        if self._visual_reference_assets is None:
+            return
+        try:
+            ref = request.selected_reference_asset_ids[0]
+            original = self._visual_reference_assets.preview_bytes(ref)
+            if not isinstance(original, bytes) or len(original) > 8 * 1024 * 1024:
+                return
+            pixmap = QPixmap()
+            if not pixmap.loadFromData(original) or pixmap.isNull():
+                return
+            self.generated_original_preview.setPixmap(pixmap.scaled(
+                QSize(330, 270), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+            self.generated_original_preview.setVisible(True)
+            self.before_after_reference_title.setVisible(True)
+            pct = approximate_pixel_change(original, output_png)
+            if pct is None:
+                return
+            warning = " Sangat mirip; coba scene lain jika menginginkan perubahan jelas." if pct < 10 else ""
+            self.visual_change_hint.setText(
+                f"Indikasi perbedaan piksel: {pct}% (estimasi kasar, "
+                f"bukan pengukuran kesesuaian desain atau identitas produk).{warning}"
+            )
+        except (OSError, ValueError, TypeError, AttributeError, IndexError):
+            # An unavailable local comparison must never invalidate a good output.
+            return
 
     def _save_generated_visual_png(self, _checked: bool = False) -> None:
         """Save only by direct operator selection; never overwrite an existing file."""
