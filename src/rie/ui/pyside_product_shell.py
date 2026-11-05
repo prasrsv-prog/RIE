@@ -3829,7 +3829,12 @@ class ProductCompletionShell(QMainWindow):
             self._refresh_visual_generation_availability()
             return
 
-        self._clear_generated_visual()
+        # Keep a previously valid result for the SAME grounded request until a
+        # new response has passed all PNG validation. A failed paid request
+        # must not make an unsaved successful output disappear.
+        if (self._generated_visual_request is not None
+                and self._generated_visual_request != request):
+            self._clear_generated_visual()
         try:
             result = provider.generate(request)
             if not isinstance(result, VisualGenerationResult):
@@ -3838,9 +3843,17 @@ class ProductCompletionShell(QMainWindow):
                 )
             self._show_generated_visual_result(result, request)
         except Exception as exc:
-            self._clear_generated_visual()
+            retained = (
+                self._generated_visual_png is not None
+                and self._generated_visual_request == request
+            )
+            suffix = (
+                " Hasil sebelumnya tetap tersedia; simpan PNG sebelum mengubah brief."
+                if self._localizer.locale == "id-ID" else
+                " Previous result is retained; save the PNG before changing the brief."
+            ) if retained else ""
             self.create_feedback.setText(
-                f"Could not generate visuals: {exc}"
+                f"Could not generate visuals: {exc}{suffix}"
             )
             return
 

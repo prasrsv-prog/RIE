@@ -3146,3 +3146,81 @@ def test_i45_declining_rebrief_preserves_result_and_brief(qt_app, monkeypatch):
         assert len(provider.calls) == 1
     finally:
         shell.close()
+
+
+# C20-I47: an unsuccessful later generation must never discard a valid PNG
+# from the same grounded request. No retry, file write or network side effect.
+def test_i47_second_provider_exception_keeps_prior_png(qt_app, tmp_path, monkeypatch):
+    import base64
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        original = base64.b64decode(_I33_PNG_B64)
+        assert shell._generated_visual_png == original
+        assert shell.save_generated_visual_button.isEnabled()
+        old_request = shell._generated_visual_request
+
+        def raise_after_recording(request):
+            provider.calls.append(request)
+            raise RuntimeError("OFFLINE_I47_PROVIDER_UNAVAILABLE")
+
+        monkeypatch.setattr(provider, "generate", raise_after_recording)
+        shell.visual_button.click()
+        assert len(provider.calls) == 2  # two explicit clicks, never auto retry
+        assert shell._generated_visual_request == old_request
+        assert shell._generated_visual_png == original
+        assert shell.generated_visual_preview.pixmap() is not None
+        assert shell.save_generated_visual_button.isEnabled()
+        assert "Could not generate visuals" in shell.create_feedback.text()
+        assert ("sebelumnya tetap tersedia" in shell.create_feedback.text()
+                or "Previous result is retained" in shell.create_feedback.text())
+
+        target = tmp_path / "keep-old-success.png"
+        monkeypatch.setattr(shell_module.QFileDialog, "getSaveFileName",
+                            lambda *args: (str(target), "PNG images (*.png)"))
+        shell.save_generated_visual_button.click()
+        assert target.read_bytes() == original
+    finally:
+        shell.close()
+
+
+def test_i47_invalid_second_output_preserves_last_valid_preview(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        old = shell._generated_visual_png
+        assert old is not None
+        provider.image_ref = "data:image/png;base64,invalid"
+        shell.visual_button.click()
+        assert len(provider.calls) == 2
+        assert shell._generated_visual_png == old
+        assert shell.save_generated_visual_button.isEnabled()
+        assert "Could not generate visuals" in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_i47_declining_later_request_keeps_previous_png(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        previous = shell._generated_visual_png
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: False)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert shell._generated_visual_png == previous
+        assert shell.save_generated_visual_button.isEnabled()
+    finally:
+        shell.close()
