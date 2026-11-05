@@ -2579,3 +2579,419 @@ def test_c20_i15_history_rich_selection_clear_removes_metadata(qt_app, tmp_path,
         assert path.read_bytes() == before
     finally:
         shell.close()
+
+
+# C20-I26: offline-only explicit provider injection. No HTTP or real user data.
+class _I26OfflineVisualProvider:
+    def __init__(self, *, error=None):
+        self.calls = []
+        self.error = error
+
+    def generate(self, request):
+        self.calls.append(request)
+        if self.error is not None:
+            raise self.error
+        from rie.application.visual_generation_provider import VisualGenerationResult
+        return VisualGenerationResult(
+            provider_output_refs=("offline-fake-reference",),
+            message="OFFLINE_I26_PROVIDER_FAKE_OK",
+        )
+
+
+def _i26_shell(provider):
+    from types import SimpleNamespace
+    result = SimpleNamespace(
+        prompt_text="I26 exact offline grounded prompt", grounding_status="PASSED",
+        used_knowledge_ids=("knowledge-identity",), used_asset_ids=("asset-identity",),
+        selected_reference_asset_ids=("asset-photo-front",),
+        missing_knowledge=(), conflicts=(),
+    )
+    return ProductCompletionShell(
+        adapter=GroundedPromptCompatibilityAdapter(_FakeController()),
+        creative_prompt_composer=_FakeCreativePromptComposer(result=result),
+        visual_reference_asset_query=_FakeVisualReferenceAssetQuery(),
+        visual_generation_provider=provider,
+    )
+
+
+def _i26_prepare(shell, qt_app):
+    shell.product_combo.setCurrentText("SV300")
+    qt_app.processEvents()
+    shell.variant_combo.setCurrentText("White Glossy")
+    qt_app.processEvents()
+    shell.reference_asset_list.item(0).setSelected(True)
+    _fill_required_create_fields(shell)
+    qt_app.processEvents()
+
+
+def test_c20_i26_explicit_provider_starts_disabled_until_exact_grounding(qt_app):
+    provider = _I26OfflineVisualProvider()
+    shell = _i26_shell(provider)
+    try:
+        assert not shell.visual_button.isEnabled()
+        _i26_prepare(shell, qt_app)
+        assert not shell.visual_button.isEnabled()
+        shell.prompt_button.click()
+        qt_app.processEvents()
+        assert shell.visual_button.isEnabled()
+        assert provider.calls == []
+    finally:
+        shell.close()
+
+
+def test_c20_i26_declined_external_confirmation_makes_zero_calls(qt_app, monkeypatch):
+    provider = _I26OfflineVisualProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: False)
+        shell.visual_button.click()
+        assert provider.calls == []
+        assert "canceled" in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_c20_i26_accepted_offline_confirmation_routes_exact_request(qt_app, monkeypatch):
+    provider = _I26OfflineVisualProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert provider.calls[0].grounded_prompt == "I26 exact offline grounded prompt"
+        assert provider.calls[0].selected_reference_asset_ids == ("asset-photo-front",)
+        assert shell.create_feedback.text() == "OFFLINE_I26_PROVIDER_FAKE_OK"
+    finally:
+        shell.close()
+
+
+@pytest.mark.parametrize("change", ["brief", "reference", "prompt", "product"])
+def test_c20_i26_stale_selection_or_prompt_blocks_provider(qt_app, monkeypatch, change):
+    provider = _I26OfflineVisualProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        assert shell.visual_button.isEnabled()
+        if change == "brief":
+            shell.environment_edit.setText("modified after grounding")
+        elif change == "reference":
+            shell.reference_asset_list.clearSelection()
+        elif change == "prompt":
+            shell.prompt_preview.setPlainText("edited prompt")
+        elif change == "product":
+            shell.product_combo.setCurrentIndex(0)
+        qt_app.processEvents()
+        assert not shell.visual_button.isEnabled()
+        monkeypatch.setattr(
+            shell, "_confirm_external_visual_generation",
+            lambda request: pytest.fail("confirmation must not open"),
+        )
+        shell._generate_visuals()
+        assert provider.calls == []
+    finally:
+        shell.close()
+
+
+def test_c20_i26_provider_error_only_after_explicit_confirmation(qt_app, monkeypatch):
+    provider = _I26OfflineVisualProvider(error=ValueError("rights not eligible"))
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert "rights not eligible" in shell.create_feedback.text()
+        assert "OFFLINE_I26_PROVIDER_FAKE_OK" not in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_c20_i26_normal_main_does_not_auto_inject_provider(qt_app, monkeypatch):
+    monkeypatch.setattr(shell_module, "load_remembered_intake_root", lambda: None)
+    shell = build_normal_product_completion_shell()
+    try:
+        assert shell._visual_generation_provider is None
+        assert not shell.visual_button.isEnabled()
+    finally:
+        shell.close()
+    with pytest.raises(RuntimeError, match="without local intake"):
+        build_normal_product_completion_shell(
+            visual_generation_provider=_I26OfflineVisualProvider()
+        )
+
+
+def test_c20_i26_normal_factory_explicit_provider_is_injected(qt_app, monkeypatch):
+    product_query = _FakeProductIntelligenceQuery()
+    visual_query = _FakeVisualReferenceAssetQuery()
+    composer = _FakeCreativePromptComposer()
+    provider = _I26OfflineVisualProvider()
+    monkeypatch.setattr(shell_module, "load_remembered_intake_root", lambda: "C:/offline-intake")
+    monkeypatch.setattr(
+        shell_module.ProductIntelligenceQuery, "from_intake_root",
+        staticmethod(lambda *, intake_root: product_query),
+    )
+    monkeypatch.setattr(
+        shell_module, "VisualReferenceAssetQuery",
+        lambda *, intake_root, product_intelligence_query: visual_query,
+    )
+    monkeypatch.setattr(
+        shell_module.CreativePromptComposer, "from_intake_root",
+        staticmethod(lambda *, intake_root, visual_reference_asset_query: composer),
+    )
+    shell = build_normal_product_completion_shell(visual_generation_provider=provider)
+    try:
+        assert shell._visual_generation_provider is provider
+        assert shell._creative_prompt_composer is not None
+        assert shell._visual_reference_assets is not None
+        assert not shell.visual_button.isEnabled()
+        assert provider.calls == []
+    finally:
+        shell.close()
+
+
+# C20-I28: explicit Gate 15 composition remains opt-in and offline by default.
+def test_i28_normal_main_does_not_discover_or_activate_provider(monkeypatch):
+    import rie.ui.pyside_product_shell as shell_mod
+    import inspect
+
+    normal = inspect.signature(shell_mod.build_normal_product_completion_shell)
+    explicit = inspect.signature(shell_mod.build_explicit_governed_flux2_product_completion_shell)
+    assert "visual_generation_provider" in normal.parameters
+    assert "governed_snapshot_path" in explicit.parameters
+    for name in (
+        "governed_snapshot_path", "requested_use_scope",
+        "decision_context_reference", "account_id", "api_token", "http_post",
+    ):
+        assert explicit.parameters[name].default is inspect.Parameter.empty
+
+
+def test_i28_missing_snapshot_fails_closed_before_any_query_or_http(tmp_path, monkeypatch):
+    import rie.ui.pyside_product_shell as shell_mod
+    import pytest
+
+    monkeypatch.setattr(shell_mod, "load_remembered_intake_root", lambda: tmp_path)
+    def fail_query(**kwargs):
+        raise AssertionError("no product query before governed snapshot exists")
+    monkeypatch.setattr(shell_mod.ProductIntelligenceQuery, "from_intake_root", fail_query)
+    calls = []
+    with pytest.raises(RuntimeError, match="Gate 15 rights snapshot"):
+        shell_mod.build_explicit_governed_flux2_product_completion_shell(
+            governed_snapshot_path=tmp_path / "missing-gate15.json",
+            requested_use_scope="creative-reference",
+            decision_context_reference="i28-synthetic-test",
+            account_id="offline-fixture", api_token="synthetic-not-a-token",
+            http_post=lambda *args: calls.append(args),
+        )
+    assert calls == []
+
+
+def test_i28_explicit_factory_binds_same_governed_bridge_and_requires_rights(
+    tmp_path, monkeypatch,
+):
+    import hashlib
+    from types import SimpleNamespace
+    import pytest
+    import rie.ui.pyside_product_shell as shell_mod
+    from rie.application.governed_visual_reference_read_bridge import (
+        GovernedVisualReferenceReadBridge,
+        GovernedVisualReferenceReadBridgeContractError,
+    )
+    from rie.application.governed_flux2_opt_in_visual_generation_provider import (
+        GovernedFlux2OptInVisualGenerationProvider,
+    )
+    from rie.application.visual_generation_provider import VisualGenerationRequest
+    from rie.application.visual_reference_asset_query import VisualReferenceAsset
+    from rie.asset_library_repository.governed_asset_library_repository_contract import (
+        GOVERNED_ASSET_LIBRARY_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION,
+        GovernedAssetLibraryRepositoryWriteRequest,
+        build_governed_asset_library_persistence_snapshot,
+    )
+    from rie.asset_library_repository.json_file_governed_asset_library_repository import (
+        JsonFileGovernedAssetLibraryRepository,
+    )
+    from rie.domain.governed_asset_record import GovernedAssetRecord
+    from rie.domain.governed_asset_usage_rights import GovernedAssetUsageRights
+
+    payload = b"synthetic-not-an-image"
+    digest = hashlib.sha256(payload).hexdigest()
+    asset = VisualReferenceAsset(
+        reference_id="reference-offline", asset_id="asset-" + digest,
+        product_id="ffs21", variant_id="black-yellow", product_label="FFS21",
+        variant_label="Black Yellow", filename="synthetic.png",
+        source_relative_path="fixtures/synthetic.png",
+        source_type="APPROVED_PRODUCT_PHOTO", authority="OFFLINE_FIXTURE",
+        version="1", status="APPROVED", sha256=digest, available=True,
+    )
+    class FakeProductQuery:
+        @classmethod
+        def from_intake_root(cls, *, intake_root):
+            return cls()
+    class FakeReferenceQuery:
+        product_options = (SimpleNamespace(product_id="ffs21", label="FFS21"),)
+        def __init__(self, *, intake_root, product_intelligence_query):
+            self.reads = 0
+        def variant_options_for_product(self, product_id):
+            return (SimpleNamespace(variant_id="black-yellow", label="Black Yellow"),)
+        def list_assets(self, *, product_id, variant_id=None):
+            return (asset,)
+        def get_asset(self, asset_id):
+            assert asset_id == asset.asset_id
+            return asset
+        def load_preview_bytes(self, asset_id):
+            self.reads += 1
+            return payload
+    class FakeComposer:
+        @classmethod
+        def from_intake_root(cls, *, intake_root, visual_reference_asset_query):
+            return cls()
+
+    monkeypatch.setattr(shell_mod, "load_remembered_intake_root", lambda: tmp_path)
+    monkeypatch.setattr(shell_mod, "ProductIntelligenceQuery", FakeProductQuery)
+    monkeypatch.setattr(shell_mod, "VisualReferenceAssetQuery", FakeReferenceQuery)
+    monkeypatch.setattr(shell_mod, "CreativePromptComposer", FakeComposer)
+    monkeypatch.setattr(shell_mod, "ProductCompletionShell", lambda **kw: SimpleNamespace(**kw))
+
+    snapshot_path = tmp_path / "synthetic-governance.json"
+    snapshot = build_governed_asset_library_persistence_snapshot(
+        asset_records=(GovernedAssetRecord(
+            asset_record_id=asset.asset_id,
+            provenance_reference=asset.reference_id,
+            usage_rights_reference="rights-synthetic",
+            version_identity="sha256:" + digest,
+            lifecycle_state="ACTIVE", use_eligibility="ELIGIBLE",
+        ),),
+        usage_rights_records=(GovernedAssetUsageRights(
+            rights_record_id="rights-synthetic",
+            rights_holder_reference="synthetic-holder",
+            permitted_use_scope="creative-reference",
+            restriction_scope="no-redistribution",
+            validity_state="ACTIVE", use_authorization="NOT_AUTHORIZED",
+        ),),
+    )
+    repo = JsonFileGovernedAssetLibraryRepository(snapshot_path)
+    result = repo.persist_snapshot(GovernedAssetLibraryRepositoryWriteRequest(
+        contract_version=GOVERNED_ASSET_LIBRARY_REPOSITORY_WRITE_REQUEST_CONTRACT_VERSION,
+        snapshot=snapshot,
+    ))
+    assert result.status == "written"
+    calls = []
+    assembled = shell_mod.build_explicit_governed_flux2_product_completion_shell(
+        governed_snapshot_path=snapshot_path,
+        requested_use_scope="creative-reference",
+        decision_context_reference="i28-synthetic-test",
+        account_id="offline-fixture", api_token="synthetic-not-a-token",
+        http_post=lambda *args: calls.append(args),
+    )
+    assert isinstance(assembled.visual_reference_asset_query, GovernedVisualReferenceReadBridge)
+    assert isinstance(assembled.visual_generation_provider, GovernedFlux2OptInVisualGenerationProvider)
+    assert assembled.visual_reference_asset_query.list_assets(product_id="ffs21") == ()
+    with pytest.raises(GovernedVisualReferenceReadBridgeContractError, match="not eligible"):
+        assembled.visual_generation_provider.generate(
+            VisualGenerationRequest("Synthetic prompt", (asset.asset_id,))
+        )
+    assert calls == []
+
+
+# C20-I33: bounded in-memory visual result preview; manual Save As only.
+_I33_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGMQaDgARwzEcQAXUhUB5iwhpAAAAABJRU5ErkJggg=="
+
+
+class _I33PNGOfflineProvider:
+    def __init__(self, image_ref=None):
+        self.calls = []
+        self.image_ref = image_ref or ("data:image/png;base64," + _I33_PNG_B64)
+
+    def generate(self, request):
+        from rie.application.visual_generation_provider import VisualGenerationResult
+        self.calls.append(request)
+        return VisualGenerationResult(
+            provider_output_refs=(self.image_ref,),
+            message="OFFLINE_I33_PNG_READY",
+        )
+
+
+def test_i33_png_result_preview_in_memory_and_manual_save(qt_app, tmp_path, monkeypatch):
+    import base64
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        assert not shell.save_generated_visual_button.isEnabled()
+        assert shell._generated_visual_png is None
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert shell._generated_visual_png == base64.b64decode(_I33_PNG_B64)
+        assert shell.save_generated_visual_button.isEnabled()
+        assert shell.generated_visual_preview.pixmap() is not None
+        assert not shell.generated_visual_preview.pixmap().isNull()
+        target = tmp_path / "rcis-output.png"
+        monkeypatch.setattr(
+            shell_module.QFileDialog, "getSaveFileName",
+            lambda *args: (str(target), "PNG images (*.png)"),
+        )
+        assert not target.exists()
+        shell.save_generated_visual_button.click()
+        assert target.read_bytes() == base64.b64decode(_I33_PNG_B64)
+        # Never overwrite even when operator picks the same path again.
+        shell.save_generated_visual_button.click()
+        assert target.read_bytes() == base64.b64decode(_I33_PNG_B64)
+        assert "never overwritten" in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_i33_invalid_data_uri_rejected_no_save(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider("data:image/png;base64,invalid")
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert not shell.save_generated_visual_button.isEnabled()
+        assert shell._generated_visual_png is None
+        assert "Could not generate visuals" in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_i33_preview_invalidated_on_brief_change(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: True)
+        shell.visual_button.click()
+        assert shell.save_generated_visual_button.isEnabled()
+        shell.environment_edit.setText("different environment")
+        qt_app.processEvents()
+        assert not shell.visual_button.isEnabled()
+        assert not shell.save_generated_visual_button.isEnabled()
+        assert shell._generated_visual_png is None
+    finally:
+        shell.close()
+
+
+def test_i33_decline_does_not_create_preview_or_provider_call(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda request: False)
+        shell.visual_button.click()
+        assert provider.calls == []
+        assert not shell.save_generated_visual_button.isEnabled()
+        assert shell._generated_visual_png is None
+    finally:
+        shell.close()

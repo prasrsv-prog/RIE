@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+import base64
+import binascii
 import os
+import struct
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -30,6 +34,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -64,6 +69,9 @@ from rie.domain.governed_creative_workflow_request import (
     GovernedCreativeWorkflowRequest,
 )
 
+from rie.ui.cloudflare_provider_settings import (
+    CredentialStoreError, load_credentials, save_credentials, delete_credentials,
+)
 from rie.ui.local_operator_settings import load_remembered_intake_root
 from rie.ui.local_operator_workspace import load_workspace, append_pyside_history_prompt
 from rie.ui.studio_localization import Localizer, SUPPORTED_LOCALES
@@ -343,7 +351,15 @@ class ProductCompletionShell(QMainWindow):
         self._history_copy_feedback_active = False
         self._presets_records: tuple[dict, ...] = ()
 
+        self._reopen_after_provider_settings: Any | None = None
         self._pyside_history_pending: dict | None = None
+        # Independent of History Save: successful grounding remains usable
+        # for a separately confirmed provider action until the request drifts.
+        self._visual_generation_grounded_snapshot: dict | None = None
+        # Returned provider images remain in process memory until an explicit
+        # user-controlled Save As action. No automatic History/workspace write.
+        self._generated_visual_png: bytes | None = None
+        self._generated_visual_request: VisualGenerationRequest | None = None
         self._pyside_history_feedback_key = ""
         self._localizer = Localizer(load_preferred_locale())
         self._h3d_live_status: dict[QLabel, tuple[str, str]] = {}
@@ -418,6 +434,9 @@ class ProductCompletionShell(QMainWindow):
             elif name == "Presets":
                 self._presets_page = self._build_presets_page()
                 self.pages.addWidget(self._presets_page)
+            elif name == "Settings":
+                self._settings_page = self._build_provider_settings_page()
+                self.pages.addWidget(self._settings_page)
             else:
                 self.pages.addWidget(self._placeholder_page(name))
 
@@ -558,8 +577,18 @@ class ProductCompletionShell(QMainWindow):
         self.prompt_preview.setPlaceholderText(tr("prompt.empty"))
         if self._visual_generation_provider is None:
             self.visual_button.setText(tr("provider.generate_disabled"))
-            self.visual_button.setToolTip(tr("provider.rights_warning"))
+        else:
+            self.visual_button.setText(
+                "Buat Visual (perlu konfirmasi)"
+                if self._localizer.locale == "id-ID"
+                else "Generate Visual (confirmation required)"
+            )
+        self.visual_button.setToolTip(tr("provider.rights_warning"))
         self.create_safety_note.setText(tr("provider.rights_warning"))
+        self.save_generated_visual_button.setText(
+            "Simpan PNG Hasil..." if self._localizer.locale == "id-ID"
+            else "Save Generated PNG..."
+        )
         self._refresh_create_grounding_status()
         self._h3_context_chrome()
         self._h3_reference_status()
@@ -567,6 +596,7 @@ class ProductCompletionShell(QMainWindow):
         self._h3d_apply_live_status()
         self._history_apply_language()
         self._presets_apply_language()
+        self._provider_settings_apply_language()
 
 
     def _h3_context_chrome(self) -> None:
@@ -982,9 +1012,9 @@ class ProductCompletionShell(QMainWindow):
         self.history_save_button.setEnabled(False)
         self.visual_button = QPushButton("Buat Visual (belum tersedia)")
         self.visual_button.setObjectName("generateVisuals")
+        # Explicit injection alone never authorizes a provider call.
+        # A matching successful grounded snapshot and 1-4 references are required.
         self.visual_button.setEnabled(False)
-        if self._visual_generation_provider is not None:
-            self.visual_button.setEnabled(True)
         self.visual_button.setToolTip(
             "Visual generation provider is not connected. "
             "No provider is connected in the normal foundation slice."
@@ -1011,6 +1041,18 @@ class ProductCompletionShell(QMainWindow):
         self.create_safety_note.setObjectName("createSafetyNote")
         self.create_safety_note.setWordWrap(True)
         review_layout.addWidget(self.create_safety_note)
+        self.generated_visual_preview = QLabel()
+        self.generated_visual_preview.setObjectName("generatedVisualPreview")
+        self.generated_visual_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.generated_visual_preview.setMinimumHeight(220)
+        self.generated_visual_preview.setVisible(False)
+        review_layout.addWidget(self.generated_visual_preview)
+        self.save_generated_visual_button = QPushButton("Simpan PNG Hasil...")
+        self.save_generated_visual_button.setObjectName("saveGeneratedVisualPNG")
+        self.save_generated_visual_button.setEnabled(False)
+        self.save_generated_visual_button.setVisible(False)
+        self.save_generated_visual_button.clicked.connect(self._save_generated_visual_png)
+        review_layout.addWidget(self.save_generated_visual_button)
         layout.addWidget(review_group)
 
         self.create_feedback = QLabel("Select a product and variant to begin.")
@@ -1029,6 +1071,20 @@ class ProductCompletionShell(QMainWindow):
         self.copy_prompt_button.clicked.connect(self._copy_existing_prompt)
         self.prompt_preview.textChanged.connect(self._history_save_preview_changed)
         self.history_save_button.clicked.connect(self._save_grounded_prompt_to_history)
+        # Re-evaluate readiness whenever the exact operator request changes.
+        self.prompt_preview.textChanged.connect(self._refresh_visual_generation_availability)
+        self.product_combo.currentIndexChanged.connect(self._refresh_visual_generation_availability)
+        self.variant_combo.currentIndexChanged.connect(self._refresh_visual_generation_availability)
+        self.reference_asset_list.itemSelectionChanged.connect(self._refresh_visual_generation_availability)
+        for edit in (
+            self.objective_edit, self.environment_edit, self.camera_edit,
+            self.deliverable_edit, self.shot_type_edit, self.lighting_edit,
+            self.composition_edit, self.mood_edit, self.aspect_ratio_edit,
+            self.orientation_edit, self.product_emphasis_edit, self.preserve_edit,
+            self.avoid_edit,
+        ):
+            edit.textChanged.connect(self._refresh_visual_generation_availability)
+        self.notes_edit.textChanged.connect(self._refresh_visual_generation_availability)
 
         page.setWidget(content)
         return page
@@ -1055,6 +1111,9 @@ class ProductCompletionShell(QMainWindow):
         if snap is not None and self.prompt_preview.toPlainText() != snap["prompt_text"]:
             self._pyside_history_pending = None
             self.history_save_button.setEnabled(False)
+        visual_snap = self._visual_generation_grounded_snapshot
+        if visual_snap is not None and self.prompt_preview.toPlainText() != visual_snap["prompt_text"]:
+            self._visual_generation_grounded_snapshot = None
         self._pyside_history_feedback_key = ""
         self.history_save_feedback.clear()
 
@@ -1073,6 +1132,7 @@ class ProductCompletionShell(QMainWindow):
             return
         self._pyside_history_pending = None
         self.history_save_button.setEnabled(False)
+        self._refresh_visual_generation_availability()
         self._pyside_history_feedback_key = "history.save_success"
         self.history_save_feedback.setText(self._localizer.tr("history.save_success"))
         self._history_refresh_workspace()
@@ -1129,6 +1189,7 @@ class ProductCompletionShell(QMainWindow):
         else:
             status = tr("status.prompt_review")
         self.create_grounding_status.setText(status)
+        self._refresh_visual_generation_availability()
 
     def _build_products_page(self) -> QWidget:
         page = QWidget()
@@ -2983,6 +3044,114 @@ class ProductCompletionShell(QMainWindow):
         )
         self._presets_selection_changed(self.presets_list.currentRow())
 
+    def _build_provider_settings_page(self) -> QWidget:
+        """One-time Cloudflare setup; never show a stored secret."""
+        page = QWidget()
+        page.setObjectName("cloudflareProviderSettingsPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(28, 24, 28, 24)
+        self.provider_settings_heading = QLabel()
+        self.provider_settings_heading.setObjectName("cloudflareProviderSettingsHeading")
+        layout.addWidget(self.provider_settings_heading)
+        self.provider_settings_description = QLabel()
+        self.provider_settings_description.setWordWrap(True)
+        layout.addWidget(self.provider_settings_description)
+        form_group = QGroupBox("Cloudflare Workers AI")
+        form = QFormLayout(form_group)
+        self.provider_account_id_edit = QLineEdit()
+        self.provider_account_id_edit.setObjectName("cloudflareAccountIdInput")
+        self.provider_account_id_edit.setMaxLength(32)
+        self.provider_token_edit = QLineEdit()
+        self.provider_token_edit.setObjectName("cloudflareTokenInput")
+        self.provider_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow("Account ID", self.provider_account_id_edit)
+        form.addRow("API Token", self.provider_token_edit)
+        layout.addWidget(form_group)
+        actions = QHBoxLayout()
+        self.provider_save_button = QPushButton()
+        self.provider_save_button.setObjectName("cloudflareSaveSettings")
+        self.provider_save_button.clicked.connect(self._provider_settings_save)
+        actions.addWidget(self.provider_save_button)
+        self.provider_delete_button = QPushButton()
+        self.provider_delete_button.setObjectName("cloudflareRemoveSettings")
+        self.provider_delete_button.clicked.connect(self._provider_settings_delete)
+        actions.addWidget(self.provider_delete_button)
+        layout.addLayout(actions)
+        self.provider_settings_status = QLabel()
+        self.provider_settings_status.setObjectName("cloudflareSettingsStatus")
+        self.provider_settings_status.setWordWrap(True)
+        layout.addWidget(self.provider_settings_status)
+        layout.addStretch(1)
+        try:
+            saved = load_credentials()
+            if saved is not None:
+                self.provider_account_id_edit.setText(saved.account_id)
+                self.provider_settings_status.setText("Cloudflare settings stored securely.")
+            else:
+                self.provider_settings_status.setText("Cloudflare is not configured.")
+        except CredentialStoreError:
+            self.provider_settings_status.setText(
+                "Stored settings could not be read; provider remains disabled."
+            )
+        return page
+
+    def _provider_settings_apply_language(self) -> None:
+        english = self._localizer.locale == "en-US"
+        self.provider_settings_heading.setText(
+            "AI Provider Settings" if english else "Pengaturan Penyedia AI"
+        )
+        self.provider_settings_description.setText(
+            ("Enter Cloudflare credentials once. Windows DPAPI protects the token "
+             "for this Windows user. Generating a visual still requires "
+             "authorized references and confirmation; saving makes no network call."
+             if english else
+             "Masukkan Cloudflare satu kali. Token dilindungi Windows DPAPI "
+             "untuk akun Windows ini. Pembuatan visual tetap memerlukan "
+             "referensi berizin dan konfirmasi; menyimpan tidak memanggil jaringan.")
+        )
+        self.provider_save_button.setText(
+            "Save & activate" if english else "Simpan & aktifkan"
+        )
+        self.provider_delete_button.setText(
+            "Remove saved credentials" if english else "Hapus kredensial tersimpan"
+        )
+
+    def _provider_settings_save(self, _checked: bool = False) -> None:
+        account = self.provider_account_id_edit.text().strip()
+        token = self.provider_token_edit.text()
+        try:
+            save_credentials(account, token)
+        except (ValueError, CredentialStoreError):
+            self.provider_settings_status.setText(
+                "Could not save. Check Account ID, token, and Windows DPAPI."
+            )
+            self.provider_token_edit.clear()
+            return
+        self.provider_token_edit.clear()
+        self.provider_settings_status.setText("Saved. RCIS provider is being activated.")
+        if callable(self._reopen_after_provider_settings):
+            self._reopen_after_provider_settings()
+
+    def _provider_settings_delete(self, _checked: bool = False) -> None:
+        choice = QMessageBox.question(
+            self, "Remove Cloudflare credentials",
+            "Remove saved provider credentials for this Windows user?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            delete_credentials()
+        except CredentialStoreError:
+            self.provider_settings_status.setText("Could not remove saved credentials.")
+            return
+        self.provider_token_edit.clear()
+        self.provider_account_id_edit.clear()
+        self.provider_settings_status.setText("Credentials removed. External provider disabled.")
+        if callable(self._reopen_after_provider_settings):
+            self._reopen_after_provider_settings()
+
     def _placeholder_page(self, name: str) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -3169,6 +3338,8 @@ class ProductCompletionShell(QMainWindow):
 
     def _build_grounded_prompt(self) -> None:
         self._pyside_history_pending = None
+        self._visual_generation_grounded_snapshot = None
+        self._refresh_visual_generation_availability()
         self.history_save_button.setEnabled(False)
         self._pyside_history_feedback_key = ""
         self.history_save_feedback.clear()
@@ -3244,6 +3415,7 @@ class ProductCompletionShell(QMainWindow):
                     },
                 }
                 self.history_save_button.setEnabled(True)
+                self._visual_generation_grounded_snapshot = self._pyside_history_pending
             else:
                 self.create_feedback.setText(
                     "Grounded prompt could not be completed safely; "
@@ -3274,35 +3446,190 @@ class ProductCompletionShell(QMainWindow):
         )
         self.create_feedback.setText("Grounded prompt ready.")
 
+    def _ready_visual_generation_request(self) -> VisualGenerationRequest | None:
+        """Never infer external-use authority from a local approved manifest.
+
+        This UI gate protects against stale or ungrounded inputs. The injected
+        provider must *separately* enforce Gate 15 rights before any image read.
+        """
+        if self._visual_generation_provider is None:
+            return None
+        snapshot = self._visual_generation_grounded_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        try:
+            grounding = snapshot["context"]["grounding"]
+            if grounding["status"] != "PASSED":
+                return None
+            if grounding["missing_knowledge"] or grounding["conflicts"]:
+                return None
+            if snapshot["request"]["product_id"] != self._product_ids_by_label.get(
+                self.product_combo.currentText()
+            ):
+                return None
+            if snapshot["request"]["variant_id"] != self._variant_ids_by_label.get(
+                self.variant_combo.currentText()
+            ):
+                return None
+            if snapshot["context"]["brief"] != asdict(self.current_brief()):
+                return None
+            refs = self._selected_create_reference_asset_ids()
+            if not 1 <= len(refs) <= 4 or len(set(refs)) != len(refs):
+                return None
+            if tuple(grounding["selected_reference_asset_ids"]) != refs:
+                return None
+            prompt = self.prompt_preview.toPlainText()
+            if not prompt.strip() or prompt != snapshot["prompt_text"]:
+                return None
+            return VisualGenerationRequest(
+                grounded_prompt=prompt, selected_reference_asset_ids=refs,
+            )
+        except (KeyError, ValueError, TypeError, AttributeError):
+            return None
+
+    def _clear_generated_visual(self) -> None:
+        self._generated_visual_png = None
+        self._generated_visual_request = None
+        self.generated_visual_preview.clear()
+        self.generated_visual_preview.setVisible(False)
+        self.save_generated_visual_button.setEnabled(False)
+        self.save_generated_visual_button.setVisible(False)
+
+    def _refresh_visual_generation_availability(self, *_args: Any) -> None:
+        ready_request = self._ready_visual_generation_request()
+        self.visual_button.setEnabled(ready_request is not None)
+        if (self._generated_visual_request is not None
+                and ready_request != self._generated_visual_request):
+            self._clear_generated_visual()
+
+    def _show_generated_visual_result(
+        self, result: VisualGenerationResult, request: VisualGenerationRequest,
+    ) -> None:
+        """Accept only an exact bounded PNG data URI for in-memory preview.
+
+        Other provider-local output reference types retain their former status
+        behavior; they do not become a path, URL fetch, or implicit save.
+        """
+        image_refs = tuple(
+            ref for ref in result.provider_output_refs if ref.startswith("data:")
+        )
+        if not image_refs:
+            return
+        if len(image_refs) != 1 or len(result.provider_output_refs) != 1:
+            raise ValueError("unsupported visual output reference layout")
+        ref = image_refs[0]
+        prefix = "data:image/png;base64,"
+        if not ref.startswith(prefix):
+            raise ValueError("visual result must be a PNG data URI")
+        encoded = ref[len(prefix):]
+        if not encoded or len(encoded) > 11_200_000:
+            raise ValueError("visual result exceeds encoded image size limit")
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("visual result contains invalid PNG base64") from exc
+        if len(raw) > 8 * 1024 * 1024 or len(raw) < 24:
+            raise ValueError("visual PNG size is outside permitted bounds")
+        if raw[:8] != b"\x89PNG\r\n\x1a\n" or raw[12:16] != b"IHDR":
+            raise ValueError("visual result is not PNG")
+        width, height = struct.unpack(">II", raw[16:24])
+        if not (1 <= width <= 4096 and 1 <= height <= 4096
+                and width * height <= 12_000_000):
+            raise ValueError("visual PNG dimensions exceed preview limits")
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(raw, "PNG") or pixmap.isNull():
+            raise ValueError("visual PNG could not be decoded")
+        self._generated_visual_png = raw
+        self._generated_visual_request = request
+        self.generated_visual_preview.setPixmap(
+            pixmap.scaled(
+                QSize(440, 320), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        self.generated_visual_preview.setVisible(True)
+        self.save_generated_visual_button.setEnabled(True)
+        self.save_generated_visual_button.setVisible(True)
+
+    def _save_generated_visual_png(self, _checked: bool = False) -> None:
+        """Save only by direct operator selection; never overwrite an existing file."""
+        payload = self._generated_visual_png
+        if payload is None:
+            return
+        filename, _filter = QFileDialog.getSaveFileName(
+            self, "Save generated RCIS visual", "RCIS-generated-visual.png",
+            "PNG images (*.png)",
+        )
+        if not filename:
+            return
+        if Path(filename).suffix.lower() != ".png":
+            self.create_feedback.setText("Choose a .png filename to save the visual.")
+            return
+        try:
+            with open(filename, "xb") as output:
+                output.write(payload)
+        except (OSError, ValueError) as exc:
+            self.create_feedback.setText(
+                "Could not save PNG (existing files are never overwritten): " + str(exc)
+            )
+            return
+        self.create_feedback.setText("Generated PNG saved to the chosen local path.")
+
+    def _confirm_external_visual_generation(
+        self, request: VisualGenerationRequest,
+    ) -> bool:
+        """An explicit human confirmation, distinct from Gate 15 rights."""
+        if self._localizer.locale == "id-ID":
+            title = "Konfirmasi layanan visual eksternal"
+            question = (
+                "Operasi ini dapat mengirim prompt dan "
+                f"{len(request.selected_reference_asset_ids)} foto referensi "
+                "ke penyedia eksternal. Pratinjau lokal BUKAN izin penggunaan "
+                "eksternal. Lanjutkan hanya jika otorisasi terpisah tersedia?"
+            )
+        else:
+            title = "External visual provider confirmation"
+            question = (
+                "This may send your prompt and "
+                f"{len(request.selected_reference_asset_ids)} reference image(s) "
+                "to an external provider. Local preview approval is NOT "
+                "external-use rights. Continue only if separately authorized?"
+            )
+        confirmed = QMessageBox.question(
+            self, title, question,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return confirmed == QMessageBox.StandardButton.Yes
 
     def _generate_visuals(self, _checked: bool = False) -> None:
         provider = self._visual_generation_provider
-        if provider is None:
+        request = self._ready_visual_generation_request()
+        if request is None or provider is None:
             self.create_feedback.setText(
-                "Visual generation provider is not connected."
+                "A current, successful grounded prompt and 1-4 matching "
+                "references are required; provider rights must be checked."
             )
+            self._refresh_visual_generation_availability()
+            return
+        if not self._confirm_external_visual_generation(request):
+            self.create_feedback.setText("Visual generation canceled; no provider call.")
+            return
+        if self._ready_visual_generation_request() != request:
+            self.create_feedback.setText("Request changed; rebuild the grounded prompt.")
+            self._refresh_visual_generation_availability()
             return
 
-        grounded_prompt = self.prompt_preview.toPlainText()
-        if not grounded_prompt.strip():
-            self.create_feedback.setText(
-                "Build a grounded prompt before generating visuals."
-            )
-            return
-
+        self._clear_generated_visual()
         try:
-            request = VisualGenerationRequest(
-                grounded_prompt=grounded_prompt,
-                selected_reference_asset_ids=(
-                    self._selected_create_reference_asset_ids()
-                ),
-            )
             result = provider.generate(request)
             if not isinstance(result, VisualGenerationResult):
                 raise TypeError(
                     "visual generation provider returned an invalid result"
                 )
+            self._show_generated_visual_result(result, request)
         except Exception as exc:
+            self._clear_generated_visual()
             self.create_feedback.setText(
                 f"Could not generate visuals: {exc}"
             )
@@ -3317,10 +3644,18 @@ class ProductCompletionShell(QMainWindow):
             )
 
 
-def build_normal_product_completion_shell() -> ProductCompletionShell:
-    """Compose the normal PySide shell from remembered local foundation state."""
+def build_normal_product_completion_shell(
+    *, visual_generation_provider: Any | None = None,
+) -> ProductCompletionShell:
+    """Compose normal UI; provider injection requires an explicit external caller.
+
+    The normal main() intentionally passes no provider. This factory never reads
+    credentials, chooses a provider, or grants source-image usage rights.
+    """
     intake_root = load_remembered_intake_root()
     if intake_root is None:
+        if visual_generation_provider is not None:
+            raise RuntimeError("cannot inject visual provider without local intake")
         return ProductCompletionShell()
 
     try:
@@ -3336,13 +3671,141 @@ def build_normal_product_completion_shell() -> ProductCompletionShell:
             visual_reference_asset_query=visual_reference_asset_query,
         )
     except Exception:
+        if visual_generation_provider is not None:
+            raise RuntimeError("cannot inject visual provider without grounded local services")
         return ProductCompletionShell()
 
     return ProductCompletionShell(
         product_intelligence_query=product_intelligence_query,
         creative_prompt_composer=creative_prompt_composer,
         visual_reference_asset_query=visual_reference_asset_query,
+        visual_generation_provider=visual_generation_provider,
     )
+
+
+
+def build_explicit_governed_flux2_product_completion_shell(
+    *,
+    governed_snapshot_path: str | Path,
+    requested_use_scope: str,
+    decision_context_reference: str,
+    account_id: str,
+    api_token: str,
+    http_post: Any,
+) -> ProductCompletionShell:
+    """Separate opt-in composition, never used by the normal RCIS main().
+
+    A persisted Gate 15 snapshot and explicit caller-injected credentials/HTTP
+    hook are mandatory. The snapshot is not amended or inferred from local
+    photo approval. Reference eligibility is checked again by the governed
+    provider before it reads a reference or calls the injected HTTP hook.
+    """
+    from rie.application.governed_flux2_opt_in_visual_generation_provider import (
+        GovernedFlux2OptInVisualGenerationProvider,
+    )
+    from rie.application.governed_visual_reference_read_bridge import (
+        GovernedVisualReferenceReadBridge,
+    )
+    from rie.asset_library_repository.json_file_governed_asset_library_repository import (
+        JsonFileGovernedAssetLibraryRepository,
+    )
+
+    # No default service discovery, credentials, rights materialization, or
+    # automatic provider execution is permitted at this boundary.
+    if not isinstance(governed_snapshot_path, (str, Path)):
+        raise TypeError("explicit governed_snapshot_path is required")
+    if not str(governed_snapshot_path).strip():
+        raise ValueError("governed_snapshot_path must not be empty")
+    if type(requested_use_scope) is not str or not requested_use_scope.strip():
+        raise ValueError("explicit requested_use_scope is required")
+    if type(decision_context_reference) is not str or not decision_context_reference.strip():
+        raise ValueError("explicit decision_context_reference is required")
+    if type(account_id) is not str or not account_id.strip():
+        raise ValueError("explicit account_id is required")
+    if type(api_token) is not str or not api_token.strip():
+        raise ValueError("explicit api_token is required")
+    if not callable(http_post):
+        raise TypeError("explicit http_post callable is required")
+
+    intake_root = load_remembered_intake_root()
+    if intake_root is None:
+        raise RuntimeError("local intake is unavailable for governed composition")
+    repository = JsonFileGovernedAssetLibraryRepository(governed_snapshot_path)
+    lookup = repository.load_snapshot()
+    if lookup.status != "found" or lookup.snapshot is None:
+        raise RuntimeError("persisted Gate 15 rights snapshot is unavailable or rejected")
+
+    product_query = ProductIntelligenceQuery.from_intake_root(intake_root=intake_root)
+    raw_reference_query = VisualReferenceAssetQuery(
+        intake_root=intake_root, product_intelligence_query=product_query,
+    )
+    governed_bridge = GovernedVisualReferenceReadBridge(
+        visual_reference_query=raw_reference_query,
+        asset_library_repository=repository,
+        requested_use_scope=requested_use_scope,
+        decision_context_reference=decision_context_reference,
+    )
+    composer = CreativePromptComposer.from_intake_root(
+        intake_root=intake_root,
+        visual_reference_asset_query=raw_reference_query,
+    )
+    provider = GovernedFlux2OptInVisualGenerationProvider(
+        reference_bridge=governed_bridge,
+        account_id=account_id,
+        api_token=api_token,
+        http_post=http_post,
+    )
+    return ProductCompletionShell(
+        product_intelligence_query=product_query,
+        creative_prompt_composer=composer,
+        visual_reference_asset_query=governed_bridge,
+        visual_generation_provider=provider,
+    )
+
+
+# Only the exact I31 snapshot is trusted for automatic provider composition.
+# Rights are checked per-reference by the governed provider on every click.
+_RCIS_FFS21_RIGHTS_SNAPSHOT = (
+    Path(r"D:\PROJECT\RIE-GOVERNANCE") /
+    "RCIS-C20-FFS21-Gate15-rights-snapshot-v1.json"
+)
+_RCIS_FFS21_USE_SCOPE = "rcis-ffs21-cloudflare-flux2-visual-generation"
+
+
+def build_saved_provider_product_completion_shell() -> ProductCompletionShell:
+    """Normal RCIS launch: load saved Windows secret; never call Cloudflare.
+
+    Missing/invalid credentials or missing rights cause a fail-closed local
+    fallback. No network call or rights grant occurs until a later guarded click.
+    """
+    try:
+        credentials = load_credentials()
+    except CredentialStoreError:
+        credentials = None
+    if credentials is None:
+        return build_normal_product_completion_shell()
+    try:
+        from rie.application.cloudflare_workers_ai_flux2_urllib_http_post import (
+            cloudflare_workers_ai_flux2_urllib_http_post,
+        )
+        shell = build_explicit_governed_flux2_product_completion_shell(
+            governed_snapshot_path=_RCIS_FFS21_RIGHTS_SNAPSHOT,
+            requested_use_scope=_RCIS_FFS21_USE_SCOPE,
+            decision_context_reference="rcis-c20-normal-gui-saved-provider",
+            account_id=credentials.account_id,
+            api_token=credentials.api_token,
+            http_post=cloudflare_workers_ai_flux2_urllib_http_post,
+        )
+        shell.statusBar().showMessage(
+            "Cloudflare FLUX.2 configured; Gate 15 and confirmation required."
+        )
+        return shell
+    except Exception:
+        shell = build_normal_product_completion_shell()
+        shell.statusBar().showMessage(
+            "Cloudflare disabled: check intake and Gate 15 rights snapshot."
+        )
+        return shell
 
 
 def packaging_smoke_main() -> None:
@@ -3363,8 +3826,20 @@ def packaging_smoke_main() -> None:
 
 def main() -> None:
     app = QApplication.instance() or QApplication([])
-    shell = build_normal_product_completion_shell()
-    shell.show()
+    current: list[ProductCompletionShell] = []
+
+    def reopen_from_saved_settings() -> None:
+        # Switch the GUI to the saved-provider factory in the same process.
+        # No terminal input or provider request occurs during recreation.
+        fresh = build_saved_provider_product_completion_shell()
+        fresh._reopen_after_provider_settings = reopen_from_saved_settings
+        fresh.show()
+        prior = current[0] if current else None
+        current[:] = [fresh]
+        if prior is not None:
+            prior.close()
+
+    reopen_from_saved_settings()
     raise SystemExit(app.exec())
 
 

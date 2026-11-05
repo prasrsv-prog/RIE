@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import re
 import secrets
 import struct
+
+from PIL import Image
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
@@ -28,6 +31,7 @@ _PROVIDER_ID = "cloudflare-workers-ai"
 _MODEL_ID = "@cf/black-forest-labs/flux-2-klein-4b"
 _ENDPOINT_BASE = "https://api.cloudflare.com/client/v4/accounts"
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_JPEG_SIGNATURE = b"\xff\xd8\xff"
 _MAX_PNG_BYTES = 2 * 1024 * 1024
 _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 _REFERENCE_ID = re.compile(r"[a-zA-Z0-9_.:-]{1,128}\Z")
@@ -105,6 +109,41 @@ def _multipart_body(prompt: str, references: tuple[bytes, ...]) -> tuple[str, by
     return boundary, b"".join(chunks)
 
 
+
+def _validated_output_png(image_bytes: bytes) -> bytes:
+    """Normalize a bounded Cloudflare JPEG/WebP to PNG for the existing GUI.
+
+    PNG keeps its original bytes; unsupported or malformed formats fail closed.
+    Output conversion never writes a file or initiates another HTTP request.
+    """
+    if image_bytes.startswith(_PNG_SIGNATURE):
+        return image_bytes
+    is_jpeg = image_bytes.startswith(_JPEG_SIGNATURE)
+    is_webp = image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP"
+    if not (is_jpeg or is_webp):
+        raise RuntimeError("FLUX2 decoded output has unsupported image format")
+    expected_format = "JPEG" if is_jpeg else "WEBP"
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            if image.format != expected_format:
+                raise ValueError("image signature and format disagree")
+            width, height = image.size
+            if not (1 <= width <= 4096 and 1 <= height <= 4096
+                    and width * height <= 12_000_000):
+                raise ValueError("FLUX2 output image dimensions exceed preview limits")
+            image.load()  # Decode fully; truncated/corrupt files must fail.
+            mode = "RGBA" if ("A" in image.getbands() or "transparency" in image.info) else "RGB"
+            converted = image.convert(mode)
+            stream = io.BytesIO()
+            converted.save(stream, format="PNG", optimize=True)
+            output = stream.getvalue()
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+        raise RuntimeError("FLUX2 output image cannot be safely converted to PNG") from exc
+    if (len(output) < 24 or len(output) > _MAX_RESPONSE_BYTES
+            or not output.startswith(_PNG_SIGNATURE)):
+        raise RuntimeError("FLUX2 converted PNG exceeds preview limits")
+    return output
+
 def make_cloudflare_workers_ai_flux2_reference_transport(
     *,
     account_id: str,
@@ -171,11 +210,14 @@ def make_cloudflare_workers_ai_flux2_reference_transport(
             decoded_image = base64.b64decode(encoded_image, validate=True)
         except (ValueError, base64.binascii.Error) as exc:
             raise RuntimeError("FLUX2 image is not valid base64") from exc
-        if not decoded_image.startswith(_PNG_SIGNATURE):
-            raise RuntimeError("FLUX2 decoded output is not PNG")
+        normalized_png = _validated_output_png(decoded_image)
+        normalized_base64 = (
+            encoded_image if normalized_png is decoded_image
+            else base64.b64encode(normalized_png).decode("ascii")
+        )
         return ProviderExecutionResponse(
             execution_status="SUCCEEDED",
-            provider_output_refs=("data:image/png;base64," + encoded_image,),
+            provider_output_refs=("data:image/png;base64," + normalized_base64,),
             provider_execution_ref=response.request_id.strip(),
             diagnostic_message="cloudflare-workers-ai FLUX2 reference generation succeeded",
         )

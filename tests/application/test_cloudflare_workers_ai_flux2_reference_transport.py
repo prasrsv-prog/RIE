@@ -180,3 +180,61 @@ def test_factory_does_not_invoke_post(tmp_path):
         ordered_references=refs,
     )
     assert calls == []
+
+
+
+def _provider_response_for_image(raw: bytes) -> CloudflareWorkersAIHTTPResponse:
+    encoded = base64.b64encode(raw).decode("ascii")
+    return CloudflareWorkersAIHTTPResponse(
+        200, json.dumps({"success": True, "result": {"image": encoded}}).encode(), "format-fixture"
+    )
+
+
+@pytest.mark.parametrize("format_name", ["JPEG", "WEBP"])
+def test_cloudflare_non_png_image_is_converted_into_preview_png_without_retry(tmp_path, format_name):
+    import io
+    from PIL import Image
+    output = io.BytesIO()
+    Image.new("RGB", (41, 29), (12, 48, 97)).save(output, format=format_name)
+    response = _provider_response_for_image(output.getvalue())
+    handler, refs, calls = _transport(tmp_path, count=1, response=response)
+    reply = handler(_payload([refs[0].media_ref]))
+    assert len(calls) == 1
+    assert reply.execution_status == "SUCCEEDED"
+    assert len(reply.provider_output_refs) == 1
+    ref = reply.provider_output_refs[0]
+    assert ref.startswith("data:image/png;base64,")
+    payload = base64.b64decode(ref.split(",", 1)[1], validate=True)
+    with Image.open(io.BytesIO(payload)) as decoded:
+        assert decoded.format == "PNG"
+        assert decoded.size == (41, 29)
+        decoded.verify()
+
+
+def test_unsupported_but_base64_image_fails_closed_without_retry(tmp_path):
+    response = _provider_response_for_image(b"GIF89a" + b"x" * 40)
+    handler, refs, calls = _transport(tmp_path, count=1, response=response)
+    with pytest.raises(RuntimeError, match="unsupported image format"):
+        handler(_payload([refs[0].media_ref]))
+    assert len(calls) == 1
+
+
+def test_corrupt_jpeg_fails_closed_without_retry(tmp_path):
+    response = _provider_response_for_image(b"\xff\xd8\xff" + b"corrupt jpeg")
+    handler, refs, calls = _transport(tmp_path, count=1, response=response)
+    with pytest.raises(RuntimeError, match="safely converted"):
+        handler(_payload([refs[0].media_ref]))
+    assert len(calls) == 1
+
+
+def test_oversized_jpeg_dimensions_fail_closed_without_retry(tmp_path):
+    import io
+    from PIL import Image
+    output = io.BytesIO()
+    Image.new("RGB", (4100, 8), (12, 48, 97)).save(output, format="JPEG")
+    handler, refs, calls = _transport(
+        tmp_path, count=1, response=_provider_response_for_image(output.getvalue())
+    )
+    with pytest.raises(RuntimeError, match="safely converted"):
+        handler(_payload([refs[0].media_ref]))
+    assert len(calls) == 1
