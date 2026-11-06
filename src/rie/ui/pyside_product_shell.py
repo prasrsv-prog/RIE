@@ -12,11 +12,12 @@ import base64
 import binascii
 import os
 import struct
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -303,6 +304,7 @@ class ProductCompletionShell(QMainWindow):
         creative_prompt_composer: Any | None = None,
         visual_reference_asset_query: Any | None = None,
         visual_generation_provider: Any | None = None,
+        background_visual_generation: bool = False,
         operator_dashboard_builder: Any | None = None,
         governed_workflow_assessor: Any | None = None,
     ) -> None:
@@ -325,6 +327,15 @@ class ProductCompletionShell(QMainWindow):
                 "visual_generation_provider must expose generate"
             )
         self._visual_generation_provider = visual_generation_provider
+        # Only the saved-provider production factory enables background HTTP.
+        # Existing offline-injected shells keep their synchronous test contract.
+        self._background_visual_generation = bool(background_visual_generation)
+        self._visual_executor: ThreadPoolExecutor | None = None
+        self._visual_future: Future | None = None
+        self._visual_future_request: VisualGenerationRequest | None = None
+        self._visual_poll_timer = QTimer(self)
+        self._visual_poll_timer.setInterval(70)
+        self._visual_poll_timer.timeout.connect(self._collect_visual_generation)
         if operator_dashboard_builder is not None and not callable(
             operator_dashboard_builder
         ):
@@ -3619,7 +3630,9 @@ class ProductCompletionShell(QMainWindow):
 
     def _refresh_visual_generation_availability(self, *_args: Any) -> None:
         ready_request = self._ready_visual_generation_request()
-        self.visual_button.setEnabled(ready_request is not None)
+        self.visual_button.setEnabled(
+            ready_request is not None and self._visual_future is None
+        )
         if (self._generated_visual_request is not None
                 and ready_request != self._generated_visual_request):
             self._clear_generated_visual()
@@ -3811,7 +3824,87 @@ class ProductCompletionShell(QMainWindow):
         )
         return confirmed == QMessageBox.StandardButton.Yes
 
+    def _collect_visual_generation(self) -> None:
+        """Complete one live request on Qt's UI thread, never in the worker.
+
+        A changed prompt/reference cannot receive a stale response. There is
+        never an automatic billed retry, nor any automatic file write.
+        """
+        future = self._visual_future
+        request = self._visual_future_request
+        if future is None or request is None:
+            self._visual_poll_timer.stop()
+            return
+        if not future.done():
+            return
+        self._visual_poll_timer.stop()
+        self._visual_future = None
+        self._visual_future_request = None
+        try:
+            if self._ready_visual_generation_request() != request:
+                self.create_feedback.setText(
+                    "Generasi selesai untuk brief lama; hasil diabaikan. "
+                    "Tidak ada permintaan ulang otomatis."
+                    if self._localizer.locale == "id-ID" else
+                    "Generation completed for an outdated brief; result ignored. "
+                    "No automatic retry was made."
+                )
+                return
+            result = future.result()
+            if not isinstance(result, VisualGenerationResult):
+                raise TypeError("visual generation provider returned an invalid result")
+            self._show_generated_visual_result(result, request)
+            self.create_feedback.setText(
+                result.message if result.message.strip() else
+                "Visual generation completed with "
+                f"{len(result.provider_output_refs)} provider output reference(s)."
+            )
+        except Exception as exc:
+            retained = (
+                self._generated_visual_png is not None
+                and self._generated_visual_request == request
+            )
+            suffix = (
+                " Hasil sebelumnya tetap tersedia; simpan PNG sebelum mengubah brief."
+                if self._localizer.locale == "id-ID" else
+                " Previous result is retained; save the PNG before changing the brief."
+            ) if retained else ""
+            self.create_feedback.setText(f"Could not generate visuals: {exc}{suffix}")
+        finally:
+            self._refresh_visual_generation_availability()
+
+    def closeEvent(self, event: Any) -> None:
+        """Warn before abandoning a paid in-flight request; never cancel/retry it silently."""
+        if self._visual_future is not None and not self._visual_future.done():
+            choice = QMessageBox.question(
+                self,
+                "Generasi masih berlangsung" if self._localizer.locale == "id-ID"
+                else "Visual generation is running",
+                ("Permintaan Cloudflare masih diproses dan mungkin dikenakan biaya. "
+                 "Menutup RCIS dapat menghilangkan hasilnya. Tutup sekarang?"
+                 if self._localizer.locale == "id-ID" else
+                 "Cloudflare generation is still processing and may incur a charge. "
+                 "Closing RCIS can lose the result. Close anyway?"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+        self._visual_poll_timer.stop()
+        if self._visual_executor is not None:
+            self._visual_executor.shutdown(wait=False, cancel_futures=True)
+            self._visual_executor = None
+        super().closeEvent(event)
+
     def _generate_visuals(self, _checked: bool = False) -> None:
+        if self._visual_future is not None:
+            self.create_feedback.setText(
+                "Satu permintaan visual sedang diproses; tidak ada permintaan kedua."
+                if self._localizer.locale == "id-ID" else
+                "One visual request is already running; no second request was sent."
+            )
+            return
         provider = self._visual_generation_provider
         request = self._ready_visual_generation_request()
         if request is None or provider is None:
@@ -3835,6 +3928,30 @@ class ProductCompletionShell(QMainWindow):
         if (self._generated_visual_request is not None
                 and self._generated_visual_request != request):
             self._clear_generated_visual()
+        if self._background_visual_generation:
+            try:
+                if self._visual_executor is None:
+                    self._visual_executor = ThreadPoolExecutor(
+                        max_workers=1, thread_name_prefix="rcis-visual"
+                    )
+                self._visual_future_request = request
+                self._visual_future = self._visual_executor.submit(provider.generate, request)
+                self._visual_poll_timer.start()
+                self.visual_button.setEnabled(False)
+                self.create_feedback.setText(
+                    "Cloudflare sedang membuat visual. RCIS tetap dapat digunakan. "
+                    "Jangan menutup aplikasi sebelum hasil diterima."
+                    if self._localizer.locale == "id-ID" else
+                    "Cloudflare is generating a visual. RCIS remains responsive. "
+                    "Keep the app open for the result."
+                )
+            except Exception as exc:
+                self._visual_future = None
+                self._visual_future_request = None
+                self._visual_poll_timer.stop()
+                self.create_feedback.setText(f"Could not start visual generation: {exc}")
+                self._refresh_visual_generation_availability()
+            return
         try:
             result = provider.generate(request)
             if not isinstance(result, VisualGenerationResult):
@@ -4018,6 +4135,8 @@ def build_saved_provider_product_completion_shell() -> ProductCompletionShell:
             api_token=credentials.api_token,
             http_post=cloudflare_workers_ai_flux2_urllib_http_post,
         )
+        # Production GUI never blocks the Qt event loop on a paid HTTP request.
+        shell._background_visual_generation = True
         shell.statusBar().showMessage(
             "Cloudflare FLUX.2 configured; Gate 15 and confirmation required."
         )

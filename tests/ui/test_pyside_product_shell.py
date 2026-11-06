@@ -3224,3 +3224,145 @@ def test_i47_declining_later_request_keeps_previous_png(qt_app, monkeypatch):
         assert shell.save_generated_visual_button.isEnabled()
     finally:
         shell.close()
+
+
+# C20-I49: production request runs off the Qt GUI thread. Offline fake only.
+def _i49_wait(qt_app, predicate, *, seconds=8.0):
+    import time
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        qt_app.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.01)
+    qt_app.processEvents()
+    return bool(predicate())
+
+
+class _I49BlockingFakeProvider(_I33PNGOfflineProvider):
+    def __init__(self):
+        import threading
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def generate(self, request):
+        self.started.set()
+        if not self.release.wait(timeout=10.0):
+            raise TimeoutError("OFFLINE_WORKER_TIMEOUT")
+        return super().generate(request)
+
+
+def test_i49_live_gui_stays_responsive_single_inflight(qt_app, monkeypatch):
+    provider = _I49BlockingFakeProvider()
+    shell = _i26_shell(provider)
+    shell._background_visual_generation = True
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        assert _i49_wait(qt_app, provider.started.is_set)
+        assert not shell.visual_button.isEnabled()
+        # No overlap even if a caller bypasses the disabled button.
+        shell._generate_visuals()
+        assert len(provider.calls) == 0
+        assert shell._visual_future is not None
+        provider.release.set()
+        assert _i49_wait(qt_app, lambda: shell._visual_future is None)
+        assert len(provider.calls) == 1
+        assert shell._generated_visual_png is not None
+        assert shell.save_generated_visual_button.isEnabled()
+    finally:
+        provider.release.set()
+        shell.close()
+
+
+def test_i49_stale_background_output_is_discarded(qt_app, monkeypatch):
+    provider = _I49BlockingFakeProvider()
+    shell = _i26_shell(provider)
+    shell._background_visual_generation = True
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        assert _i49_wait(qt_app, provider.started.is_set)
+        shell.environment_edit.setText("different scene while request in progress")
+        qt_app.processEvents()
+        assert not shell.visual_button.isEnabled()
+        provider.release.set()
+        assert _i49_wait(qt_app, lambda: shell._visual_future is None)
+        assert len(provider.calls) == 1
+        assert shell._generated_visual_png is None
+        assert not shell.save_generated_visual_button.isEnabled()
+        assert "outdated" in shell.create_feedback.text() or "lama" in shell.create_feedback.text()
+    finally:
+        provider.release.set()
+        shell.close()
+
+
+def test_i49_failed_second_request_preserves_successful_result(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    shell._background_visual_generation = True
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        assert _i49_wait(qt_app, lambda: shell._visual_future is None)
+        prior = shell._generated_visual_png
+        assert prior is not None
+        def fail(request):
+            provider.calls.append(request)
+            raise RuntimeError("OFFLINE_PROVIDER_ERROR")
+        monkeypatch.setattr(provider, "generate", fail)
+        shell.visual_button.click()
+        assert _i49_wait(qt_app, lambda: shell._visual_future is None)
+        assert len(provider.calls) == 2
+        assert shell._generated_visual_png == prior
+        assert shell.save_generated_visual_button.isEnabled()
+        assert "OFFLINE_PROVIDER_ERROR" in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_i49_close_during_inflight_requires_explicit_confirmation(qt_app, monkeypatch):
+    provider = _I49BlockingFakeProvider()
+    shell = _i26_shell(provider)
+    shell._background_visual_generation = True
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        assert _i49_wait(qt_app, provider.started.is_set)
+        from PySide6.QtWidgets import QMessageBox
+        monkeypatch.setattr(shell_module.QMessageBox, "question", lambda *args: QMessageBox.StandardButton.No)
+        from PySide6.QtGui import QCloseEvent
+        event = QCloseEvent()
+        shell.closeEvent(event)
+        assert not event.isAccepted()
+        assert shell._visual_future is not None
+        provider.release.set()
+        assert _i49_wait(qt_app, lambda: shell._visual_future is None)
+    finally:
+        provider.release.set()
+        shell.close()
+
+
+def test_i49_default_offline_fake_factory_remains_synchronous(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        assert not shell._background_visual_generation
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert shell._visual_future is None
+        assert shell.save_generated_visual_button.isEnabled()
+    finally:
+        shell.close()
