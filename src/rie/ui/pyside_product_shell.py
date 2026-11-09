@@ -375,6 +375,9 @@ class ProductCompletionShell(QMainWindow):
         # user-controlled Save As action. No automatic History/workspace write.
         self._generated_visual_png: bytes | None = None
         self._generated_visual_request: VisualGenerationRequest | None = None
+        # True only after Save As actually creates a PNG on disk. A preview
+        # alone must not be mistaken for a saved creative deliverable.
+        self._generated_visual_saved = False
         self._pyside_history_feedback_key = ""
         self._localizer = Localizer(load_preferred_locale())
         self._h3d_live_status: dict[QLabel, tuple[str, str]] = {}
@@ -3616,6 +3619,7 @@ class ProductCompletionShell(QMainWindow):
     def _clear_generated_visual(self) -> None:
         self._generated_visual_png = None
         self._generated_visual_request = None
+        self._generated_visual_saved = False
         self.generated_visual_preview.clear()
         self.generated_visual_preview.setVisible(False)
         self.generated_original_preview.clear()
@@ -3676,6 +3680,7 @@ class ProductCompletionShell(QMainWindow):
             raise ValueError("visual PNG could not be decoded")
         self._generated_visual_png = raw
         self._generated_visual_request = request
+        self._generated_visual_saved = False
         self.generated_visual_preview.setPixmap(
             pixmap.scaled(
                 QSize(330, 270), Qt.AspectRatioMode.KeepAspectRatio,
@@ -3795,6 +3800,11 @@ class ProductCompletionShell(QMainWindow):
                 "Could not save PNG (existing files are never overwritten): " + str(exc)
             )
             return
+        # QFileDialog runs a nested Qt event loop. A background result can
+        # replace the preview while the dialog is open: the saved bytes might
+        # belong to the OLD result. Never mark the new preview as saved.
+        if self._generated_visual_png is payload:
+            self._generated_visual_saved = True
         self.create_feedback.setText("Generated PNG saved to the chosen local path.")
 
     def _confirm_external_visual_generation(
@@ -3816,6 +3826,18 @@ class ProductCompletionShell(QMainWindow):
                 f"{len(request.selected_reference_asset_ids)} reference image(s) "
                 "to an external provider. Local preview approval is NOT "
                 "external-use rights. Continue only if separately authorized?"
+            )
+        if (self._background_visual_generation
+                and self._generated_visual_png is not None
+                and not self._generated_visual_saved
+                and self._generated_visual_request == request):
+            question += (
+                "\n\nHasil visual sebelumnya BELUM disimpan. Jika hasil baru "
+                "berhasil, preview sebelumnya akan diganti. Simpan PNG "
+                "terlebih dahulu jika ingin mempertahankannya."
+                if self._localizer.locale == "id-ID" else
+                "\n\nThe previous visual is NOT saved. A successful new result "
+                "will replace its preview. Save the PNG first if you want to keep it."
             )
         confirmed = QMessageBox.question(
             self, title, question,
@@ -3874,17 +3896,44 @@ class ProductCompletionShell(QMainWindow):
             self._refresh_visual_generation_availability()
 
     def closeEvent(self, event: Any) -> None:
-        """Warn before abandoning a paid in-flight request; never cancel/retry it silently."""
-        if self._visual_future is not None and not self._visual_future.done():
+        """One explicit warning covers pending work and unsaved production PNGs.
+
+        There is no silent upload, automatic retry, file write, or cancellation.
+        An offline shell that is never shown does not require a GUI prompt.
+        """
+        pending = self._visual_future is not None
+        unsaved = (
+            self._background_visual_generation
+            and self.isVisible()
+            and self._generated_visual_png is not None
+            and not self._generated_visual_saved
+        )
+        if pending or unsaved:
+            is_id = self._localizer.locale == "id-ID"
+            warnings = []
+            if pending:
+                warnings.append(
+                    "Permintaan Cloudflare masih diproses dan mungkin dikenakan biaya. "
+                    "Menutup RCIS dapat menghilangkan hasilnya."
+                    if is_id else
+                    "Cloudflare generation is still processing and may incur a charge. "
+                    "Closing RCIS can lose the result."
+                )
+            if unsaved:
+                warnings.append(
+                    "Ada hasil visual yang BELUM disimpan sebagai PNG. "
+                    "Menutup RCIS akan menghilangkan hasil ini. "
+                    "Pilih Tidak untuk kembali dan menyimpan PNG."
+                    if is_id else
+                    "A generated visual has NOT been saved as PNG. "
+                    "Closing RCIS will discard it. Choose No to save it first."
+                )
             choice = QMessageBox.question(
                 self,
-                "Generasi masih berlangsung" if self._localizer.locale == "id-ID"
-                else "Visual generation is running",
-                ("Permintaan Cloudflare masih diproses dan mungkin dikenakan biaya. "
-                 "Menutup RCIS dapat menghilangkan hasilnya. Tutup sekarang?"
-                 if self._localizer.locale == "id-ID" else
-                 "Cloudflare generation is still processing and may incur a charge. "
-                 "Closing RCIS can lose the result. Close anyway?"),
+                "Hasil visual belum aman" if is_id else "Unsaved visual or pending generation",
+                "\n\n".join(warnings) + (
+                    "\n\nTutup sekarang?" if is_id else "\n\nClose now?"
+                ),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )

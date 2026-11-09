@@ -3366,3 +3366,135 @@ def test_i49_default_offline_fake_factory_remains_synchronous(qt_app, monkeypatc
         assert shell.save_generated_visual_button.isEnabled()
     finally:
         shell.close()
+
+
+# C20-I51: a successful PNG is an unsaved deliverable until an explicit
+# Save As succeeded. Closing production GUI must not discard it silently.
+def test_i51_unsaved_png_blocks_visible_production_close_until_saved(qt_app, tmp_path, monkeypatch):
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtWidgets import QMessageBox
+
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    shell._background_visual_generation = True
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        shell.show()
+        qt_app.processEvents()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        assert _i49_wait(qt_app, lambda: shell._visual_future is None)
+        assert shell._generated_visual_png is not None
+        assert not shell._generated_visual_saved
+        original = shell._generated_visual_png
+        dialogs = []
+
+        def say_no(_parent, _title, question, *_args):
+            dialogs.append(question)
+            return QMessageBox.StandardButton.No
+
+        monkeypatch.setattr(shell_module.QMessageBox, "question", say_no)
+        event = QCloseEvent()
+        shell.closeEvent(event)
+        assert not event.isAccepted()
+        assert len(dialogs) == 1
+        assert "BELUM disimpan" in dialogs[0] or "NOT been saved" in dialogs[0]
+        assert shell._generated_visual_png == original
+        assert len(provider.calls) == 1
+
+        target = tmp_path / "saved-before-close.png"
+        monkeypatch.setattr(shell_module.QFileDialog, "getSaveFileName",
+                            lambda *args: (str(target), "PNG images (*.png)"))
+        shell.save_generated_visual_button.click()
+        assert target.read_bytes() == original
+        assert shell._generated_visual_saved
+        event2 = QCloseEvent()
+        shell.closeEvent(event2)
+        assert event2.isAccepted()
+        assert len(dialogs) == 1
+    finally:
+        shell._generated_visual_saved = True
+        shell.close()
+
+
+def test_i51_cancel_or_failed_save_does_not_mark_visual_saved(qt_app, tmp_path, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        assert shell._generated_visual_png is not None
+        assert not shell._generated_visual_saved
+        monkeypatch.setattr(shell_module.QFileDialog, "getSaveFileName",
+                            lambda *args: ("", ""))
+        shell.save_generated_visual_button.click()
+        assert not shell._generated_visual_saved
+        target = tmp_path / "existing.png"
+        target.write_bytes(b"existing must not be overwritten")
+        monkeypatch.setattr(shell_module.QFileDialog, "getSaveFileName",
+                            lambda *args: (str(target), "PNG images (*.png)"))
+        shell.save_generated_visual_button.click()
+        assert not shell._generated_visual_saved
+        assert target.read_bytes() == b"existing must not be overwritten"
+        assert shell._generated_visual_png is not None
+    finally:
+        shell.close()
+
+
+def test_i51_next_valid_visual_is_unsaved_again_and_confirmation_warns(qt_app, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        original_confirm = shell._confirm_external_visual_generation
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        request = shell._generated_visual_request
+        assert request is not None
+        shell._generated_visual_saved = True
+        # Every accepted new PNG resets the saved marker even for the same brief.
+        shell.visual_button.click()
+        assert not shell._generated_visual_saved
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", original_confirm)
+        questions = []
+        monkeypatch.setattr(shell_module.QMessageBox, "question",
+                            lambda _parent, _title, question, *_args:
+                            (questions.append(question), QMessageBox.StandardButton.No)[1])
+        shell._background_visual_generation = True
+        assert not shell._confirm_external_visual_generation(request)
+        assert len(questions) == 1
+        assert "BELUM disimpan" in questions[0] or "NOT saved" in questions[0]
+        assert len(provider.calls) == 2
+    finally:
+        shell.close()
+
+
+def test_i51_nested_save_dialog_cannot_mark_new_preview_as_saved(qt_app, tmp_path, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        old_png = shell._generated_visual_png
+        assert old_png is not None
+        target = tmp_path / "saved-older-preview.png"
+        def dialog_with_new_preview(*args):
+            # Model a result arriving during QFileDialog's nested event loop.
+            shell._generated_visual_png = b"new-result-not-yet-saved"
+            return (str(target), "PNG images (*.png)")
+        monkeypatch.setattr(shell_module.QFileDialog, "getSaveFileName",
+                            dialog_with_new_preview)
+        shell.save_generated_visual_button.click()
+        assert target.read_bytes() == old_png
+        assert shell._generated_visual_png != old_png
+        assert not shell._generated_visual_saved
+    finally:
+        shell.close()
