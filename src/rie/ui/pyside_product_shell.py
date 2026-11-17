@@ -378,6 +378,11 @@ class ProductCompletionShell(QMainWindow):
         # True only after Save As actually creates a PNG on disk. A preview
         # alone must not be mistaken for a saved creative deliverable.
         self._generated_visual_saved = False
+        # A provider request only contains prompt text and reference IDs.
+        # Distinct briefs can produce identical prompt text, so retain the
+        # full context of a successfully generated image independently.
+        self._generated_visual_context_identity: tuple[Any, ...] | None = None
+        self._visual_future_context_identity: tuple[Any, ...] | None = None
         self._pyside_history_feedback_key = ""
         self._localizer = Localizer(load_preferred_locale())
         self._h3d_live_status: dict[QLabel, tuple[str, str]] = {}
@@ -3616,10 +3621,32 @@ class ProductCompletionShell(QMainWindow):
         except (KeyError, ValueError, TypeError, AttributeError):
             return None
 
+    def _current_visual_context_identity(self) -> tuple[Any, ...] | None:
+        """Identify exact grounded UI context, not only provider prompt text.
+
+        Test/offline composers may return the same grounded prompt for two
+        different creative briefs. Those outputs must never be treated as
+        belonging to the same product/brief just because their text matches.
+        """
+        request = self._ready_visual_generation_request()
+        if request is None:
+            return None
+        return (
+            self._product_ids_by_label.get(self.product_combo.currentText()),
+            self._variant_ids_by_label.get(self.variant_combo.currentText()),
+            asdict(self.current_brief()),
+            request.selected_reference_asset_ids,
+            request.grounded_prompt,
+        )
+
     def _clear_generated_visual(self) -> None:
         self._generated_visual_png = None
         self._generated_visual_request = None
+        self._generated_visual_context_identity = None
         self._generated_visual_saved = False
+        self._generated_visual_stale = False
+        self._generated_visual_original_hint = ""
+        self.before_after_result_title.setText("Hasil FLUX.2")
         self.generated_visual_preview.clear()
         self.generated_visual_preview.setVisible(False)
         self.generated_original_preview.clear()
@@ -3637,9 +3664,40 @@ class ProductCompletionShell(QMainWindow):
         self.visual_button.setEnabled(
             ready_request is not None and self._visual_future is None
         )
-        if (self._generated_visual_request is not None
-                and ready_request != self._generated_visual_request):
-            self._clear_generated_visual()
+        old_request = self._generated_visual_request
+        if old_request is None:
+            return
+        if (ready_request != old_request or
+                self._current_visual_context_identity()
+                != self._generated_visual_context_identity):
+            if self._generated_visual_png is None or self._generated_visual_saved:
+                self._clear_generated_visual()
+                return
+            # Editing product, reference, brief or prompt must NEVER silently
+            # discard a successful unsaved PNG. Mark it explicitly as OLD so
+            # it cannot be mistaken for output of the newly selected brief.
+            if not getattr(self, "_generated_visual_stale", False):
+                self._generated_visual_original_hint = self.visual_change_hint.text()
+            self._generated_visual_stale = True
+            self.before_after_result_title.setText(
+                "Hasil SEBELUMNYA (belum disimpan)" if self._localizer.locale == "id-ID"
+                else "PREVIOUS result (not saved)"
+            )
+            self.visual_change_hint.setText(
+                "Preview ini berasal dari brief/referensi SEBELUMNYA, bukan pilihan saat ini. "
+                "Simpan PNG atau konfirmasi pembuangan sebelum generasi baru."
+                if self._localizer.locale == "id-ID" else
+                "This PNG belongs to the PREVIOUS brief/reference, not the current "
+                "selection. Save it or explicitly confirm discard before generating again."
+            )
+            self.visual_change_hint.setVisible(True)
+            self.strengthen_scene_button.setVisible(False)
+            return
+        if getattr(self, "_generated_visual_stale", False):
+            self._generated_visual_stale = False
+            self.before_after_result_title.setText("Hasil FLUX.2")
+            self.visual_change_hint.setText(self._generated_visual_original_hint)
+            self._show_reference_and_change_hint(self._generated_visual_png, old_request)
 
     def _show_generated_visual_result(
         self, result: VisualGenerationResult, request: VisualGenerationRequest,
@@ -3680,7 +3738,11 @@ class ProductCompletionShell(QMainWindow):
             raise ValueError("visual PNG could not be decoded")
         self._generated_visual_png = raw
         self._generated_visual_request = request
+        self._generated_visual_context_identity = self._current_visual_context_identity()
         self._generated_visual_saved = False
+        self._generated_visual_stale = False
+        self._generated_visual_original_hint = ""
+        self.before_after_result_title.setText("Hasil FLUX.2")
         self.generated_visual_preview.setPixmap(
             pixmap.scaled(
                 QSize(330, 270), Qt.AspectRatioMode.KeepAspectRatio,
@@ -3736,11 +3798,12 @@ class ProductCompletionShell(QMainWindow):
         choice = QMessageBox.question(
             self,
             "Ubah konsep?" if is_id else "Change scene?",
-            ("Prompt baru akan menggantikan preview hasil yang belum disimpan. "
-             "Simpan PNG terlebih dahulu bila perlu. Tidak ada generasi AI otomatis."
+            ("Prompt baru akan mengganti brief, tetapi PNG lama yang belum "
+             "disimpan tetap tersedia untuk disimpan. "
+             "Tidak ada generasi AI otomatis."
              if is_id else
-             "Rebuilding the prompt clears any unsaved result preview. "
-             "Save the PNG first if needed. No AI generation will be triggered."),
+             "The new prompt changes the brief, but the old unsaved PNG "
+             "remains available for Save As. No AI generation will be triggered."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -3805,6 +3868,12 @@ class ProductCompletionShell(QMainWindow):
         # belong to the OLD result. Never mark the new preview as saved.
         if self._generated_visual_png is payload:
             self._generated_visual_saved = True
+            if (self._ready_visual_generation_request() != self._generated_visual_request
+                    or self._current_visual_context_identity()
+                    != self._generated_visual_context_identity):
+                # The old PNG is safely on disk; do not leave it presented as
+                # the output for a newly selected product or scene.
+                self._clear_generated_visual()
         self.create_feedback.setText("Generated PNG saved to the chosen local path.")
 
     def _confirm_external_visual_generation(
@@ -3860,10 +3929,13 @@ class ProductCompletionShell(QMainWindow):
         if not future.done():
             return
         self._visual_poll_timer.stop()
+        expected_context_identity = self._visual_future_context_identity
         self._visual_future = None
         self._visual_future_request = None
+        self._visual_future_context_identity = None
         try:
-            if self._ready_visual_generation_request() != request:
+            if (self._ready_visual_generation_request() != request or
+                    self._current_visual_context_identity() != expected_context_identity):
                 self.create_feedback.setText(
                     "Generasi selesai untuk brief lama; hasil diabaikan. "
                     "Tidak ada permintaan ulang otomatis."
@@ -3946,6 +4018,24 @@ class ProductCompletionShell(QMainWindow):
             self._visual_executor = None
         super().closeEvent(event)
 
+    def _confirm_discard_stale_visual(self) -> bool:
+        """Never silently destroy unsaved output while moving to a new brief."""
+        is_id = self._localizer.locale == "id-ID"
+        answer = QMessageBox.question(
+            self,
+            "Buang hasil sebelumnya?" if is_id else "Discard previous unsaved visual?",
+            ("Preview PNG dari brief sebelumnya BELUM disimpan. "
+             "Generasi baru akan membuang preview ini, walaupun layanan AI gagal. "
+             "Pilih Tidak untuk kembali dan menyimpan PNG. Lanjutkan?"
+             if is_id else
+             "The PNG from the previous brief is NOT saved. Generating again "
+             "discards that preview even if the provider fails. "
+             "Choose No to go back and save the PNG. Continue?"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def _generate_visuals(self, _checked: bool = False) -> None:
         if self._visual_future is not None:
             self.create_feedback.setText(
@@ -3956,7 +4046,8 @@ class ProductCompletionShell(QMainWindow):
             return
         provider = self._visual_generation_provider
         request = self._ready_visual_generation_request()
-        if request is None or provider is None:
+        context_identity = self._current_visual_context_identity()
+        if request is None or provider is None or context_identity is None:
             self.create_feedback.setText(
                 "A current, successful grounded prompt and 1-4 matching "
                 "references are required; provider rights must be checked."
@@ -3966,17 +4057,30 @@ class ProductCompletionShell(QMainWindow):
         if not self._confirm_external_visual_generation(request):
             self.create_feedback.setText("Visual generation canceled; no provider call.")
             return
-        if self._ready_visual_generation_request() != request:
+        if (self._ready_visual_generation_request() != request or
+                self._current_visual_context_identity() != context_identity):
             self.create_feedback.setText("Request changed; rebuild the grounded prompt.")
             self._refresh_visual_generation_availability()
             return
 
-        # Keep a previously valid result for the SAME grounded request until a
-        # new response has passed all PNG validation. A failed paid request
-        # must not make an unsaved successful output disappear.
+        # New brief: a prior successful unsaved PNG remains available until
+        # the operator explicitly chooses to discard it. Confirmation is
+        # separate from the provider / external-use rights confirmation.
         if (self._generated_visual_request is not None
-                and self._generated_visual_request != request):
+                and (self._generated_visual_request != request or
+                     self._generated_visual_context_identity != context_identity)):
+            if (self._generated_visual_png is not None
+                    and not self._generated_visual_saved
+                    and not self._confirm_discard_stale_visual()):
+                self.create_feedback.setText(
+                    "Generasi dibatalkan; simpan PNG sebelumnya terlebih dahulu."
+                    if self._localizer.locale == "id-ID" else
+                    "Generation canceled; save the previous PNG first."
+                )
+                return
             self._clear_generated_visual()
+        # For the SAME brief, keep the prior result until a new, valid PNG
+        # arrives; provider failure must not destroy the previous success.
         if self._background_visual_generation:
             try:
                 if self._visual_executor is None:
@@ -3984,6 +4088,7 @@ class ProductCompletionShell(QMainWindow):
                         max_workers=1, thread_name_prefix="rcis-visual"
                     )
                 self._visual_future_request = request
+                self._visual_future_context_identity = context_identity
                 self._visual_future = self._visual_executor.submit(provider.generate, request)
                 self._visual_poll_timer.start()
                 self.visual_button.setEnabled(False)
@@ -3997,6 +4102,7 @@ class ProductCompletionShell(QMainWindow):
             except Exception as exc:
                 self._visual_future = None
                 self._visual_future_request = None
+                self._visual_future_context_identity = None
                 self._visual_poll_timer.stop()
                 self.create_feedback.setText(f"Could not start visual generation: {exc}")
                 self._refresh_visual_generation_availability()

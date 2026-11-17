@@ -2976,8 +2976,11 @@ def test_i33_preview_invalidated_on_brief_change(qt_app, monkeypatch):
         shell.environment_edit.setText("different environment")
         qt_app.processEvents()
         assert not shell.visual_button.isEnabled()
-        assert not shell.save_generated_visual_button.isEnabled()
-        assert shell._generated_visual_png is None
+        # I53: a brief edit never silently discards an unsaved success.
+        assert shell.save_generated_visual_button.isEnabled()
+        assert shell._generated_visual_png is not None
+        assert shell._generated_visual_stale
+        assert "SEBELUMNYA" in shell.before_after_result_title.text() or "PREVIOUS" in shell.before_after_result_title.text()
     finally:
         shell.close()
 
@@ -3049,9 +3052,13 @@ def test_i42_comparison_is_nonblocking_with_missing_local_preview(qt_app, monkey
         assert "Perbandingan belum tersedia" in shell.visual_change_hint.text()
         shell.creative_intensity_combo.setCurrentIndex(2)
         qt_app.processEvents()
-        assert shell._generated_visual_png is None
-        assert not shell.save_generated_visual_button.isEnabled()
-        assert not shell.visual_change_hint.isVisible()
+        # I53: changed creative intensity invalidates generation readiness,
+        # but the previously successful PNG still belongs to the old brief
+        # and remains available for an explicit Save As.
+        assert shell._generated_visual_png is not None
+        assert shell._generated_visual_stale
+        assert shell.save_generated_visual_button.isEnabled()
+        assert "SEBELUMNYA" in shell.before_after_result_title.text() or "PREVIOUS" in shell.before_after_result_title.text()
     finally:
         shell.close()
 
@@ -3117,7 +3124,8 @@ def test_i45_similarity_exposes_safe_rebuild_action(qt_app, monkeypatch):
         assert shell.creative_scene_combo.currentData() == "premium_studio"
         assert shell.creative_intensity_combo.currentData() == "bold"
         assert "premium studio advertisement" in shell.current_brief().freeform_notes
-        assert shell._generated_visual_png is None
+        assert shell._generated_visual_png is not None  # I53: unsaved output retained
+        assert shell._generated_visual_stale
         assert shell.strengthen_scene_button.isHidden()
         assert len(provider.calls) == 1  # no silent billed retry
         assert shell._ready_visual_generation_request() is not None
@@ -3496,5 +3504,102 @@ def test_i51_nested_save_dialog_cannot_mark_new_preview_as_saved(qt_app, tmp_pat
         assert target.read_bytes() == old_png
         assert shell._generated_visual_png != old_png
         assert not shell._generated_visual_saved
+    finally:
+        shell.close()
+
+
+# C20-I53: editing a creative brief must never silently lose an unsaved PNG.
+def test_i53_stale_unsaved_preview_survives_scene_and_brief_edits(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        old_png = shell._generated_visual_png
+        old_req = shell._generated_visual_request
+        shell.environment_edit.setText("new creative scene")
+        qt_app.processEvents()
+        assert shell._ready_visual_generation_request() is None
+        assert shell._generated_visual_png == old_png
+        assert shell._generated_visual_request == old_req
+        assert shell._generated_visual_stale
+        assert shell.save_generated_visual_button.isEnabled()
+        assert "SEBELUMNYA" in shell.before_after_result_title.text() or "PREVIOUS" in shell.before_after_result_title.text()
+        assert len(provider.calls) == 1
+    finally:
+        shell.close()
+
+
+def test_i53_new_brief_refusal_keeps_png_and_sends_no_request(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        old_png = shell._generated_visual_png
+        shell.environment_edit.setText("different creative background")
+        shell.prompt_button.click()
+        assert shell._ready_visual_generation_request() is not None
+        assert shell._generated_visual_stale
+        monkeypatch.setattr(shell, "_confirm_discard_stale_visual", lambda: False)
+        shell.visual_button.click()
+        assert len(provider.calls) == 1
+        assert shell._generated_visual_png == old_png
+        assert shell.save_generated_visual_button.isEnabled()
+        assert "dibatalkan" in shell.create_feedback.text() or "canceled" in shell.create_feedback.text()
+    finally:
+        shell.close()
+
+
+def test_i53_explicit_discard_allows_exactly_one_new_result(qt_app, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        shell.environment_edit.setText("outdoor afternoon")
+        shell.prompt_button.click()
+        new_request = shell._ready_visual_generation_request()
+        assert new_request is not None
+        approvals = []
+        monkeypatch.setattr(shell, "_confirm_discard_stale_visual", lambda: approvals.append(True) or True)
+        shell.visual_button.click()
+        assert approvals == [True]
+        assert len(provider.calls) == 2
+        assert shell._generated_visual_request == new_request
+        assert shell._generated_visual_png is not None
+        assert not shell._generated_visual_saved
+        assert not shell._generated_visual_stale
+        assert shell.before_after_result_title.text() == "Hasil FLUX.2"
+    finally:
+        shell.close()
+
+
+def test_i53_save_old_visual_after_new_brief_clears_stale_preview(qt_app, tmp_path, monkeypatch):
+    provider = _I33PNGOfflineProvider()
+    shell = _i26_shell(provider)
+    try:
+        _i26_prepare(shell, qt_app)
+        shell.prompt_button.click()
+        monkeypatch.setattr(shell, "_confirm_external_visual_generation", lambda req: True)
+        shell.visual_button.click()
+        old_png = shell._generated_visual_png
+        shell.environment_edit.setText("new environment")
+        shell.prompt_button.click()
+        path = tmp_path / "previous-before-new-brief.png"
+        monkeypatch.setattr(shell_module.QFileDialog, "getSaveFileName",
+                            lambda *args: (str(path), "PNG images (*.png)"))
+        shell.save_generated_visual_button.click()
+        assert path.read_bytes() == old_png
+        assert shell._generated_visual_png is None
+        assert not shell._generated_visual_stale
+        assert shell._ready_visual_generation_request() is not None
+        assert len(provider.calls) == 1
     finally:
         shell.close()
